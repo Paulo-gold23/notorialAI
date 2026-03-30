@@ -22,8 +22,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-        # Add production domain here when deploying:
-        # "https://app.notorial.ai",
+        "https://paulo-gold23.github.io",
+        "https://Paulo-gold23.github.io"
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
