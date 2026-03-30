@@ -61,7 +61,7 @@ export default function Dashboard() {
     const handleLogout = async () => {
         localStorage.removeItem('notorial_test_admin');
         await supabase.auth.signOut();
-        window.location.replace(import.meta.env.BASE_URL || '/');
+        navigate('/login');
     };
 
     const handleDeleteClick = (e, id) => {
