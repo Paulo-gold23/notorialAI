@@ -241,7 +241,7 @@ export default function Login() {
                         <button
                             type="button"
                             onClick={() => {
-                                localStorage.setItem('notorial_test_admin', 'true');
+                                sessionStorage.setItem('notorial_test_admin', 'true');
                                 window.location.reload();
                             }}
                             className="btn-secondary"

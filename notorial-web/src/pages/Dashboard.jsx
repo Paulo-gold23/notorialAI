@@ -42,7 +42,7 @@ export default function Dashboard() {
 
     const loadData = async () => {
         try {
-            if (localStorage.getItem('notorial_test_admin') === 'true') {
+            if (sessionStorage.getItem('notorial_test_admin') === 'true') {
                 setUserName('Versão Demo');
             } else {
                 const { data: { user } } = await supabase.auth.getUser();
@@ -59,8 +59,8 @@ export default function Dashboard() {
     };
 
     const handleLogout = async () => {
-        const isDemo = localStorage.getItem('notorial_test_admin') === 'true';
-        localStorage.removeItem('notorial_test_admin');
+        const isDemo = sessionStorage.getItem('notorial_test_admin') === 'true';
+        sessionStorage.removeItem('notorial_test_admin');
         if (!isDemo) {
             try { await supabase.auth.signOut(); } catch (e) { /* ignore */ }
         }

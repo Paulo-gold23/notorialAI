@@ -12,7 +12,7 @@ async function getAuthHeader() {
     try {
         // Dev-only bypass: requires VITE_ALLOW_TEST_BYPASS=true in .env
         const bypassAllowed = import.meta.env.VITE_ALLOW_TEST_BYPASS === 'true';
-        const isTest = bypassAllowed && localStorage.getItem('notorial_test_admin') === 'true';
+        const isTest = bypassAllowed && sessionStorage.getItem('notorial_test_admin') === 'true';
         if (isTest) {
             console.warn('[DEV] Using test bypass auth — disabled in production');
             return { 'Authorization': 'Bearer bypass_admin' };

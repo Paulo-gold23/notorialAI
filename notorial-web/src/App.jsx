@@ -42,7 +42,7 @@ function App() {
 
   useEffect(() => {
     // Test admin override
-    if (localStorage.getItem('notorial_test_admin') === 'true') {
+    if (sessionStorage.getItem('notorial_test_admin') === 'true') {
       setSession({
         user: { email: 'demo@notorial.ai', user_metadata: { nome: 'Versão Demo' } },
       });
@@ -54,7 +54,7 @@ function App() {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (localStorage.getItem('notorial_test_admin') !== 'true') {
+      if (sessionStorage.getItem('notorial_test_admin') !== 'true') {
         setSession(session || null);
       }
     });
