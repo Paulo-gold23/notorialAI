@@ -43,7 +43,7 @@ export default function Dashboard() {
     const loadData = async () => {
         try {
             if (sessionStorage.getItem('notorial_test_admin') === 'true') {
-                setUserName('Versão Demo');
+                setUserName('Visitante');
             } else {
                 const { data: { user } } = await supabase.auth.getUser();
                 setUserName(user?.user_metadata?.nome || user?.email || '');
