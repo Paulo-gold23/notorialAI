@@ -215,7 +215,7 @@ export default function Login() {
                             type="button"
                             onClick={() => {
                                 localStorage.setItem('notorial_test_admin', 'true');
-                                window.location.href = '/';
+                                window.location.replace(import.meta.env.BASE_URL || '/');
                             }}
                             className="btn-secondary"
                             style={{
