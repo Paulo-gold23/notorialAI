@@ -44,7 +44,7 @@ function App() {
     // Test admin override
     if (localStorage.getItem('notorial_test_admin') === 'true') {
       setSession({
-        user: { email: 'admin@notorial.ai', user_metadata: { nome: 'Admin (Modo Teste)' } },
+        user: { email: 'demo@notorial.ai', user_metadata: { nome: 'Versão Demo' } },
       });
       return;
     }

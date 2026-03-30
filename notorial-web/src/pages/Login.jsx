@@ -252,7 +252,7 @@ export default function Login() {
                                 fontSize: '0.875rem',
                             }}
                         >
-                            <ShieldCheck size={18} /> Entrar como Admin (Modo Teste)
+                            <ShieldCheck size={18} /> Entrar na Versão Demo
                         </button>
                     )}
                 </form>

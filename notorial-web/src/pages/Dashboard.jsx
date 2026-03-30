@@ -43,7 +43,7 @@ export default function Dashboard() {
     const loadData = async () => {
         try {
             if (localStorage.getItem('notorial_test_admin') === 'true') {
-                setUserName('Admin (Modo Teste)');
+                setUserName('Versão Demo');
             } else {
                 const { data: { user } } = await supabase.auth.getUser();
                 setUserName(user?.user_metadata?.nome || user?.email || '');
@@ -59,9 +59,12 @@ export default function Dashboard() {
     };
 
     const handleLogout = async () => {
+        const isDemo = localStorage.getItem('notorial_test_admin') === 'true';
         localStorage.removeItem('notorial_test_admin');
-        await supabase.auth.signOut();
-        navigate('/login');
+        if (!isDemo) {
+            try { await supabase.auth.signOut(); } catch (e) { /* ignore */ }
+        }
+        window.location.reload();
     };
 
     const handleDeleteClick = (e, id) => {
