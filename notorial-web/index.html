@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Notorial AI - Organize suas atas com IA</title>
+    <script>
+      (function() {
+        try {
+          const theme = localStorage.getItem('theme') || 'system';
+          const root = document.documentElement;
+          let effectiveTheme = theme;
+          if (theme === 'system') {
+            effectiveTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          if (effectiveTheme === 'dark' || effectiveTheme === 'light') {
+            root.classList.add(effectiveTheme);
+          }
+          if (theme !== 'dark' && theme !== 'light' && theme !== 'system') {
+            root.classList.add('theme-' + theme);
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Material Preparatório - Transcrições</title>
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11pt;
+            line-height: 1.5;
+            margin: 0;
+            padding: 1.5cm;
+            color: #333;
+        }
+
+        .header {
+            border-bottom: 2px solid #2563eb;
+            padding-bottom: 15px;
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            color: #1e40af;
+            font-size: 18pt;
+            margin: 0 0 10px 0;
+        }
+
+        .meta-box {
+            background-color: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .meta-item {
+            margin-bottom: 5px;
+        }
+
+        .meta-label {
+            font-weight: bold;
+            color: #475569;
+        }
+
+        .content {
+            margin-top: 20px;
+        }
+
+        /* AI will format the chat inside this div */
+        .chat-container {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>Material Preparatório: Registro de Conversas</h1>
+        <p style="color: #64748b; font-size: 10pt; margin: 0;">Notorial.ai - Uso exclusivo para análise jurídica (Não
+            possui fé pública automática)</p>
+    </div>
+
+    <div class="meta-box">
+        <div class="meta-item"><span class="meta-label">Título/Referência:</span> {{ titulo_ata }}</div>
+        <div class="meta-item"><span class="meta-label">Solicitante:</span> {{ nome_solicitante }}</div>
+        <div class="meta-item"><span class="meta-label">Participantes:</span> {{ participantes }}</div>
+        <div class="meta-item"><span class="meta-label">Período Analisado:</span> {{ periodo_inicio }} até {{
+            periodo_fim }}</div>
+        <div class="meta-item"><span class="meta-label">Estatísticas:</span> {{ total_mensagens }} mensagens processadas
+            ({{ total_audios }} áudios transcritos)</div>
+    </div>
+
+    <h3>Transcrição Integral do Diálogo</h3>
+
+    <div class="chat-container">
+        <!-- O CONTEÚDO FORMATADO PELA IA ENTRA AQUI -->
+        {{ conteudo_preparatorio }}
+    </div>
+
+    <div style="margin-top: 50px; text-align: center; color: #94a3b8; font-size: 9pt;">
+        -- Fim do Documento --
+    </div>
+</body>
+
+</html>

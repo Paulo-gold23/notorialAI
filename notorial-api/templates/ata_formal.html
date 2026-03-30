@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ata Notarial</title>
+    <style>
+        body {
+            font-family: "Times New Roman", Times, serif;
+            font-size: 12pt;
+            line-height: 1.6;
+            margin: 0;
+            padding: 1.5cm 2cm;
+            text-align: justify;
+        }
+        .header {
+            text-align: center;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        .coat-of-arms {
+            width: 80px;
+            display: block;
+            margin: 0 auto 10px;
+        }
+        .title { font-size: 14pt; }
+        .subtitle { font-size: 12pt; margin: 5px 0; }
+        .cartorio { font-size: 11pt; }
+        
+        .meta-info {
+            text-align: left;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        
+        .title-doc {
+            text-align: left;
+            font-weight: bold;
+            text-decoration: underline;
+            margin: 30px 0;
+        }
+        
+        .content p {
+            text-indent: 3cm;
+            margin-bottom: 10px;
+        }
+        
+        .signatures {
+            margin-top: 50px;
+            text-align: center;
+        }
+        .signature-line {
+            width: 60%;
+            border-bottom: 1px solid black;
+            margin: 40px auto 5px;
+        }
+        
+        /* Gotenberg header/footer defaults */
+        @page {
+            margin-top: 2cm;
+            margin-bottom: 2cm;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <!-- Imagem do Brasão da República pode ser injetada via base64 ou link público -->
+        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/b/bf/Coat_of_arms_of_Brazil.svg/200px-Coat_of_arms_of_Brazil.svg.png" class="coat-of-arms" alt="Brasão do Brasil">
+        <div class="title">REPÚBLICA FEDERATIVA DO BRASIL</div>
+        <div class="subtitle">ESTADO DO ESPÍRITO SANTO</div>
+        <div class="cartorio">CARTÓRIO DE REGISTRO CIVIL E TABELIONATO DE NOTAS DO DISTRITO DE ARGOLAS</div>
+        <div>COMARCA DE VILA VELHA - ES</div>
+        <div>FABRINI LEITE MARÇAL - Oficial e Tabelião</div>
+    </div>
+
+    <div class="meta-info">
+        Livro : {{ livro_numero | default('003-ATA') }}<br>
+        Folhas : {{ folhas_numero | default('000') }}
+    </div>
+
+    <div class="title-doc">
+        ESCRITURA PÚBLICA DE ATA NOTARIAL, NA FORMA ABAIXO:
+    </div>
+
+    <div class="content">
+        <p>
+            S A I B A M - quantos este instrumento de Escritura Pública de Ata Notarial virem, 
+            que aos {{ data_extenso }}, neste Cartório de Registro Civil e Tabelionato de Notas, 
+            a pedido da parte interessada <strong>{{ nome_solicitante }}</strong>, 
+            portadora do CPF {{ cpf_solicitante }}, pude constatar em seu aparelho celular, 
+            cujo número é {{ telefone }}, as seguintes mensagens trocadas via aplicativo WhatsApp 
+            entre as datas de {{ periodo_inicio }} e {{ periodo_fim }}, cujo teor transcrevo a seguir:
+        </p>
+        
+        <!-- O CONTEUDO DA IA ENTRA AQUI -->
+        <div style="font-size: 11pt; line-height: 1.4; padding-left: 1cm; margin-top: 20px;">
+            {{ conteudo_ata }}
+        </div>
+        <!-- FIM DO CONTEUDO -->
+
+        <p>
+            Ao final, esta Ata foi lida em voz alta, achada conforme e assinada pelo Tabelião e pela solicitante. 
+            Conforme determina o PROVIMENTO nº 13/2024 da Egrégia Corregedoria Geral da Justiça deste Estado. 
+            Emolumentos do ato devidamente recolhidos.
+        </p>
+    </div>
+
+    <div class="signatures">
+        <div class="signature-line"></div>
+        <strong>FABRINI LEITE MARÇAL</strong><br>
+        Oficial e Tabelião
+        
+        <div class="signature-line"></div>
+        <strong>{{ nome_solicitante }}</strong><br>
+        Solicitante
+    </div>
+</body>
+</html>
