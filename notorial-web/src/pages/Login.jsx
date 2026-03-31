@@ -11,12 +11,14 @@ export default function Login() {
     const [oab, setOab] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [successMsg, setSuccessMsg] = useState('');
     const [showPassword, setShowPassword] = useState(false);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
         setError('');
+        setSuccessMsg('');
 
         try {
             if (isRegister) {
@@ -33,14 +35,34 @@ export default function Login() {
                         nome,
                         oab,
                         email,
+                        status: 'pendente'
                     });
+                    
+                    // Sign out immediately so they don't get logged in
+                    await supabase.auth.signOut();
+                    setIsRegister(false);
+                    setSuccessMsg('Cadastro recebido! Sua conta está aguardando liberação do administrador.');
+                    setLoading(false);
+                    return;
                 }
             } else {
-                const { error: signInError } = await supabase.auth.signInWithPassword({
+                const { data, error: signInError } = await supabase.auth.signInWithPassword({
                     email,
                     password,
                 });
                 if (signInError) throw signInError;
+                
+                // Check approval status
+                const { data: profile } = await supabase
+                    .from('advogados')
+                    .select('status')
+                    .eq('id', data.user.id)
+                    .single();
+                    
+                if (profile?.status === 'pendente') {
+                    await supabase.auth.signOut();
+                    throw new Error('Sua conta ainda não foi aprovada pelo administrador.');
+                }
             }
         } catch (err) {
             setError(err.message || 'Erro ao autenticar');
@@ -132,6 +154,25 @@ export default function Login() {
                     }}>
                         <span style={{ fontSize: '1rem' }}>⚠</span>
                         {error}
+                    </div>
+                )}
+                
+                {/* Success */}
+                {successMsg && (
+                    <div className="animate-fade-in" style={{
+                        background: 'rgba(16, 185, 129, 0.12)',
+                        border: '1px solid rgba(16, 185, 129, 0.25)',
+                        borderRadius: '0.5rem',
+                        padding: '0.75rem 1rem',
+                        marginBottom: '1rem',
+                        color: '#10b981', // emerald-500
+                        fontSize: '0.875rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                    }}>
+                        <span style={{ fontSize: '1rem' }}>✓</span>
+                        {successMsg}
                     </div>
                 )}
 

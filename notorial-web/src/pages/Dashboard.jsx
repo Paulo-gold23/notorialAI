@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, FileText, LogOut, Trash2, Plus, Settings, Upload, Sparkles, FileCheck } from 'lucide-react';
+import { Search, FileText, LogOut, Trash2, Plus, Settings, Upload, Sparkles, FileCheck, Shield } from 'lucide-react';
 import { listAtas, deleteAta } from '../services/api';
 import { supabase } from '../services/supabase';
 import ConfirmModal from '../components/ConfirmModal';
@@ -25,7 +25,7 @@ function getGreeting() {
     return 'Boa noite';
 }
 
-export default function Dashboard() {
+export default function Dashboard({ isAdmin = false }) {
     const [atas, setAtas] = useState([]);
     const [loading, setLoading] = useState(true);
     const [userName, setUserName] = useState('');
@@ -106,6 +106,22 @@ export default function Dashboard() {
                     <button className="btn-primary flex-1 md:flex-none flex items-center justify-center gap-2 py-2.5 px-5" onClick={() => navigate('/upload')}>
                         <Plus size={18} /> Nova Ata
                     </button>
+                    {isAdmin && (
+                        <button
+                            onClick={() => navigate('/admin')}
+                            className="flex-1 md:flex-none flex items-center justify-center p-2.5 rounded-md transition-colors cursor-pointer"
+                            style={{
+                                border: '1px solid rgba(245, 158, 11, 0.3)',
+                                color: 'var(--gold-to)',
+                                background: 'rgba(245, 158, 11, 0.08)',
+                            }}
+                            onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(245, 158, 11, 0.15)'; e.currentTarget.style.borderColor = 'rgba(245, 158, 11, 0.5)'; }}
+                            onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(245, 158, 11, 0.08)'; e.currentTarget.style.borderColor = 'rgba(245, 158, 11, 0.3)'; }}
+                            title="Painel Admin"
+                        >
+                            <Shield size={20} />
+                        </button>
+                    )}
                     <button
                         onClick={() => setIsSettingsOpen(true)}
                         className="flex-1 md:flex-none flex items-center justify-center p-2.5 rounded-md transition-colors cursor-pointer"
