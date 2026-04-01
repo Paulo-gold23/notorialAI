@@ -1,6 +1,6 @@
-# Notorial.ai 🏛️🤖
+# LegisVox 🏛️🤖
 
-Notorial.ai é uma plataforma inovadora baseada em Inteligência Artificial projetada para automatizar a criação de **Atas Notariais** a partir de exportações de conversas do WhatsApp. O sistema extrai as mensagens, transcreve áudios com alta precisão e estrutura os diálogos em formatos prontos para uso em processos jurídicos e cartorários.
+LegisVox é uma plataforma inovadora baseada em Inteligência Artificial projetada para automatizar a criação de **Atas Notariais** a partir de exportações de conversas do WhatsApp. O sistema extrai as mensagens, transcreve áudios com alta precisão e estrutura os diálogos em formatos prontos para uso em processos jurídicos e cartorários.
 
 ---
 
@@ -79,7 +79,7 @@ Os serviços e parsers internos têm garantia estrita por testes unitários e de
 
 ## 🔒 Segurança
 
-O design e as metodologias de infraestrutura do Notorial.ai baseiam-se numa implementação defensiva forte e restrita: 
+O design e as metodologias de infraestrutura do LegisVox baseiam-se numa implementação defensiva forte e restrita: 
 - O acesso completo é limitado via as diretrizes RLS do Supabase. 
 - Processamentos de áudio/IO, são despojados do sistema e transitados em memória (Asyncio paralellizing).
 - Textos nativos advindos do chat de origem contam com regex assertiva e forte pré-sanitização, o que protege envios aos modelos LLM posteriores de envenenamento ou injecção não esperada de comandos prompt.

@@ -1,6 +1,6 @@
-# Notorial.ai - Documentação Técnica
+# LegisVox - Documentação Técnica
 
-Este documento descreve a arquitetura e o funcionamento do sistema Notorial.ai, uma plataforma de automação de Atas Notariais a partir de conversas do WhatsApp.
+Este documento descreve a arquitetura e o funcionamento do sistema LegisVox, uma plataforma de automação de Atas Notariais a partir de conversas do WhatsApp.
 
 ## 🏗️ Visão Geral da Arquitetura
 

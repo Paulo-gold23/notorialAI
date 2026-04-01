@@ -52,6 +52,10 @@ async function getAuthHeader() {
     }
 }
 
+export async function getAuthHeaderForDownload() {
+    return getAuthHeader();
+}
+
 export async function apiRequest(endpoint, options = {}) {
     const isTest = sessionStorage.getItem('notorial_test_admin') === 'true';
 

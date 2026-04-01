@@ -118,7 +118,7 @@ export default function SettingsModal({ isOpen, onClose }) {
             fontSize: '0.75rem',
             color: 'var(--text-muted)',
           }}>
-            <span>Notorial AI v1.0.0</span>
+            <span>LegisVox v1.0.0</span>
             <button
               onClick={onClose}
               style={{

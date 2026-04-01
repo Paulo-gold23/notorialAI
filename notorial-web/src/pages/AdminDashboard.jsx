@@ -163,7 +163,7 @@ export default function AdminDashboard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <Logo size={30} />
             <h1 className="font-serif" style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: 'var(--text-main)' }}>
-              Notorial.ai
+              LegisVox
             </h1>
             <span style={{
               background: 'linear-gradient(135deg, var(--gold-from), var(--gold-to))',

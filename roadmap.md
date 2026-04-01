@@ -1,5 +1,5 @@
-# Notorial.ai — Plano de Implementação
-**Projeto:** Notorial.ai — Automação de Atas Notariais a partir de WhatsApp  
+# LegisVox — Plano de Implementação
+**Projeto:** LegisVox — Automação de Atas Notariais a partir de WhatsApp  
 **Stack:** Python/FastAPI (backend) + Vite/React (frontend)  
 **Data:** 09/03/2026  
 ---
@@ -502,7 +502,7 @@ Formato prático para o advogado com:
 - Backend: mesmo servidor do prontuário ou container separado
 - Frontend: build estático (Vite) servido via nginx ou Vercel
 - SSL obrigatório
-- Domínio: notorial.ai
+- Domínio: legisvox.ai
 - Variáveis de ambiente via `.env` (nunca commitado)
 
 #### Loading States

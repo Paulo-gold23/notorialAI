@@ -131,7 +131,7 @@ export default function Login() {
                         fontWeight: 800,
                         margin: '0 0 0.5rem',
                     }}>
-                        Notorial.ai
+                        LegisVox
                     </h1>
                     <p style={{ color: 'var(--text-muted)', fontSize: '1rem', fontWeight: 500, margin: 0 }}>
                         {isRegister ? 'Crie sua conta de advogado' : 'Acesse sua conta'}

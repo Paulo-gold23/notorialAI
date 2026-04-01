@@ -1,4 +1,4 @@
-# Notorial.ai — Implementation Plan (docs/PLAN.md)
+# LegisVox — Implementation Plan (docs/PLAN.md)
 
 Este documento foi gerado pelo **project-planner** baseado no `roadmap.md` existente e detalha os passos atômicos necessários para a implementação do projeto.
 

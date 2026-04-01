@@ -188,7 +188,19 @@ export default function Review() {
                 body: JSON.stringify({ tipo, conteudo: editor.getHTML() }),
             });
             if (data.pdf_url) {
-                window.open(data.pdf_url, '_blank');
+                // Fetch PDF with auth headers (window.open can't carry Bearer tokens)
+                const { getAuthHeaderForDownload } = await import('../services/api');
+                const headers = await getAuthHeaderForDownload();
+                
+                const pdfResponse = await fetch(data.pdf_url, { headers });
+                if (!pdfResponse.ok) {
+                    throw new Error('Erro ao baixar o PDF gerado.');
+                }
+                const blob = await pdfResponse.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                window.open(blobUrl, '_blank');
+                // Cleanup blob URL after a delay
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
                 toast.success('PDF gerado! Abrindo em nova aba...');
             }
         } catch (err) {

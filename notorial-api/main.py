@@ -7,7 +7,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Notorial.ai API",
+    title="LegisVox API",
     description="Automação de Atas Notariais a partir de WhatsApp",
     version="1.0.0"
 )
@@ -32,11 +32,11 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    logger.info("Initializing Notorial.ai API...")
+    logger.info("Initializing LegisVox API...")
 
 @app.get("/")
 def read_root():
-    return {"status": "ok", "message": "API Notorial.ai is running"}
+    return {"status": "ok", "message": "API LegisVox is running"}
 
 if __name__ == "__main__":
     import uvicorn

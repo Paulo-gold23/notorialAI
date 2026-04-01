@@ -1,0 +1,11 @@
+﻿HASH DE INTEGRIDADE — NOTORIAL.AI
+==================================
+Data de geração : 31/03/2026 17:20:39
+Arquivo         : notorial_ai_codigo_fonte.zip
+Algoritmo       : SHA-256
+Hash            : 46AC42C09850DAFC7D37264045FA298B9A4E298535585078EDD6E130C88702EC
+
+INSTRUÇÕES:
+Este hash deve ser informado no campo "Resumo de Autenticação" 
+durante o preenchimento do formulário no sistema e-Software do INPI.
+Ele comprova que o arquivo ZIP submetido não foi alterado após esta data.

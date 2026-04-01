@@ -1,0 +1,10 @@
+﻿HASH DE INTEGRIDADE — NOTORIAL.AI
+==================================
+Data de geração : 31/03/2026 17:29:50
+Arquivo         : notorial_ai_codigo_fonte.zip
+Algoritmo       : SHA-512
+Hash            : 3456B73C6F0F40CE1E7C586FBD3C62D46B4CFED6621D0950311DA785D5F9AE8C1C14F6DA1F4870AF214B8D726BFE5C84AA199921CBC0D51745D6CA2D4AAC1971
+
+INSTRUÇÕES:
+Este hash deve ser informado no campo "Resumo de Autenticação" 
+durante o preenchimento do formulário no sistema e-Software do INPI.

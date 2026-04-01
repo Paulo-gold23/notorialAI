@@ -32,8 +32,8 @@ def test_chat_to_text_formatting():
     }
     text = _chat_to_text(chat_json)
     assert "PARTICIPANTES: Alice, Bob" in text
-    assert "[01/01/2024 10:00] Alice: Olá Bob" in text
-    assert "🎙️ [ÁUDIO TRANSCRITO]: Oi Alice" in text
+    assert '[01/01/2024 10:00] Alice: "Olá Bob"' in text
+    assert '\U0001f399\ufe0f [ÁUDIO TRANSCRITO]: "Oi Alice"' in text
 
 def test_apply_formatting_quotes():
     input_text = 'O remetente enviou "Isso é um teste" para o destinatário.'
