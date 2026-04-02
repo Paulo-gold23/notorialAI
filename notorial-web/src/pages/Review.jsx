@@ -5,6 +5,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link'
 import Heading from '@tiptap/extension-heading'
 import Placeholder from '@tiptap/extension-placeholder'
+import Image from '@tiptap/extension-image'
 import { apiRequest } from '../services/api';
 import ConfirmModal from '../components/ConfirmModal';
 import BackButton from '../components/BackButton';
@@ -100,6 +101,12 @@ export default function Review() {
             }),
             Placeholder.configure({
                 placeholder: 'O conteúdo organizado aparecerá aqui...',
+            }),
+            Image.configure({
+                allowBase64: true,
+                HTMLAttributes: {
+                    class: 'ata-imagem-anexada',
+                },
             }),
         ],
         content: '<p>Carregando conteúdo...</p>',

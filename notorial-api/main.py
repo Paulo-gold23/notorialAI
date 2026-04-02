@@ -4,6 +4,11 @@ from config import settings
 import logging
 
 logging.basicConfig(level=logging.INFO)
+# Also write to file for post-run inspection
+_fh = logging.FileHandler("api.log", encoding="utf-8")
+_fh.setLevel(logging.INFO)
+_fh.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+logging.getLogger().addHandler(_fh)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(

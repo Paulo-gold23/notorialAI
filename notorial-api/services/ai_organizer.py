@@ -3,6 +3,9 @@ import logging
 import json
 import re
 import asyncio
+import base64
+import io
+import os
 import markdown
 from config import settings
 
@@ -16,13 +19,17 @@ Sua tarefa é organizar conversas de WhatsApp para fins judiciais, garantindo ab
 REGRAS DE OURO:
 1. Agrupe as mensagens por DIA usando títulos formatados como: `### DD/MM/AAAA`.
 2. Mantenha a ORDEM CRONOLÓGICA rigorosa.
-3. Formato das mensagens: `[DD/MM/AAAA HH:MM] Remetente: **"Conteúdo da mensagem"**`
+3. Formato das mensagens: `[DD/MM/AAAA HH:MM] Nome_do_Participante: **"Conteúdo da mensagem"**`
    - O conteúdo deve estar SEMPRE entre aspas duplas e em **negrito**.
-4. Áudios transcritos: `[DD/MM/AAAA HH:MM] Remetente: 🎙️ [ÁUDIO TRANSCRITO]: **"Conteúdo do áudio..."**`
+   - IMPORTANTE: Substitua "Nome_do_Participante" pelo nome real da pessoa que enviou a mensagem (ex: João, Maria, etc). NÃO use a palavra genérica "Remetente".
+4. Áudios transcritos: `[DD/MM/AAAA HH:MM] Nome_do_Participante: 🎙️ [ÁUDIO TRANSCRITO]: **"Conteúdo do áudio..."**`
    - CRÍTICO: Mensagens marcadas com 🎙️ [ÁUDIO TRANSCRITO] DEVEM manter esse prefixo EXATAMENTE como está.
    - NUNCA remova o marcador 🎙️ [ÁUDIO TRANSCRITO] das mensagens de áudio. Ele é essencial para a validade jurídica.
-5. Mídias: `[DD/MM/AAAA HH:MM] Remetente: [TIPO DE MÍDIA ANEXADA]`
-6. NÃO resuma, não interprete e não pule mensagens. Transcreva tudo o que for fornecido.
+5. Mídias: `[DD/MM/AAAA HH:MM] Nome_do_Participante: [TIPO DE MÍDIA ANEXADA]`
+6. Imagens anexadas: `[DD/MM/AAAA HH:MM] Nome_do_Participante: 📷 [IMAGEM ANEXADA: nome_arquivo.jpg]`
+   - CRÍTICO: NUNCA remova ou altere tags no formato `[IMAGEM ANEXADA: ...]`. Elas serão substituídas pela imagem real no pós-processamento.
+   - Mantenha a tag EXATAMENTE como aparece no input, incluindo o nome do arquivo.
+7. NÃO resuma, não interprete e não pule mensagens. Transcreva tudo o que for fornecido.
 
 ESTRUTURA DO DOCUMENTO:
 1. TÍTULO: # ATA NOTARIAL DE CONSTATAÇÃO DE CONTEÚDO DIGITAL
@@ -42,17 +49,20 @@ REGRAS:
 1. Identificar TODOS os participantes.
 2. Agrupar as mensagens por DIA usando títulos `### DD/MM/AAAA`.
 3. Manter a ordem cronológica estrita.
-4. Formato das mensagens (Estilo Limpo): `[DD/MM/AAAA HH:MM] Autor: **"Conteúdo da mensagem"**`.
-   - O timestamp [DD/MM/AAAA HH:MM] e o Autor devem estar SEM negrito.
+4. Formato das mensagens (Estilo Limpo): `[DD/MM/AAAA HH:MM] Nome_do_Participante: **"Conteúdo da mensagem"**`.
+   - SUBSTITUA "Nome_do_Participante" pelo nome real de quem enviou a mensagem. NÃO escreva literalmente a palavra "Autor".
+   - O timestamp [DD/MM/AAAA HH:MM] e o Nome devem estar SEM negrito.
    - O conteúdo textual deve estar sempre entre aspas e em **negrito**.
 5. Incluir índice navegável no início (apenas na primeira parte).
    - O índice deve conter links internos para cada dia no formato: [DD/MM/AAAA](#data-ddmmaaaa)
    - Exemplo: [02/08/2021](#data-02082021)
-6. Áudios transcritos DEVEM ser indicados exatamente como: `[DD/MM/AAAA HH:MM] Autor: 🎙️ [ÁUDIO TRANSCRITO]: **"Conteúdo transcrito..."**`
+6. Áudios transcritos DEVEM ser indicados exatamente como: `[DD/MM/AAAA HH:MM] Nome_do_Participante: 🎙️ [ÁUDIO TRANSCRITO]: **"Conteúdo transcrito..."**`
    - CRÍTICO: O prefixo 🎙️ [ÁUDIO TRANSCRITO]: NUNCA deve ser removido ou alterado.
    - Este marcador indica que a mensagem original era um áudio e foi transcrita automaticamente.
    - Mesmo que o conteúdo pareça texto normal, MANTENHA o marcador se ele estiver presente no input.
-7. Remover mensagens de sistema irrelevantes.
+7. Imagens anexadas: `[DD/MM/AAAA HH:MM] Nome_do_Participante: 📷 [IMAGEM ANEXADA: nome_arquivo.jpg]`
+   - CRÍTICO: NUNCA remova ou altere tags `[IMAGEM ANEXADA: ...]`. Mantenha EXATAMENTE como no input.
+8. Remover mensagens de sistema irrelevantes.
 
 FORMATO DE SAÍDA:
 # Relatório Preparatório - Ata Notarial
@@ -65,11 +75,12 @@ FORMATO DE SAÍDA:
 
 ## Conteúdo Organizado
 ### DD/MM/AAAA
-[DD/MM/AAAA HH:MM] Autor: **"Mensagem..."**
-[DD/MM/AAAA HH:MM] Autor: 🎙️ [ÁUDIO TRANSCRITO]: **"Transcrição do áudio..."**
+[DD/MM/AAAA HH:MM] Carlos: **"Mensagem..."**
+[DD/MM/AAAA HH:MM] Ana: 🎙️ [ÁUDIO TRANSCRITO]: **"Transcrição do áudio..."**
+[DD/MM/AAAA HH:MM] Mário: 📷 [IMAGEM ANEXADA: IMG-20230915-WA0001.jpg]
 
 ### DD/MM/AAAA
-[DD/MM/AAAA HH:MM] Autor: **"Mensagem..."**
+[DD/MM/AAAA HH:MM] Carlos: **"Mensagem..."**
 """
 
 # ===========================================================================
@@ -112,7 +123,12 @@ def _chat_to_text(chat_json: dict) -> str:
         elif tipo == "audio":
             lines.append(f"{timestamp} {remetente}: \U0001f399\ufe0f [ÁUDIO - sem transcrição]")
         elif tipo == "imagem":
-            lines.append(f"{timestamp} {remetente}: \U0001f4f7 [IMAGEM ANEXADA]")
+            arquivo = msg.get("arquivo")
+            if arquivo:
+                img_name = os.path.basename(arquivo)
+                lines.append(f"{timestamp} {remetente}: \U0001f4f7 [IMAGEM ANEXADA: {img_name}]")
+            else:
+                lines.append(f"{timestamp} {remetente}: \U0001f4f7 [IMAGEM ANEXADA]")
         elif tipo == "video":
             lines.append(f"{timestamp} {remetente}: \U0001f3a5 [VÍDEO ANEXADO]")
         elif tipo == "midia_omitida":
@@ -421,8 +437,102 @@ def _markdown_to_html(md_text: str) -> str:
     )
     return html
 
+def _compress_image_to_base64(img_bytes: bytes, max_width: int = 800, quality: int = 75) -> str:
+    """Comprime imagem com Pillow e retorna string base64 (JPEG)."""
+    try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(img_bytes))
 
-async def organize_chat_with_ai(chat_json: dict, is_formal: bool = True, on_progress: callable = None) -> dict:
+        if img.mode in ('RGBA', 'LA', 'P'):
+            bg = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'P':
+                img = img.convert('RGBA')
+            if 'A' in img.mode:
+                bg.paste(img, mask=img.split()[-1])
+            else:
+                bg.paste(img)
+            img = bg
+        elif img.mode != 'RGB':
+            img = img.convert('RGB')
+
+        if img.width > max_width:
+            ratio = max_width / img.width
+            new_height = int(img.height * ratio)
+            img = img.resize((max_width, new_height), Image.LANCZOS)
+
+        buffer = io.BytesIO()
+        img.save(buffer, format='JPEG', quality=quality, optimize=True)
+        return base64.b64encode(buffer.getvalue()).decode('utf-8')
+    except Exception as e:
+        logger.warning(f"Falha ao comprimir imagem: {e}")
+        return base64.b64encode(img_bytes).decode('utf-8')
+
+
+def _find_image_bytes(filename: str, image_bytes_dict: dict) -> bytes | None:
+    """Busca bytes da imagem por caminho exato, basename, ou correspondência parcial."""
+    # 1. Exact path match
+    if filename in image_bytes_dict:
+        return image_bytes_dict[filename]
+
+    basename = os.path.basename(filename).lower()
+
+    # 2. Case-insensitive basename match
+    for key, data in image_bytes_dict.items():
+        if os.path.basename(key).lower().replace('\u200e', '').replace('\u200f', '') == basename:
+            return data
+
+    # 3. Stem match (ignore extension differences e.g. .jpg vs .jpeg)
+    stem = os.path.splitext(basename)[0]
+    for key, data in image_bytes_dict.items():
+        if os.path.splitext(os.path.basename(key).lower().replace('\u200e', '').replace('\u200f', ''))[0] == stem:
+            return data
+
+    # 4. Partial match (filename in key or key ends with filename)
+    for key, data in image_bytes_dict.items():
+        key_lower = key.lower().replace('\u200e', '').replace('\u200f', '')
+        if key_lower.endswith(basename) or basename in key_lower:
+            return data
+
+    logger.debug(f"Imagem nao encontrada: {filename!r} | disponiveis: {list(image_bytes_dict.keys())[:5]}")
+    return None
+
+
+def _inject_images_base64(html_str: str, image_bytes_dict: dict) -> str:
+    """Substitui marcadores [IMAGEM ANEXADA: filename] por tags <img> base64."""
+    IMAGE_MARKER_RE = re.compile(r'\[IMAGEM ANEXADA:\s*([^\]]+?)\]')
+    markers_found = IMAGE_MARKER_RE.findall(html_str)
+
+    if not markers_found:
+        logger.info("inject_images: nenhum marcador [IMAGEM ANEXADA:] encontrado no HTML")
+        return html_str
+
+    logger.info(f"inject_images: {len(markers_found)} marcadores encontrados: {markers_found[:5]}")
+    logger.info(f"inject_images: {len(image_bytes_dict)} imagens disponíveis: {list(image_bytes_dict.keys())[:5]}")
+
+    if not image_bytes_dict:
+        logger.warning("inject_images: image_bytes_dict VAZIO — imagens não foram extraídas do ZIP")
+        return html_str
+
+    injected = 0
+    missed = []
+
+    def replace_marker(match):
+        nonlocal injected
+        filename = match.group(1).strip().replace('\u200e', '').replace('\u200f', '')
+        img_data = _find_image_bytes(filename, image_bytes_dict)
+        if not img_data:
+            missed.append(filename)
+            return f'<em>[Imagem não encontrada: {filename}]</em>'
+        injected += 1
+        b64 = _compress_image_to_base64(img_data)
+        return f'<img class="ata-imagem-anexada" src="data:image/jpeg;base64,{b64}" alt="{filename}" />'
+
+    result = IMAGE_MARKER_RE.sub(replace_marker, html_str)
+    logger.info(f"inject_images: {injected} injetadas, {len(missed)} não encontradas: {missed}")
+    return result
+
+
+async def organize_chat_with_ai(chat_json: dict, is_formal: bool = True, on_progress: callable = None, image_bytes: dict = None) -> dict:
     """
     Transforma o chat parseado em documento organizado via OpenAI.
     Usa texto limpo (não JSON bruto) para economizar tokens.
@@ -449,7 +559,10 @@ async def organize_chat_with_ai(chat_json: dict, is_formal: bool = True, on_prog
                     await on_progress(f"IA ({tipo}) concluída.", 100)
                 content = _restore_audio_markers(result, chat_text)
                 content = _unify_index_section(_apply_formatting(content))
-                return {"conteudo": _markdown_to_html(content)}
+                html = _markdown_to_html(content)
+                if image_bytes:
+                    html = _inject_images_base64(html, image_bytes)
+                return {"conteudo": html}
             
             # Caso com chunks - processa cada parte e depois unifica
             logger.info(f"[{tipo}] Chat dividido em {len(chunks)} chunks (concorrência máxima: 3)")
@@ -494,7 +607,10 @@ async def organize_chat_with_ai(chat_json: dict, is_formal: bool = True, on_prog
             final_content = "\n\n".join(partial_results)
             final_content = _restore_audio_markers(final_content, chat_text)
             content = _unify_index_section(_apply_formatting(final_content))
-            return {"conteudo": _markdown_to_html(content)}
+            html = _markdown_to_html(content)
+            if image_bytes:
+                html = _inject_images_base64(html, image_bytes)
+            return {"conteudo": html}
             
         except Exception as e:
             logger.error(f"[{tipo}] Falha no organize_chat_with_ai: {e}", exc_info=True)

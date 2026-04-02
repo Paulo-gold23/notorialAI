@@ -1,4 +1,4 @@
-﻿import zipfile
+import zipfile
 import re
 import io
 import os
@@ -38,6 +38,8 @@ AUDIO_EXTENSIONS = ('.opus', '.ogg', '.m4a')
 
 # PrÃ©-compilar regex de extraÃ§Ã£o de nome de arquivo de Ã¡udio
 AUDIO_FILE_RE = re.compile(r'((?:PTT|AUD|MSG|AUDIO)-[^\s<>()\[\]]+\.(?:opus|ogg|m4a))', re.IGNORECASE)
+IMAGE_EXTENSIONS_TUPLE = tuple(IMAGE_EXTENSIONS)
+IMAGE_FILE_RE = re.compile(r'([^\s<>()\[\]"]+\.(?:jpg|jpeg|png|webp))', re.IGNORECASE)
 
 
 def _normalize_for_match(value: str) -> str:
@@ -127,7 +129,17 @@ def _build_audio_lookup(audio_paths: list[str]) -> tuple[set[str], dict[str, str
     return exact, by_basename
 
 
-def _classify_message(conteudo: str, audio_exact_paths: set[str], audio_by_basename: dict[str, str]) -> tuple:
+def _build_image_lookup(image_paths: list[str]) -> tuple[set[str], dict[str, str]]:
+    """Cria indices para lookup de imagem por caminho completo e basename."""
+    exact = set(image_paths)
+    by_basename = {}
+    for path in image_paths:
+        base = os.path.basename(path)
+        by_basename.setdefault(base, path)
+    return exact, by_basename
+
+
+def _classify_message(conteudo: str, audio_exact_paths: set[str], audio_by_basename: dict[str, str], image_exact_paths: set[str] = None, image_by_basename: dict[str, str] = None) -> tuple:
     """Classifica o tipo da mensagem e extrai nome do arquivo se aplicÃ¡vel."""
     conteudo_lower = conteudo.lower()
     conteudo_norm = _normalize_for_match(conteudo)
@@ -137,7 +149,7 @@ def _classify_message(conteudo: str, audio_exact_paths: set[str], audio_by_basen
         if kw in conteudo_norm:
             file_match = AUDIO_FILE_RE.search(conteudo)
             if file_match:
-                filename = file_match.group(1)
+                filename = file_match.group(1).replace('\u200e', '').replace('\u200f', '')
                 if filename in audio_exact_paths:
                     return 'audio', filename
                 mapped = audio_by_basename.get(filename)
@@ -149,15 +161,27 @@ def _classify_message(conteudo: str, audio_exact_paths: set[str], audio_by_basen
                 return 'midia_omitida', None
             return 'audio', None
     
-    # Verificar mÃ­dia omitida
+    # ── Verificar IMAGEM — antes de "mídia omitida" para capturar o filename ──
+    if any(ext in conteudo_lower for ext in IMAGE_EXTENSIONS):
+        file_match = IMAGE_FILE_RE.search(conteudo)
+        if file_match:
+            filename = file_match.group(1).replace('\u200e', '').replace('\u200f', '')
+            if image_exact_paths and filename in image_exact_paths:
+                return 'imagem', filename
+            if image_by_basename:
+                mapped = image_by_basename.get(filename)
+                if mapped:
+                    return 'imagem', mapped
+            return 'imagem', filename
+        # Extension found but no filename match — still mark as imagem
+        return 'imagem', None
+
+    # Verificar mídia omitida genérica (sem extensão de imagem reconhecível)
     for kw in NORMALIZED_MEDIA_OMITTED_KEYWORDS:
         if kw in conteudo_norm:
             return 'midia_omitida', None
     if 'midia oculta' in conteudo_norm or 'media oculta' in conteudo_norm:
         return 'midia_omitida', None
-    
-    if any(ext in conteudo_lower for ext in IMAGE_EXTENSIONS):
-        return 'imagem', None
     
     if any(ext in conteudo_lower for ext in VIDEO_EXTENSIONS):
         return 'video', None
@@ -194,6 +218,14 @@ def _list_audio_files(all_files: list[str]) -> list[str]:
     ]
 
 
+def _list_image_files(all_files: list[str]) -> list[str]:
+    """Lista os caminhos de imagem presentes no ZIP."""
+    return [
+        name for name in all_files
+        if name.lower().endswith(IMAGE_EXTENSIONS_TUPLE) and '__MACOSX' not in name
+    ]
+
+
 def _extract_selected_audio_files(
     z: zipfile.ZipFile,
     all_files: list[str],
@@ -219,10 +251,36 @@ def _extract_selected_audio_files(
     return audios
 
 
+def _extract_selected_image_files(
+    z: zipfile.ZipFile,
+    all_files: list[str],
+    selected_files: set[str]
+) -> dict[str, bytes]:
+    """
+    Extrai somente as imagens realmente necessarias.
+    """
+    if not selected_files:
+        return {}
+
+    selected_basenames = {os.path.basename(f) for f in selected_files}
+    images = {}
+
+    for name in all_files:
+        if not name.lower().endswith(IMAGE_EXTENSIONS_TUPLE) or '__MACOSX' in name:
+            continue
+
+        if name in selected_files or os.path.basename(name) in selected_basenames:
+            images[name] = z.read(name)
+
+    return images
+
+
 def _parse_messages(
     chat_content: str,
     audio_exact_paths: set[str],
-    audio_by_basename: dict[str, str]
+    audio_by_basename: dict[str, str],
+    image_exact_paths: set[str] = None,
+    image_by_basename: dict[str, str] = None
 ) -> tuple[list, set, int, int, int]:
     """Parseia as linhas do chat em mensagens estruturadas."""
     mensagens = []
@@ -242,7 +300,7 @@ def _parse_messages(
         
         if parsed:
             if current_msg:
-                tipo, arquivo = _classify_message(current_msg["conteudo"], audio_exact_paths, audio_by_basename)
+                tipo, arquivo = _classify_message(current_msg["conteudo"], audio_exact_paths, audio_by_basename, image_exact_paths, image_by_basename)
                 current_msg["tipo"] = tipo
                 current_msg["arquivo"] = arquivo
                 current_msg["transcricao"] = None
@@ -260,7 +318,7 @@ def _parse_messages(
     
     # Ãšltima mensagem
     if current_msg:
-        tipo, arquivo = _classify_message(current_msg["conteudo"], audio_exact_paths, audio_by_basename)
+        tipo, arquivo = _classify_message(current_msg["conteudo"], audio_exact_paths, audio_by_basename, image_exact_paths, image_by_basename)
         current_msg["tipo"] = tipo
         current_msg["arquivo"] = arquivo
         current_msg["transcricao"] = None
@@ -364,12 +422,14 @@ def parse_whatsapp_zip(zip_bytes: bytes, start_date: str = None, end_date: str =
             logger.info(f"Leitura de chat levou {time.perf_counter() - t_read:.2f}s")
             audio_file_paths = _list_audio_files(all_files)
             audio_exact_paths, audio_by_basename = _build_audio_lookup(audio_file_paths)
+            image_file_paths = _list_image_files(all_files)
+            image_exact_paths, image_by_basename = _build_image_lookup(image_file_paths)
             
             logger.info(f"Chats: {len(chat_filenames)}, Ãudios detectados: {len(audio_file_paths)}")
 
             t_parse = time.perf_counter()
             mensagens, participantes, total_audios, total_imagens, total_videos = _parse_messages(
-                chat_content, audio_exact_paths, audio_by_basename
+                chat_content, audio_exact_paths, audio_by_basename, image_exact_paths, image_by_basename
             )
             logger.info(f"Parse de mensagens levou {time.perf_counter() - t_parse:.2f}s")
 
@@ -398,6 +458,40 @@ def parse_whatsapp_zip(zip_bytes: bytes, start_date: str = None, end_date: str =
                 if m.get("tipo") == "audio" and m.get("arquivo")
             }
             arquivos_audio = _extract_selected_audio_files(z, all_files, needed_audio_files)
+
+            # Extract images: prefer matched filenames, fallback to ALL images in ZIP.
+            # This covers both "arquivo anexado" (filename in txt) and
+            # "<Media omitted>" (filename absent but file present in ZIP) exports.
+            needed_image_files = {
+                m.get("arquivo")
+                for m in mensagens
+                if m.get("tipo") == "imagem" and m.get("arquivo")
+            }
+            if needed_image_files:
+                arquivos_imagens = _extract_selected_image_files(z, all_files, needed_image_files)
+            else:
+                # Fallback: extract every image file in the ZIP
+                image_paths = _list_image_files(all_files)
+                arquivos_imagens = {name: z.read(name) for name in image_paths[:50]}
+                logger.info(f"Fallback: extraindo todas as {len(arquivos_imagens)} imagens do ZIP")
+
+            # Assign filenames to imageless/omitted messages in chronological order.
+            # Covers: (a) imagem without arquivo, (b) midia_omitida that are actually
+            # images — common when chat says <Media omitted> but ZIP has the files.
+            if arquivos_imagens:
+                sorted_imgs = sorted(arquivos_imagens.keys())
+                img_idx = 0
+                for m in mensagens:
+                    tipo = m.get("tipo")
+                    has_file = bool(m.get("arquivo"))
+                    is_imageable = tipo == "imagem" and not has_file
+                    is_omitted_img = tipo == "midia_omitida" and img_idx < len(sorted_imgs)
+                    if (is_imageable or is_omitted_img) and img_idx < len(sorted_imgs):
+                        m["arquivo"] = sorted_imgs[img_idx]
+                        m["tipo"] = "imagem"
+                        img_idx += 1
+
+            logger.info(f"Imagens disponiveis: {len(arquivos_imagens)} | referencias: {len(needed_image_files)}")
             logger.info(
                 f"Ãudios necessarios apÃ³s filtro: {len(needed_audio_files)} | "
                 f"Ãudios extraidos: {len(arquivos_audio)}"
@@ -429,7 +523,8 @@ def parse_whatsapp_zip(zip_bytes: bytes, start_date: str = None, end_date: str =
             "total_mensagens": len(mensagens),
             "total_audios": total_audios,
             "total_imagens": total_imagens,
-            "arquivos_extraidos": arquivos_audio
+            "arquivos_extraidos": arquivos_audio,
+            "imagens_extraidas": arquivos_imagens
         }
     except zipfile.BadZipFile:
         raise ValueError("Arquivo ZIP invÃ¡lido ou corrompido")

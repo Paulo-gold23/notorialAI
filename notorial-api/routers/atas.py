@@ -105,9 +105,16 @@ async def _process_pipeline(ata_id: str, zip_bytes: bytes, is_local: bool, start
             lambda: parse_whatsapp_zip(zip_bytes, start_date=start_date, end_date=end_date)
         )
         all_audio_bytes = parsed_data.pop("arquivos_extraidos", {})
+        all_image_bytes = parsed_data.pop("imagens_extraidas", {})
 
         logger.info(f"[{ata_id}] Parse OK em {time.time()-t0:.2f}s - "
                      f"{parsed_data['total_mensagens']} msgs, {len(all_audio_bytes)} áudios no ZIP")
+        logger.info(f"[{ata_id}] Imagens extraídas do ZIP: {len(all_image_bytes)} | keys: {list(all_image_bytes.keys())[:5]}")
+
+        # Log image-type messages to compare filenames
+        img_msgs = [m for m in parsed_data.get("mensagens", []) if m.get("tipo") == "imagem"]
+        logger.info(f"[{ata_id}] Mensagens tipo imagem: {len(img_msgs)} | arquivos: {[m.get('arquivo') for m in img_msgs[:5]]}")
+
         update('parsing', "Arquivos extraídos com sucesso.", progress=25)
 
         # ── ETAPA 2: Filtrar áudios — só transcrever os do período ──
@@ -167,7 +174,7 @@ async def _process_pipeline(ata_id: str, zip_bytes: bytes, is_local: bool, start
 
         try:
             preparatorio_data = await organize_chat_with_ai(
-                parsed_data, is_formal=False, on_progress=org_progress
+                parsed_data, is_formal=False, on_progress=org_progress, image_bytes=all_image_bytes
             )
             logger.info(f"[{ata_id}] IA Preparatória concluída em {time.time()-t2:.2f}s")
         except Exception as e:
@@ -213,6 +220,7 @@ async def _process_pipeline(ata_id: str, zip_bytes: bytes, is_local: bool, start
                 'parsed_data': parsed_data,
                 'conteudo_formal': None,
                 'conteudo_preparatorio': preparatorio_data.get('conteudo'),
+                'image_bytes': all_image_bytes,
                 'status': 'ready',
                 'progress': 100,
                 'status_message': done_msg,
@@ -224,6 +232,7 @@ async def _process_pipeline(ata_id: str, zip_bytes: bytes, is_local: bool, start
                 'parsed_data': parsed_data,
                 'conteudo_formal': None,
                 'conteudo_preparatorio': preparatorio_data.get('conteudo'),
+                'image_bytes': all_image_bytes,
                 'status': 'ready',
                 'progress': 100,
                 'status_message': done_msg
@@ -457,6 +466,7 @@ async def generate_formal_content(
     if ata_id in local_results:
         cached = local_results.get(ata_id, {})
         parsed_data = cached.get('parsed_data')
+        cached_images = cached.get('image_bytes', {})
     elif supabase:
         conteudo_res = supabase.table('atas_conteudo').select('chat_parseado').eq('ata_id', ata_id).execute()
         if conteudo_res.data:
@@ -476,7 +486,8 @@ async def generate_formal_content(
     
     try:
         start_ai = time.time()
-        formal_data = await organize_chat_with_ai(parsed_data, is_formal=True)
+        cached_images = local_results.get(ata_id, {}).get('image_bytes', {}) if ata_id in local_results else {}
+        formal_data = await organize_chat_with_ai(parsed_data, is_formal=True, image_bytes=cached_images)
         logger.info(f"[{ata_id}] IA Formal concluída em {time.time() - start_ai:.2f}s")
         
         formal_content = formal_data.get('conteudo', '')

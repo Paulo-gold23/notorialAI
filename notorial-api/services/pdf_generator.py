@@ -50,8 +50,8 @@ def _format_index_as_columns(html_str: str) -> str:
         # Se vier como paragrafo com links (nao lista), tambem quebra em colunas.
         if updated_body == section_body:
             updated_body = re.sub(
-                r'<p>(?=(?:.*?<a[^>]+href="#[^"]+"[^>]*>){3,})(.*?)</p>',
-                r'<p class="indice-inline-colunas">\1</p>',
+                r'(<p>)((?:(?!</?p>).)*?<a[^>]+href="#[^"]+"[^>]*>(?:(?!</?p>).)*?)(</p>)',
+                r'<p class="indice-inline-colunas">\2</p>',
                 section_body,
                 count=1,
                 flags=re.IGNORECASE | re.DOTALL
@@ -91,7 +91,23 @@ def _wrap_html_for_pdf(html_str: str) -> str:
 }
 .indice-inline-colunas a {
   display: block;
-  margin-bottom: 2px;
+  margin-bottom: 8px;
+  break-inside: avoid;
+}
+.indice-inline-colunas br {
+  display: none;
+}
+.ata-imagem-anexada {
+  max-width: 60%;
+  max-height: 400px;
+  width: auto;
+  height: auto;
+  display: block;
+  margin: 20px auto;
+  border: 1px solid #eaeaea;
+  border-radius: 6px;
+  page-break-inside: avoid;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
 </style>
 """
@@ -135,7 +151,23 @@ def _wrap_html_for_pdf(html_str: str) -> str:
     }}
     .indice-inline-colunas a {{
       display: block;
-      margin-bottom: 2px;
+      margin-bottom: 8px;
+      break-inside: avoid;
+    }}
+    .indice-inline-colunas br {{
+      display: none;
+    }}
+    .ata-imagem-anexada {{
+      max-width: 60%;
+      max-height: 400px;
+      width: auto;
+      height: auto;
+      display: block;
+      margin: 20px auto;
+      border: 1px solid #eaeaea;
+      border-radius: 6px;
+      page-break-inside: avoid;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
     }}
   </style>
 </head>

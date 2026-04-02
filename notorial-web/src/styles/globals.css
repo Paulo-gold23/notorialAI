@@ -989,3 +989,8 @@ input:focus, select:focus {
     max-width: 100%;
   }
 }
+/* Editor-specific image hiding */
+.tiptap img.ata-imagem-anexada {
+  display: none !important;
+}
+
