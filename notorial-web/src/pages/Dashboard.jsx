@@ -96,7 +96,7 @@ export default function Dashboard({ isAdmin = false }) {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
                 <div className="mb-2 md:mb-0">
                     <h1 className="text-3xl font-serif flex items-center gap-3 mb-2" style={{ color: 'var(--text-main)' }}>
-                        <Logo size={40} /> Minhas Atas
+                        <Logo size={40} /> Minhas Conversas
                     </h1>
                     <p className="text-base m-0 ml-1" style={{ color: 'var(--text-muted)' }}>
                         {getGreeting()}, {userName}

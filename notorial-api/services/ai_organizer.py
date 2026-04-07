@@ -30,16 +30,21 @@ REGRAS DE OURO:
    - CRÍTICO: NUNCA remova ou altere tags no formato `[IMAGEM ANEXADA: ...]`. Elas serão substituídas pela imagem real no pós-processamento.
    - Mantenha a tag EXATAMENTE como aparece no input, incluindo o nome do arquivo.
 7. NÃO resuma, não interprete e não pule mensagens. Transcreva tudo o que for fornecido.
+8. NÃO gere sequ00eancies de "Conclusão", "Análise" ou qualquer texto interpretativo. O documento termina após a última mensagem transcrita.
 
 ESTRUTURA DO DOCUMENTO:
 1. TÍTULO: # ATA NOTARIAL DE CONSTATAÇÃO DE CONTEÚDO DIGITAL
 2. IDENTIFICAÇÃO (Participantes e Período)
 3. CONTEÚDO CONSTATADO (Transcrição organizada por dia)
-4. CONCLUSÃO (Resumo técnico do que foi observado, sem juízo de valor)
+
+CRÍTICO: NÃO gere seção de Conclusão, Análise, Considerações Finais ou qualquer texto interpretativo. O documento TERMINA imediatamente após a transcrição da última mensagem. Qualquer texto após as mensagens será considerado violação das regras.
 
 OBSERVAÇÃO SOBRE PARTES:
 Se o texto for enviado em partes (chunks), siga as instruções específicas de cada parte para que o documento final possa ser unido sem duplicidade de títulos.
-"""
+
+PARTICIPANTES OBRIGATÓRIO: Na seção IDENTIFICAÇÃO, liste EXATAMENTE os participantes do cabeçalho PARTICIPANTES abaixo.
+Se um participante aparecer como número de telefone (ex: +55 41 99999-9999) ou contiver um telefone, mantenha-o EXATAMENTE e INTEGRALMENTE como está.
+REGRA DE SIGILO (CRÍTICO): Este é um documento estritamente legal para advogados. É ABSOLUTAMENTE OBRIGATÓRIO listar os números de telefone completos de todos os participantes. NUNCA anonimize, censure, abrevie ou omita os números de telefone."""
 
 PROMPT_PREPARATORIO = """Você é um assistente jurídico especializado.
 
@@ -63,12 +68,13 @@ REGRAS:
 7. Imagens anexadas: `[DD/MM/AAAA HH:MM] Nome_do_Participante: 📷 [IMAGEM ANEXADA: nome_arquivo.jpg]`
    - CRÍTICO: NUNCA remova ou altere tags `[IMAGEM ANEXADA: ...]`. Mantenha EXATAMENTE como no input.
 8. Remover mensagens de sistema irrelevantes.
+9. CRÍTICO: NÃO gere seção de Conclusão, Análise, Observações Finais ou qualquer texto interpretativo. O documento encerra após a última mensagem do último dia.
 
 FORMATO DE SAÍDA:
-# Relatório Preparatório - Ata Notarial
+# Relatório Preparatório
 
 ## Participantes
-- [Nome/Número]
+- [Nome do Participante] ([Número de Telefone])
 
 ## Índice
 - [DD/MM/AAAA](#data-ddmmaaaa)
@@ -81,6 +87,11 @@ FORMATO DE SAÍDA:
 
 ### DD/MM/AAAA
 [DD/MM/AAAA HH:MM] Carlos: **"Mensagem..."**
+
+PARTICIPANTES OBRIGATÓRIO: Na seção ## Participantes, copie EXATAMENTE a lista fornecida no cabeçalho PARTICIPANTES abaixo.
+Se o nome já contiver o número de telefone completo, mantenha-o integralmente na resposta.
+Se o número não estiver associado na lista (apenas o nome), você DEVE adicionar a tag exata **[INSIRA NUMERO AQUI]** ao lado do nome (exemplo: Carlos **[INSIRA NUMERO AQUI]**) para que o advogado preencha manualmente na edição.
+REGRA DE SIGILO (CRÍTICO): Este documento é estritamente legal para o uso de advogados. VOCÊ TEM AUTORIZAÇÃO E OBRIGAÇÃO de divulgar integralmente os números de telefone. NUNCA censure, oculte, abrevie, substitua por "..." ou trunque os números de telefone na sua resposta. Você DEVE exibir os números originais.
 """
 
 # ===========================================================================
@@ -96,8 +107,24 @@ def _chat_to_text(chat_json: dict) -> str:
     
     # Header com contexto (metadata)
     participantes = chat_json.get("participantes", [])
+    phone_map = chat_json.get("phone_map", {})
     periodo = chat_json.get("periodo", {})
-    lines.append(f"PARTICIPANTES: {', '.join(participantes)}")
+    # Nota: identificadores dos participantes correspondem ao nome salvo no contato
+    # ou ao número de telefone caso o contato não esteja salvo.
+
+    # Formata cada participante com número se disponível: "Nome (+55 41 99999-9999)"
+    participantes_fmt = []
+    for p in participantes:
+        num = phone_map.get(p, "")
+        if num and num != p:
+            participantes_fmt.append(f"{p} ({num})")
+        else:
+            participantes_fmt.append(p)
+
+    # Envia os participantes de forma explícita para a IA não renomear
+    lines.append("PARTICIPANTES (copie EXATAMENTE na seção de participantes do documento):")
+    for pf in participantes_fmt:
+        lines.append(f"  - {pf}")
     lines.append(f"PERÍODO: {periodo.get('inicio', '?')} a {periodo.get('fim', '?')}")
     lines.append(f"TOTAL DE MENSAGENS: {chat_json.get('total_mensagens', 0)}")
     lines.append(f"TOTAL DE ÁUDIOS: {chat_json.get('total_audios', 0)}")
@@ -582,7 +609,7 @@ async def organize_chat_with_ai(chat_json: dict, is_formal: bool = True, on_prog
                     elif is_first:
                         instruction = "Esta é a PRIMEIRA PARTE. Gere o Título, Identificação, Índice e inicie a seção de Conteúdo Constatado."
                     elif is_last:
-                        instruction = "Esta é a ÚLTIMA PARTE. Continue a transcrição das mensagens e finalize com a seção de Conclusão."
+                        instruction = "Esta é a ÚLTIMA PARTE. Continue a transcrição das mensagens e finalize após a última mensagem. NÃO gere seção de Conclusão ou análise."
                     else:
                         instruction = f"Esta é a parte {i+1}. NÃO repita títulos ou cabeçalhos iniciais. Mantenha APENAS a transcrição fiel das mensagens obedecendo ao formato padrão."
 

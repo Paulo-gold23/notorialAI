@@ -34,10 +34,15 @@ MEDIA_OMITTED_KEYWORDS = [
 
 IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp']
 VIDEO_EXTENSIONS = ['.mp4', '.3gp']
-AUDIO_EXTENSIONS = ('.opus', '.ogg', '.m4a')
+AUDIO_EXTENSIONS = ('.opus', '.ogg', '.m4a', '.mp3', '.aac', '.wav', '.webm')
 
-# PrÃ©-compilar regex de extraÃ§Ã£o de nome de arquivo de Ã¡udio
-AUDIO_FILE_RE = re.compile(r'((?:PTT|AUD|MSG|AUDIO)-[^\s<>()\[\]]+\.(?:opus|ogg|m4a))', re.IGNORECASE)
+# Pré-compilar regex de extração de nome de arquivo de áudio
+# Cobre todos os formatos conhecidos do WhatsApp:
+# PTT-YYYYMMDD-WAxxxx.opus, AUD-xxx.opus, aud-xxx.opus, VN_..., etc.
+AUDIO_FILE_RE = re.compile(
+    r'([\w\-\(\)\.]+\.(?:opus|ogg|m4a|mp3|aac|wav|flac|webm))',
+    re.IGNORECASE
+)
 IMAGE_EXTENSIONS_TUPLE = tuple(IMAGE_EXTENSIONS)
 IMAGE_FILE_RE = re.compile(r'([^\s<>()\[\]"]+\.(?:jpg|jpeg|png|webp))', re.IGNORECASE)
 
@@ -144,20 +149,27 @@ def _classify_message(conteudo: str, audio_exact_paths: set[str], audio_by_basen
     conteudo_lower = conteudo.lower()
     conteudo_norm = _normalize_for_match(conteudo)
     
-    # Verificar se Ã© Ã¡udio
+    # Verificar se é áudio
     for kw in NORMALIZED_AUDIO_KEYWORDS:
         if kw in conteudo_norm:
             file_match = AUDIO_FILE_RE.search(conteudo)
             if file_match:
-                filename = file_match.group(1).replace('\u200e', '').replace('\u200f', '')
-                if filename in audio_exact_paths:
+                filename = file_match.group(1).replace('\u200e', '').replace('\u200f', '').strip()
+                # Validação mínima: deve ter extensão de áudio
+                if not any(filename.lower().endswith(ext) for ext in ('.opus', '.ogg', '.m4a', '.mp3', '.aac', '.wav', '.flac', '.webm')):
+                    filename = None
+                
+                if filename:
+                    if filename in audio_exact_paths:
+                        return 'audio', filename
+                    mapped = audio_by_basename.get(filename)
+                    if mapped:
+                        return 'audio', mapped
+                    # Não está no ZIP (pode ter sido filtrado), mas ainda é áudio
+                    logger.debug(f"Audio file found in text but not in ZIP: {filename}")
                     return 'audio', filename
-                mapped = audio_by_basename.get(filename)
-                if mapped:
-                    return 'audio', mapped
-                return 'audio', filename
             
-            if 'omitido' in conteudo_lower or 'omitted' in conteudo_lower:
+            if 'omitido' in conteudo_norm or 'omitted' in conteudo_norm:
                 return 'midia_omitida', None
             return 'audio', None
     
@@ -212,10 +224,12 @@ def _read_chat_content(z: zipfile.ZipFile, chat_filenames: list[str]) -> str:
 
 def _list_audio_files(all_files: list[str]) -> list[str]:
     """Lista os caminhos de audio presentes no ZIP sem carregar bytes na memoria."""
-    return [
+    found = [
         name for name in all_files
         if name.lower().endswith(AUDIO_EXTENSIONS) and '__MACOSX' not in name
     ]
+    logger.info(f"_list_audio_files: {len(all_files)} arquivos no ZIP → {len(found)} áudios detectados: {found[:10]}")
+    return found
 
 
 def _list_image_files(all_files: list[str]) -> list[str]:
@@ -378,6 +392,93 @@ def _sort_messages(mensagens: list) -> list:
     return mensagens
 
 
+def _extract_phone_map(chat_content: str, participantes: set, all_files: list = None) -> dict:
+    """
+    Tenta associar números de telefone aos nomes dos participantes.
+    Estrategias (em ordem de confiabilidade):
+    1. Se o próprio remetente já é um número, mapeia nome=número.
+    2. Extrai número do nome da pasta/arquivo dentro do ZIP
+       (ex: 'WhatsApp Chat with +55 41 99999-9999/_chat.txt').
+    3. Busca padrões '+55...' em mensagens de sistema do WhatsApp
+       (ex: 'Paulo Goldner adicionou +55 41 99999-9999' em grupos).
+    Retorna dict: {nome_display: numero_telefone}
+    """
+    phone_re = re.compile(r'\+\d{1,3}[\s\-]?\(?\d{2,3}\)?[\s\-]?\d{4,5}[\s\-]?\d{4}')
+    result = {}
+
+    # --- Estrategia 1: remetente JA é um número ---
+    for p in participantes:
+        clean_p = p.strip()
+        if clean_p.startswith('+') or re.fullmatch(r'[\d\s\(\)\-\+]{9,20}', clean_p):
+            result[p] = clean_p
+
+    # --- Estrategia 2: número no nome da pasta ou arquivo do ZIP ---
+    if all_files:
+        for f in all_files:
+            # Pega o componente raiz (pasta) ou tenta buscar em todo o caminho
+            match = phone_re.search(f)
+            if match:
+                found_phone = match.group(0).strip()
+                match_found = False
+                # Tenta associar ao participante cujo nome aparece no caminho
+                for p in participantes:
+                    if p not in result:
+                        p_lower = p.lower().strip()
+                        if p_lower in f.lower():
+                            result[p] = found_phone
+                            match_found = True
+                            break
+                
+                if not match_found:
+                    # Fallback
+                    sem_numero = [p for p in participantes if p not in result]
+                    if len(sem_numero) == 1:
+                        result[sem_numero[0]] = found_phone
+                    elif len(sem_numero) == 2:
+                        # Se temos 2 participantes sem número, e um deles é o dono ("Você", "Eu")
+                        # associa o telefone ao outro participante
+                        dono_labels = ['você', 'voce', 'eu', 'me', 'you']
+                        if sem_numero[0].lower().strip() in dono_labels:
+                            result[sem_numero[1]] = found_phone
+                        elif sem_numero[1].lower().strip() in dono_labels:
+                            result[sem_numero[0]] = found_phone
+                        else:
+                            # Na dúvida, associa ao primeiro encontrado no loop (arbitrário)
+                            result[sem_numero[0]] = found_phone
+                break  # Encontrou o número do arquivo, sai do loop
+
+    # --- Estrategia 3: mensagens de sistema de grupo ---
+    system_re = re.compile(
+        r'(?:adicionou|added|deixou o grupo|left|entrou|joined|removed|removeu)[^\n]*?(\+\d{1,3}[\s\-]?[\d\s\-]{8,})',
+        re.IGNORECASE
+    )
+    for m in system_re.finditer(chat_content):
+        num = m.group(1).strip()
+        num_digits = re.sub(r'\D', '', num)
+        for p in participantes:
+            if p not in result:
+                p_digits = re.sub(r'\D', '', p)
+                if len(p_digits) >= 8 and p_digits[-8:] == num_digits[-8:]:
+                    result[p] = num
+                    
+    # --- Estrategia 4: Header do documento de texto exportado ---
+    header_re = re.compile(r'(?:Conversa do WhatsApp com|WhatsApp Chat with)[\s:]*(\+\d{1,3}[\s\-]?\(?\d{2,3}\)?[\s\-]?\d{4,5}[\s\-]?\d{4})', re.IGNORECASE)
+    match_header = header_re.search(chat_content)
+    if match_header:
+        found_phone = match_header.group(1).strip()
+        sem_numero = [p for p in participantes if p not in result]
+        if len(sem_numero) == 1:
+            result[sem_numero[0]] = found_phone
+        elif len(sem_numero) == 2:
+            dono_labels = ['você', 'voce', 'eu', 'me', 'you']
+            if sem_numero[0].lower().strip() in dono_labels:
+                result[sem_numero[1]] = found_phone
+            elif sem_numero[1].lower().strip() in dono_labels:
+                result[sem_numero[0]] = found_phone
+                
+    return result
+
+
 def parse_whatsapp_zip(zip_bytes: bytes, start_date: str = None, end_date: str = None) -> dict:
     """
     Parseia o ZIP do WhatsApp e retorna um JSON com as mensagens.
@@ -515,9 +616,14 @@ def parse_whatsapp_zip(zip_bytes: bytes, start_date: str = None, end_date: str =
             f"{total_audios} Ã¡udios, {total_imagens} imgs"
         )
         logger.info(f"parse_whatsapp_zip total: {time.perf_counter() - t_total:.2f}s")
-        
+
+        # Mapeia nomes para telefones (best-effort: detecta remetentes que ja sao numeros
+        # ou numeros em mensagens de sistema de grupos)
+        phone_map = _extract_phone_map(chat_content, set(list(participantes)), all_files=all_files)
+
         return {
             "participantes": list(participantes),
+            "phone_map": phone_map,
             "periodo": {"inicio": periodo_inicio, "fim": periodo_fim},
             "mensagens": mensagens,
             "total_mensagens": len(mensagens),

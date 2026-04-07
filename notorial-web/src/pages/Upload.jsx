@@ -9,6 +9,7 @@ import AnimatedNumber from '../components/AnimatedNumber';
 import { useToast } from '../components/ToastContext';
 
 const STEPS = [
+    { key: 'optimizing', label: 'Otimizando arquivo', desc: 'Filtrando mídias fora do período' },
     { key: 'uploading', label: 'Enviando ZIP', desc: 'Transferindo arquivo para o servidor' },
     { key: 'parsing', label: 'Parseando conversa', desc: 'Extraindo mensagens e metadados' },
     { key: 'transcribing', label: 'Transcrevendo áudios', desc: 'Convertendo áudio em texto com IA' },
@@ -63,9 +64,9 @@ export default function Upload() {
     const navigate = useNavigate();
     const toast = useToast();
 
-    const analyzeZip = async (fileObj) => {
+    const analyzeZip = async (fileObj, filterStart = '', filterEnd = '') => {
         try {
-            setZipPreview({ loading: true });
+            setZipPreview((prev) => ({ ...prev, loading: true }));
             const jszip = new JSZip();
             const zip = await jszip.loadAsync(fileObj);
 
@@ -74,13 +75,53 @@ export default function Upload() {
             let imageCount = 0;
             let totalCount = 0;
 
+            const getUtcDate = (dateStr) => {
+                const d = new Date(dateStr);
+                return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+            };
+
+            const sDate = filterStart ? getUtcDate(filterStart) : new Date('1970-01-01');
+            const eDate = filterEnd ? getUtcDate(filterEnd) : new Date('2099-12-31');
+            const getFileDate = (filepath) => {
+                const basename = filepath.split('/').pop();
+                let m = basename.match(/(20\d{2})(\d{2})(\d{2})/);
+                if (m) return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+                m = basename.match(/(20\d{2})-(\d{2})-(\d{2})/);
+                if (m) return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+                return null;
+            };
+
             Object.keys(zip.files).forEach((filename) => {
-                if (!zip.files[filename].dir) {
-                    totalCount++;
+                const fileEntry = zip.files[filename];
+                if (!fileEntry.dir) {
                     const lower = filename.toLowerCase();
-                    if (lower.endsWith('.txt')) txtCount++;
-                    else if (lower.endsWith('.opus') || lower.endsWith('.mp3') || lower.endsWith('.ogg') || lower.endsWith('.m4a') || lower.endsWith('.wav')) audioCount++;
-                    else if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp')) imageCount++;
+                    const isMedia = lower.endsWith('.jpg') || lower.endsWith('.jpeg') || 
+                                    lower.endsWith('.png') || lower.endsWith('.webp') ||
+                                    lower.endsWith('.opus') || lower.endsWith('.m4a') || 
+                                    lower.endsWith('.ogg') || lower.endsWith('.mp4');
+
+                    let keep = true;
+                    if (isMedia && (filterStart || filterEnd)) {
+                        const fileDate = getFileDate(filename);
+                        if (fileDate) {
+                            const adjustedSDate = new Date(sDate);
+                            adjustedSDate.setDate(adjustedSDate.getDate() - 2);
+                            
+                            const adjustedEDate = new Date(eDate);
+                            adjustedEDate.setDate(adjustedEDate.getDate() + 2);
+                            
+                            if (fileDate < adjustedSDate || fileDate > adjustedEDate) {
+                                keep = false;
+                            }
+                        }
+                    }
+
+                    if (keep) {
+                        totalCount++;
+                        if (lower.endsWith('.txt')) txtCount++;
+                        else if (lower.endsWith('.opus') || lower.endsWith('.mp3') || lower.endsWith('.ogg') || lower.endsWith('.m4a') || lower.endsWith('.wav')) audioCount++;
+                        else if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp')) imageCount++;
+                    }
                 }
             });
 
@@ -90,6 +131,15 @@ export default function Upload() {
             setZipPreview({ loading: false, error: 'Não foi possível ler o conteúdo do arquivo ZIP.' });
         }
     };
+
+    // Recalcula o preview sempre que as datas mudarem, debounce
+    useEffect(() => {
+        if (!file) return;
+        const handler = setTimeout(() => {
+            analyzeZip(file, startDate, endDate);
+        }, 500); // 500ms debounce
+        return () => clearTimeout(handler);
+    }, [file, startDate, endDate]);
 
     // Polling
     useEffect(() => {
@@ -128,7 +178,6 @@ export default function Upload() {
             setFile(dropped);
             setError('');
             setInvalidDrop(false);
-            analyzeZip(dropped);
         } else {
             setInvalidDrop(true);
             toast.warning('Apenas arquivos .zip são aceitos.');
@@ -141,7 +190,6 @@ export default function Upload() {
         if (selected && selected.name.endsWith('.zip')) {
             setFile(selected);
             setError('');
-            analyzeZip(selected);
         } else {
             toast.warning('Apenas arquivos .zip são aceitos.');
         }
@@ -165,10 +213,91 @@ export default function Upload() {
 
         setUploading(true);
         setError('');
+        
+        let fileToUpload = file;
+        
+        if (startDate || endDate) {
+            setCurrentStatus('optimizing');
+            try {
+                const jszip = new JSZip();
+                const zip = await jszip.loadAsync(file);
+                
+                // Tratar o reset do fuso horário para bater as datas 
+                const getUtcDate = (dateStr) => {
+                    const d = new Date(dateStr);
+                    return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+                };
+
+                const sDate = startDate ? getUtcDate(startDate) : new Date('1970-01-01');
+                const eDate = endDate ? getUtcDate(endDate) : new Date('2099-12-31');
+                
+                const getFileDate = (filepath) => {
+                    const basename = filepath.split('/').pop();
+                    let m = basename.match(/(20\d{2})(\d{2})(\d{2})/);
+                    if (m) return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+                    m = basename.match(/(20\d{2})-(\d{2})-(\d{2})/);
+                    if (m) return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+                    return null;
+                };
+
+                const newZip = new JSZip();
+                
+                let keptCount = 0;
+                let droppedCount = 0;
+                
+                for (const relativePath in zip.files) {
+                    const fileObj = zip.files[relativePath];
+                    if (fileObj.dir) continue;
+                    
+                    const lowerPath = relativePath.toLowerCase();
+                    const isMedia = lowerPath.endsWith('.jpg') || lowerPath.endsWith('.jpeg') || 
+                                    lowerPath.endsWith('.png') || lowerPath.endsWith('.webp') ||
+                                    lowerPath.endsWith('.opus') || lowerPath.endsWith('.m4a') || 
+                                    lowerPath.endsWith('.ogg') || lowerPath.endsWith('.mp4');
+                    
+                    if (isMedia) {
+                        const fileDate = getFileDate(relativePath);
+                        if (fileDate) {
+                            // Margem de +- 1 dia para evitar problemas com diferença de fuso horário
+                            const adjustedSDate = new Date(sDate);
+                            adjustedSDate.setDate(adjustedSDate.getDate() - 2);
+                            
+                            const adjustedEDate = new Date(eDate);
+                            adjustedEDate.setDate(adjustedEDate.getDate() + 2);
+                            
+                            if (fileDate >= adjustedSDate && fileDate <= adjustedEDate) {
+                                newZip.file(relativePath, fileObj.async('blob'));
+                                keptCount++;
+                            } else {
+                                droppedCount++;
+                            }
+                        } else {
+                            // Se não tiver data no nome explícito, manter para garantir a integridade
+                            newZip.file(relativePath, fileObj.async('blob'));
+                            keptCount++;
+                        }
+                    } else {
+                        // _chat.txt, json, docs ou qualquer outra coisa -> mantém original intacto.
+                        newZip.file(relativePath, fileObj.async('blob'));
+                        keptCount++;
+                    }
+                }
+                
+                if (droppedCount > 0) {
+                    const optimizedBlob = await newZip.generateAsync({ type: 'blob', compression: 'STORE' });
+                    fileToUpload = new File([optimizedBlob], file.name, { type: 'application/zip' });
+                    toast.success(`Otimização local: ${droppedCount} arquivos fora do período descartados!`);
+                }
+            } catch (e) {
+                console.error("Erro na otimização local do ZIP", e);
+                // Fallback passivo: continua com o original caso dê zebra
+            }
+        }
+
         setCurrentStatus('uploading');
 
         try {
-            const data = await uploadZip(file, { startDate, endDate });
+            const data = await uploadZip(fileToUpload, { startDate, endDate });
             setAtaId(data.ata_id);
             setCurrentStatus('parsing');
         } catch (err) {

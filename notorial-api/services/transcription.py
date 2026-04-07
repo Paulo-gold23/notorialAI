@@ -56,7 +56,12 @@ async def _transcribe_single_audio(
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             # Usa apenas o nome do arquivo, sem o caminho (WhatsApp pode vir com Media/audio.opus)
+            # A API do Whisper pode rejeitar a extensão .opus silenciosamente. A solução recomendada 
+            # é usar .ogg (container ogg) que é perfeitamente suportado.
             safe_filename = os.path.basename(filename)
+            if safe_filename.lower().endswith('.opus'):
+                safe_filename = safe_filename[:-5] + ".ogg"
+                
             files = {"file": (safe_filename, audio_bytes, mime)}
             data = {
                 "model": "whisper-large-v3",

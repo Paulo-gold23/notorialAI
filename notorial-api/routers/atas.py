@@ -16,7 +16,7 @@ from fastapi.responses import Response
 logger = logging.getLogger(__name__)
 
 # ── Security constants ──
-MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100 MB max upload
+MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500 MB max upload
 PDF_CACHE_TTL = 3600  # 1 hour TTL for cached PDFs
 _ALLOW_BYPASS = os.getenv("ALLOW_TEST_BYPASS", "false").lower() == "true"
 
@@ -31,6 +31,7 @@ class AtaContentUpdate(BaseModel):
 class PdfGenerateRequest(BaseModel):
     tipo: str
     conteudo: str
+    reviewer_name: str = ""
 
 class AiActionRequest(BaseModel):
     content: str
@@ -117,19 +118,46 @@ async def _process_pipeline(ata_id: str, zip_bytes: bytes, is_local: bool, start
 
         update('parsing', "Arquivos extraídos com sucesso.", progress=25)
 
-        # ── ETAPA 2: Filtrar áudios — só transcrever os do período ──
+        # ── ETAPA 2: Filtrar áudios — só transcrever os referenciados nas mensagens ──
+        # IMPORTANTE: parser retorna bytes com path completo do ZIP (ex: "Media/PTT-xxx.opus")
+        # mas msg["arquivo"] pode conter só o basename ("PTT-xxx.opus").
+        # Construímos um índice por basename para garantir o match.
+        audio_by_basename_bytes = {
+            os.path.basename(fname): (fname, data)
+            for fname, data in all_audio_bytes.items()
+        }
+
         needed_audio_files = {
             msg["arquivo"]
             for msg in parsed_data["mensagens"]
             if msg["tipo"] == "audio" and msg.get("arquivo")
         }
-        audios_to_transcribe = {
-            fname: data for fname, data in all_audio_bytes.items()
-            if fname in needed_audio_files
-        }
+        needed_basenames = {os.path.basename(f) for f in needed_audio_files}
+
+        # Monta dict para transcrição — chave = basename (estável), valor = bytes
+        audios_to_transcribe = {}
+        for needed in needed_audio_files:
+            needed_base = os.path.basename(needed)
+            if needed in all_audio_bytes:
+                # Match exato pelo path completo
+                audios_to_transcribe[needed_base] = all_audio_bytes[needed]
+            elif needed_base in audio_by_basename_bytes:
+                # Match por basename (cobre ZIP com subpastas)
+                _, bdata = audio_by_basename_bytes[needed_base]
+                audios_to_transcribe[needed_base] = bdata
+
+        # Normaliza também a referência nas mensagens para basename (resolve mismatch no merge)
+        for msg in parsed_data["mensagens"]:
+            if msg.get("tipo") == "audio" and msg.get("arquivo"):
+                msg["arquivo"] = os.path.basename(msg["arquivo"])
+
         skipped = len(all_audio_bytes) - len(audios_to_transcribe)
-        if skipped:
-            logger.info(f"[{ata_id}] ⏩ Pulando {skipped} áudios fora do período selecionado")
+        logger.info(
+            f"[{ata_id}] Áudios no ZIP: {len(all_audio_bytes)} | "
+            f"Referenciados nas msgs: {len(needed_audio_files)} | "
+            f"Para transcrever: {len(audios_to_transcribe)} | "
+            f"Pulados/fora do período: {skipped}"
+        )
 
         # ── ETAPA 3: Transcrição paralela (Groq Whisper) ──
         t1 = time.time()
@@ -139,31 +167,26 @@ async def _process_pipeline(ata_id: str, zip_bytes: bytes, is_local: bool, start
             update("transcribing", msg, progress=max(35, min(65, prog)))
 
         transcriptions = await transcribe_all(audios_to_transcribe, on_progress=trans_progress)
-        logger.info(f"[{ata_id}] Transcrição concluída em {time.time()-t1:.2f}s - {len(transcriptions)} OK")
+        logger.info(f"[{ata_id}] Transcrição concluída em {time.time()-t1:.2f}s - {len(transcriptions)} resultados")
 
         # ── ETAPA 4: Merge cronológico — injetar transcrições ──
+        # Neste ponto msg["arquivo"] já está normalizado para basename (etapa 2 acima)
         merged_count = 0
+        miss_count = 0
         for msg in parsed_data["mensagens"]:
             if msg["tipo"] != "audio" or not msg.get("arquivo"):
                 continue
 
-            arquivo = msg["arquivo"]
+            arquivo = msg["arquivo"]  # já é basename
 
-            # Correspondência exata
             if arquivo in transcriptions:
                 msg["transcricao"] = transcriptions[arquivo]
                 merged_count += 1
-                continue
+            else:
+                miss_count += 1
+                logger.debug(f"[{ata_id}] Sem transcrição para: {arquivo}")
 
-            # Correspondência por basename
-            basename = os.path.basename(arquivo)
-            for tkey, tval in transcriptions.items():
-                if os.path.basename(tkey) == basename:
-                    msg["transcricao"] = tval
-                    merged_count += 1
-                    break
-
-        logger.info(f"[{ata_id}] Merge: {merged_count}/{len(audios_to_transcribe)} áudios mapeados")
+        logger.info(f"[{ata_id}] Merge: {merged_count} injetados, {miss_count} sem transcrição")
 
         # ── ETAPA 5: Organização com IA (Preparatório) ──
         t2 = time.time()
@@ -281,7 +304,7 @@ async def list_atas(auth_ctx: AuthContext = Depends(get_auth_context)):
         parsed = data.get('parsed_data', {})
         results.append({
             "id": ata_id,
-            "titulo": "Ata Notarial - WhatsApp",
+            "titulo": "Conversa Transcrita",
             "status": data.get('status', 'processing'),
             "participantes": parsed.get('participantes', []),
             "total_mensagens": parsed.get('total_mensagens', 0),
@@ -413,7 +436,7 @@ async def get_ata_preview(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_
         return {
             "ata": {
                 "id": ata_id,
-                "titulo": "Ata Notarial - WhatsApp",
+                "titulo": "Conversa Transcrita",
                 "status": cached.get('status', 'ready'),
                 "participantes": parsed.get('participantes', []),
                 "total_mensagens": parsed.get('total_mensagens', 0),
@@ -517,12 +540,13 @@ async def generate_formal_content(
 
 @router.post("/{ata_id}/generate-pdf")
 async def generate_pdf(
-    ata_id: str, 
+    ata_id: str,
     req_data: PdfGenerateRequest,
     request: Request,
     auth_ctx: AuthContext = Depends(get_auth_context)
 ):
-    pdf_bytes = await generate_pdf_from_html(req_data.conteudo)
+    reviewer = req_data.reviewer_name or auth_ctx.advogado_id or ""
+    pdf_bytes = await generate_pdf_from_html(req_data.conteudo, reviewer_name=reviewer)
     if not pdf_bytes:
         raise HTTPException(status_code=500, detail="Erro ao gerar PDF")
 

@@ -6,6 +6,7 @@ import Link from '@tiptap/extension-link'
 import Heading from '@tiptap/extension-heading'
 import Placeholder from '@tiptap/extension-placeholder'
 import Image from '@tiptap/extension-image'
+import TextAlign from '@tiptap/extension-text-align'
 import { apiRequest } from '../services/api';
 import ConfirmModal from '../components/ConfirmModal';
 import BackButton from '../components/BackButton';
@@ -15,8 +16,10 @@ import {
     FileText, FileCheck, Plus, Save, Check, Bold, Italic, Strikethrough,
     Heading1, Heading2, List, ListOrdered, Undo, Redo, ArrowDown, ArrowUp,
     Copy, Lightbulb, Users, MessageSquare, Mic, CalendarRange,
+    AlignLeft, AlignCenter, AlignRight, AlignJustify,
 } from 'lucide-react';
 import Logo from '../components/Logo';
+import { supabase } from '../services/supabase';
 
 function normalizeEditorContent(value) {
     if (!value) return '<p>Conteúdo não disponível</p>';
@@ -33,6 +36,7 @@ export default function Review() {
     const [ata, setAta] = useState(null);
     const [conteudo, setConteudo] = useState(null);
     const [activeTab, setActiveTab] = useState('preparatorio');
+    const [reviewerName, setReviewerName] = useState('');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
@@ -41,6 +45,9 @@ export default function Review() {
     const [confirmModal, setConfirmModal] = useState({ isOpen: false });
     const [isAtBottom, setIsAtBottom] = useState(false);
     const [hasScroll, setHasScroll] = useState(false);
+    // termsModal: null | 'save' | 'pdf_preparatorio' | 'pdf_formal'
+    const [termsModal, setTermsModal] = useState(null);
+    const [termsChecked, setTermsChecked] = useState(false);
 
     const tabsRef = useRef(null);
 
@@ -108,6 +115,10 @@ export default function Review() {
                     class: 'ata-imagem-anexada',
                 },
             }),
+            TextAlign.configure({
+                types: ['heading', 'paragraph'],
+                alignments: ['left', 'center', 'right', 'justify'],
+            }),
         ],
         content: '<p>Carregando conteúdo...</p>',
     });
@@ -125,6 +136,20 @@ export default function Review() {
         }
     }, [id, toast]);
 
+    // Carrega nome do usuário logado para o rodapé do PDF
+    useEffect(() => {
+        supabase.auth.getUser().then(({ data }) => {
+            if (data?.user) {
+                const name =
+                    data.user.user_metadata?.nome ||
+                    data.user.user_metadata?.full_name ||
+                    data.user.email ||
+                    '';
+                setReviewerName(name);
+            }
+        });
+    }, []);
+
     useEffect(() => {
         loadAta();
     }, [loadAta]);
@@ -135,7 +160,13 @@ export default function Review() {
         editor.commands.setContent(normalizeEditorContent(raw));
     }, [activeTab, conteudo, editor]);
 
-    const handleSave = async () => {
+    const handleSave = () => {
+        // Abre modal de termos antes de salvar
+        setTermsChecked(false);
+        setTermsModal('save');
+    };
+
+    const _doSave = async () => {
         if (!editor) return;
         setSaving(true);
         setSaved(false);
@@ -187,33 +218,73 @@ export default function Review() {
         }
     };
 
-    const handleGeneratePdf = async (tipo) => {
+    const handleGeneratePdf = (tipo) => {
+        // Abre modal de termos antes de gerar o PDF
+        setTermsChecked(false);
+        setTermsModal(`pdf_${tipo}`);
+    };
+
+    const _doGeneratePdf = async (tipo, previewWindow) => {
         setGenerating(true);
         try {
             const data = await apiRequest(`/api/atas/${id}/generate-pdf`, {
                 method: 'POST',
-                body: JSON.stringify({ tipo, conteudo: editor.getHTML() }),
+                body: JSON.stringify({
+                    tipo,
+                    conteudo: editor.getHTML(),
+                    reviewer_name: reviewerName,
+                }),
             });
             if (data.pdf_url) {
-                // Fetch PDF with auth headers (window.open can't carry Bearer tokens)
                 const { getAuthHeaderForDownload } = await import('../services/api');
                 const headers = await getAuthHeaderForDownload();
-                
                 const pdfResponse = await fetch(data.pdf_url, { headers });
-                if (!pdfResponse.ok) {
-                    throw new Error('Erro ao baixar o PDF gerado.');
-                }
+                if (!pdfResponse.ok) throw new Error('Erro ao baixar o PDF gerado.');
                 const blob = await pdfResponse.blob();
                 const blobUrl = URL.createObjectURL(blob);
-                window.open(blobUrl, '_blank');
-                // Cleanup blob URL after a delay
+
+                if (previewWindow && !previewWindow.closed) {
+                    // Navega a janela aberta sincronamente no click — nunca bloqueada
+                    previewWindow.location.href = blobUrl;
+                } else {
+                    // Fallback: download direto se a janela foi bloqueada ou fechada
+                    const a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = `ata-notarial-${tipo}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                }
                 setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
                 toast.success('PDF gerado! Abrindo em nova aba...');
             }
         } catch (err) {
+            if (previewWindow && !previewWindow.closed) previewWindow.close();
             toast.error('Erro ao gerar PDF: ' + err.message);
         } finally {
             setGenerating(false);
+        }
+    };
+
+    const handleTermsConfirm = async () => {
+        const action = termsModal;
+        setTermsModal(null);
+        setTermsChecked(false);
+
+        // CRÍTICO: abrir a janela SINCRONAMENTE dentro do click handler,
+        // antes de qualquer await. O browser só permite window.open sem
+        // bloqueio quando chamado durante um evento de usuário ativo.
+        let previewWindow = null;
+        if (action !== 'save') {
+            previewWindow = window.open('about:blank', '_blank');
+        }
+
+        if (action === 'save') {
+            await _doSave();
+        } else if (action === 'pdf_preparatorio') {
+            await _doGeneratePdf('preparatorio', previewWindow);
+        } else if (action === 'pdf_formal') {
+            await _doGeneratePdf('formal', previewWindow);
         }
     };
 
@@ -374,6 +445,13 @@ export default function Review() {
 
                     <div className="divider-v"></div>
 
+                    <ToolBtn icon={<AlignLeft className="w-4 h-4" />} active={editor?.isActive({ textAlign: 'left' })} onClick={() => editor?.chain().focus().setTextAlign('left').run()} title="Alinhar à Esquerda" />
+                    <ToolBtn icon={<AlignCenter className="w-4 h-4" />} active={editor?.isActive({ textAlign: 'center' })} onClick={() => editor?.chain().focus().setTextAlign('center').run()} title="Centralizar" />
+                    <ToolBtn icon={<AlignRight className="w-4 h-4" />} active={editor?.isActive({ textAlign: 'right' })} onClick={() => editor?.chain().focus().setTextAlign('right').run()} title="Alinhar à Direita" />
+                    <ToolBtn icon={<AlignJustify className="w-4 h-4" />} active={editor?.isActive({ textAlign: 'justify' })} onClick={() => editor?.chain().focus().setTextAlign('justify').run()} title="Justificar" />
+
+                    <div className="divider-v"></div>
+
                     <ToolBtn icon={<List className="w-4 h-4" />} active={editor?.isActive('bulletList')} onClick={() => editor?.chain().focus().toggleBulletList().run()} title="Lista com Marcadores" />
                     <ToolBtn icon={<ListOrdered className="w-4 h-4" />} active={editor?.isActive('orderedList')} onClick={() => editor?.chain().focus().toggleOrderedList().run()} title="Lista Numerada" />
 
@@ -392,6 +470,7 @@ export default function Review() {
                     <EditorContent editor={editor} />
                 </div>
             </div>
+
 
             {/* Actions */}
             <div style={{
@@ -420,7 +499,11 @@ export default function Review() {
                         )}
                     </span>
                 </button>
-                <button className="btn-secondary" onClick={() => handleGeneratePdf('preparatorio')} disabled={generating}>
+                <button
+                    className="btn-secondary"
+                    onClick={() => handleGeneratePdf('preparatorio')}
+                    disabled={generating}
+                >
                     <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         {generating ? (
                             <><div className="sp-wave" style={{ width: 14, height: 14 }} /> Gerando...</>
@@ -430,7 +513,11 @@ export default function Review() {
                     </span>
                 </button>
                 {hasFormal && (
-                    <button className="btn-secondary" onClick={() => handleGeneratePdf('formal')} disabled={generating}>
+                    <button
+                        className="btn-secondary"
+                        onClick={() => handleGeneratePdf('formal')}
+                        disabled={generating}
+                    >
                         <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             {generating ? (
                                 <><div className="sp-wave" style={{ width: 14, height: 14 }} /> Gerando...</>
@@ -467,6 +554,116 @@ export default function Review() {
                         <strong style={{ color: 'var(--primary-color)' }}>Dica:</strong> Revise e aprove o material preparatório primeiro.
                         Quando estiver satisfeito, clique em <strong>Gerar Versão Cartorária</strong> acima para criar
                         a versão formal da ata notarial com linguagem apropriada de cartório.
+                    </div>
+                </div>
+            )}
+
+            {/* Terms Modal */}
+            {termsModal && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 9999,
+                    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: '1rem',
+                    animation: 'fadeIn 0.2s ease-out',
+                }}>
+                    <div style={{
+                        background: 'var(--panel-bg)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '1rem',
+                        padding: '2rem',
+                        maxWidth: '540px',
+                        width: '100%',
+                        boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
+                        animation: 'slideUp 0.25s ease-out',
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
+                            <div style={{
+                                width: 40, height: 40, borderRadius: '0.6rem',
+                                background: 'var(--primary-glow)',
+                                border: '1px solid rgba(59,130,246,0.3)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                color: 'var(--primary-color)', flexShrink: 0,
+                            }}>
+                                <FileText size={20} />
+                            </div>
+                            <div>
+                                <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                                    Termo de Responsabilidade
+                                </h2>
+                                <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                    Leia e aceite antes de continuar
+                                </p>
+                            </div>
+                        </div>
+
+                        <div style={{
+                            background: 'var(--surface-color)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '0.6rem',
+                            padding: '1.1rem 1.25rem',
+                            fontSize: '0.85rem',
+                            lineHeight: 1.7,
+                            color: 'var(--text-main)',
+                            marginBottom: '1.25rem',
+                            maxHeight: '240px',
+                            overflowY: 'auto',
+                        }}>
+                            <p style={{ margin: '0 0 0.75rem', fontWeight: 600 }}>TERMO DE RESPONSABILIDADE SOBRE O DOCUMENTO GERADO</p>
+                            <p style={{ margin: '0 0 0.75rem' }}>
+                                Ao confirmar, o responsável pela presente ação declara expressamente que:
+                            </p>
+                            <ol style={{ margin: '0 0 0.75rem', paddingLeft: '1.25rem' }}>
+                                <li style={{ marginBottom: '0.4rem' }}>Revisou integralmente o conteúdo exibido no editor acima, verificando a veracidade, completude e integridade das informações apresentadas.</li>
+                                <li style={{ marginBottom: '0.4rem' }}>Compreende que o documento gerado é baseado em transcrições automáticas de mensagens e áudios, as quais podem conter imprecisões, e que a responsabilidade pela validação do conteúdo final é exclusivamente do usuário.</li>
+                                <li style={{ marginBottom: '0.4rem' }}>Assume plena responsabilidade civil e ética pelo uso do documento gerado, isentando os desenvolvedores da plataforma de quaisquer danos decorrentes de usos indevidos ou informações incorretas não corrigidas antes desta ação.</li>
+                                <li>Consente no processamento dos dados apresentados para fins de geração do documento, conforme a Política de Privacidade da plataforma.</li>
+                            </ol>
+                            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                                Este aceite será registrado junto ao documento gerado como evidência de revisão pelo responsável.
+                            </p>
+                        </div>
+
+                        <label style={{
+                            display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
+                            cursor: 'pointer', marginBottom: '1.5rem',
+                            padding: '0.9rem 1rem',
+                            background: termsChecked ? 'rgba(59,130,246,0.08)' : 'var(--surface-color)',
+                            border: `1px solid ${termsChecked ? 'rgba(59,130,246,0.4)' : 'var(--border-color)'}`,
+                            borderRadius: '0.6rem',
+                            transition: 'all 0.2s',
+                        }}>
+                            <input
+                                type="checkbox"
+                                checked={termsChecked}
+                                onChange={e => setTermsChecked(e.target.checked)}
+                                style={{ width: '1.1rem', height: '1.1rem', marginTop: '0.1rem', accentColor: 'var(--primary-color)', flexShrink: 0, cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: '0.88rem', lineHeight: 1.5, color: 'var(--text-main)' }}>
+                                Li, compreendi e aceito os termos acima, assumindo total responsabilidade pelo conteúdo a ser gerado.
+                            </span>
+                        </label>
+
+                        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                            <button
+                                className="btn-secondary"
+                                onClick={() => { setTermsModal(null); setTermsChecked(false); }}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                className="btn-gradient"
+                                disabled={!termsChecked}
+                                onClick={handleTermsConfirm}
+                                style={{ opacity: termsChecked ? 1 : 0.5, cursor: termsChecked ? 'pointer' : 'not-allowed' }}
+                            >
+                                {termsModal === 'save' ? (
+                                    <><Save size={15} /> Aceitar e Salvar</>
+                                ) : (
+                                    <><FileText size={15} /> Aceitar e Gerar PDF</>
+                                )}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
