@@ -412,6 +412,13 @@ def _extract_phone_map(chat_content: str, participantes: set, all_files: list = 
         if clean_p.startswith('+') or re.fullmatch(r'[\d\s\(\)\-\+]{9,20}', clean_p):
             result[p] = clean_p
 
+    def is_phone_already_mapped(phone: str) -> bool:
+        normalized = re.sub(r'\D', '', phone)
+        for mapped_phone in result.values():
+            if re.sub(r'\D', '', mapped_phone) == normalized:
+                return True
+        return False
+
     # --- Estrategia 2: número no nome da pasta ou arquivo do ZIP ---
     if all_files:
         for f in all_files:
@@ -429,7 +436,7 @@ def _extract_phone_map(chat_content: str, participantes: set, all_files: list = 
                             match_found = True
                             break
                 
-                if not match_found:
+                if not match_found and not is_phone_already_mapped(found_phone):
                     # Fallback
                     sem_numero = [p for p in participantes if p not in result]
                     if len(sem_numero) == 1:
@@ -466,9 +473,10 @@ def _extract_phone_map(chat_content: str, participantes: set, all_files: list = 
     match_header = header_re.search(chat_content)
     if match_header:
         found_phone = match_header.group(1).strip()
-        sem_numero = [p for p in participantes if p not in result]
-        if len(sem_numero) == 1:
-            result[sem_numero[0]] = found_phone
+        if not is_phone_already_mapped(found_phone):
+            sem_numero = [p for p in participantes if p not in result]
+            if len(sem_numero) == 1:
+                result[sem_numero[0]] = found_phone
         elif len(sem_numero) == 2:
             dono_labels = ['você', 'voce', 'eu', 'me', 'you']
             if sem_numero[0].lower().strip() in dono_labels:
