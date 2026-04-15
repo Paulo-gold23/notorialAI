@@ -66,7 +66,7 @@ export default function PrivacyPolicy() {
                 <section>
                     <h2 className="text-xl font-bold mb-3 font-serif">4. Retenção e Exclusão</h2>
                     <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                        O usuário poderá gerenciar a deleção de suas atas geradas diretamente na aplicação ("Deletar Ata"). Quando acionado, nosso ciclo de "on-delete cascade" expurga textos, mídias e metadados tanto do bucket de arquivos quanto da base relacional. Para encerramento definitivo de conta, basta acionar os canais de suporte em compliance com a LGPD (Lei Geral de Proteção de Dados - Brasil).
+                        O usuário poderá gerenciar a deleção de seus documentos gerados diretamente na aplicação ("Deletar Documento"). Quando acionado, nosso ciclo de "on-delete cascade" expurga textos, mídias e metadados tanto do bucket de arquivos quanto da base relacional. Para encerramento definitivo de conta, basta acionar os canais de suporte em compliance com a LGPD (Lei Geral de Proteção de Dados - Brasil).
                     </p>
                 </section>
 

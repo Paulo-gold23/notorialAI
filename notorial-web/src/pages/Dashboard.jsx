@@ -73,7 +73,7 @@ export default function Dashboard({ isAdmin = false }) {
             setAtas(Array.isArray(data) ? data : []);
         } catch (err) {
             console.error('Erro ao carregar atas:', err);
-            toast.error(err.message || 'Erro ao carregar atas.');
+            toast.error(err.message || 'Erro ao carregar documentos.');
         } finally {
             setLoading(false);
         }
@@ -97,7 +97,7 @@ export default function Dashboard({ isAdmin = false }) {
         try {
             await deleteAta(id);
             setAtas(prev => prev.filter(a => a.id !== id));
-            toast.success('Ata excluída com sucesso.');
+            toast.success('Documento excluído com sucesso.');
         } catch (err) {
             toast.error('Erro ao excluir: ' + err.message);
         }
@@ -106,7 +106,7 @@ export default function Dashboard({ isAdmin = false }) {
     const handleEditClick = (e, ata) => {
         e.stopPropagation();
         setEditingId(ata.id);
-        setEditTitle(ata.titulo || 'Ata sem título');
+        setEditTitle(ata.titulo || 'Documento sem título');
     };
 
     const cancelEdit = (e) => {
@@ -230,10 +230,10 @@ export default function Dashboard({ isAdmin = false }) {
                             <Sparkles size={36} style={{ color: 'var(--primary-color)' }} />
                         </div>
                         <h3 className="text-xl font-serif mb-2" style={{ color: 'var(--text-main)' }}>
-                            Comece a criar suas atas
+                            Comece a criar seus documentos
                         </h3>
                         <p style={{ color: 'var(--text-muted)', maxWidth: '400px', margin: '0 auto 2rem', lineHeight: 1.6 }}>
-                            Transforme conversas do WhatsApp em documentos profissionais prontos para o cartório.
+                            Transforme conversas do WhatsApp em material preparatório profissional.
                         </p>
                     </div>
 
@@ -248,7 +248,7 @@ export default function Dashboard({ isAdmin = false }) {
                         {[
                             { icon: Upload, label: 'Upload do ZIP', desc: 'Exporte do WhatsApp' },
                             { icon: Sparkles, label: 'IA Processa', desc: 'Transcrição e organização' },
-                            { icon: FileCheck, label: 'PDF Pronto', desc: 'Ata formal para cartório' },
+                            { icon: FileCheck, label: 'PDF Pronto', desc: 'Documento profissional pronto' },
                         ].map((step, i) => (
                             <div key={i} style={{
                                 display: 'flex',
@@ -289,7 +289,7 @@ export default function Dashboard({ isAdmin = false }) {
                         <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
                         <input
                             type="text"
-                            placeholder="Buscar atas pelo título..."
+                            placeholder="Buscar documentos pelo título..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="input-login"
@@ -303,7 +303,7 @@ export default function Dashboard({ isAdmin = false }) {
 
                     {filteredAtas.length === 0 ? (
                         <div style={{ textAlign: 'center', padding: '2rem 0', color: 'var(--text-muted)' }}>
-                            Nenhuma ata encontrada para "{searchQuery}"
+                            Nenhum documento encontrado para "{searchQuery}"
                         </div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -349,7 +349,7 @@ export default function Dashboard({ isAdmin = false }) {
                                             ) : (
                                                 <div className="flex items-center gap-2 mb-1 group">
                                                     <h3 className="font-serif text-lg font-semibold cursor-text" style={{ color: 'var(--text-main)' }}>
-                                                        {ata.titulo || 'Ata sem título'}
+                                                        {ata.titulo || 'Documento sem título'}
                                                     </h3>
                                                     <button 
                                                         onClick={(e) => handleEditClick(e, ata)}
@@ -411,8 +411,8 @@ export default function Dashboard({ isAdmin = false }) {
                 isOpen={confirmModal.isOpen}
                 onClose={() => setConfirmModal({ isOpen: false, id: null })}
                 onConfirm={confirmDelete}
-                title="Excluir Ata"
-                message="Tem certeza que deseja excluir esta ata? Esta ação não pode ser desfeita."
+                title="Excluir Documento"
+                message="Tem certeza que deseja excluir este documento? Esta ação não pode ser desfeita."
                 confirmText="Excluir"
                 variant="danger"
             />

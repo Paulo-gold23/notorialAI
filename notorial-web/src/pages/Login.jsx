@@ -100,7 +100,7 @@ export default function Login() {
 
     const benefits = [
         { icon: Gift, title: '50 Créditos Gratuitos', desc: 'Comece sem custos. Ganhe 50 páginas de crédito ao criar sua conta.', highlight: true },
-        { icon: FileText, title: 'Atas em Padrão Cartorário', desc: 'Documentos formatados e prontos para uso jurídico imediato.' },
+        { icon: FileText, title: 'Documentos em Padrão Profissional', desc: 'Material preparatório formatado e pronto para uso jurídico imediato.' },
         { icon: Sparkles, title: 'IA Jurídica Avançada', desc: 'Transcrição inteligente com organização cronológica automática.' },
         { icon: Shield, title: 'Segurança e Conformidade', desc: 'Dados protegidos com criptografia. Registro INPI BR512026002376-9.' },
     ];
@@ -159,7 +159,7 @@ export default function Login() {
                         <span className="gradient-text" style={{ fontWeight: 800 }}>50 créditos grátis</span>
                     </h2>
                     <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: 1.6, marginBottom: '1.75rem', maxWidth: '340px' }}>
-                        Cadastre-se agora e transforme conversas do WhatsApp em Atas Notariais sem nenhum custo inicial.
+                        Cadastre-se agora e transforme conversas do WhatsApp em documentos jurídicos profissionais sem nenhum custo inicial.
                     </p>
 
                     {/* Benefits list */}
@@ -345,6 +345,40 @@ export default function Login() {
                                     </button>
                                 </div>
                             </div>
+
+                            {/* Forgot password link */}
+                            {!isRegister && (
+                                <div style={{ textAlign: 'right', marginTop: '-0.5rem', marginBottom: '0.5rem' }}>
+                                    <span
+                                        onClick={async () => {
+                                            if (!email) { setError('Informe seu e-mail para redefinir a senha.'); return; }
+                                            setLoading(true); setError('');
+                                            try {
+                                                const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email, {
+                                                    redirectTo: `${window.location.origin}/#/login`
+                                                });
+                                                if (resetErr) throw resetErr;
+                                                setSuccessMsg('E-mail de redefinição de senha enviado! Verifique sua caixa de entrada.');
+                                            } catch (err) {
+                                                setError(err.message || 'Erro ao enviar e-mail de redefinição.');
+                                            } finally {
+                                                setLoading(false);
+                                            }
+                                        }}
+                                        style={{
+                                            fontSize: '0.78rem',
+                                            color: 'var(--primary-color)',
+                                            cursor: 'pointer',
+                                            fontWeight: 500,
+                                            transition: 'opacity 0.2s',
+                                        }}
+                                        onMouseOver={(e) => e.currentTarget.style.opacity = '0.7'}
+                                        onMouseOut={(e) => e.currentTarget.style.opacity = '1'}
+                                    >
+                                        Esqueci minha senha
+                                    </span>
+                                </div>
+                            )}
 
                             <button type="submit" className="btn-gradient" disabled={loading}
                                 style={{ width: '100%', padding: '0.875rem', fontSize: '0.92rem' }}>

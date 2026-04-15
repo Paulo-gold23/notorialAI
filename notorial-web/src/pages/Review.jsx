@@ -137,7 +137,7 @@ export default function Review() {
             setConteudo(ataData.conteudo);
         } catch (err) {
             console.error(err);
-            toast.error('Erro ao carregar os dados da ata.');
+            toast.error('Erro ao carregar os dados do documento.');
         } finally {
             setLoading(false);
         }
@@ -247,7 +247,7 @@ export default function Review() {
         if (pdfBlobUrlRef.current) {
             const a = document.createElement('a');
             a.href = pdfBlobUrlRef.current;
-            a.download = `ata_notarial_${id}.pdf`;
+            a.download = `legisvox_documento_${id}.pdf`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -298,7 +298,7 @@ export default function Review() {
                     // Fallback: download PDF directly if no credit data
                     const a = document.createElement('a');
                     a.href = blobUrl;
-                    a.download = `ata_notarial_${id}.pdf`;
+                    a.download = `legisvox_documento_${id}.pdf`;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
@@ -367,7 +367,7 @@ export default function Review() {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                 <h1 className="font-serif" style={{ margin: 0, fontSize: '1.5rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <Logo size={32} /> {ata?.titulo || 'Revisão da Ata'}
+                    <Logo size={32} /> {ata?.titulo || 'Revisão do Documento'}
                 </h1>
             </div>
 
@@ -445,7 +445,7 @@ export default function Review() {
                         }}
                     >
                         <FileCheck className="w-4 h-4" />
-                        Ata Cartorária
+                        Versão Cartorária
                     </button>
                 ) : (
                     <button
@@ -594,7 +594,7 @@ export default function Review() {
                     <div>
                         <strong style={{ color: 'var(--primary-color)' }}>Dica:</strong> Revise e aprove o material preparatório primeiro.
                         Quando estiver satisfeito, clique em <strong>Gerar Versão Cartorária</strong> acima para criar
-                        a versão formal da ata notarial com linguagem apropriada de cartório.
+                        a versão formal do documento com linguagem apropriada de cartório.
                     </div>
                 </div>
             )}
@@ -931,7 +931,7 @@ export default function Review() {
                 onClose={() => setConfirmModal({ isOpen: false })}
                 onConfirm={confirmGenerateFormal}
                 title="Gerar Versão Cartorária"
-                message="Deseja gerar a versão cartorária (formal) da ata? Este processo utiliza IA avançada e pode levar alguns minutos."
+                message="Deseja gerar a versão cartorária (formal) do documento? Este processo utiliza IA avançada e pode levar alguns minutos."
                 confirmText="Gerar Versão"
                 variant="primary"
             />

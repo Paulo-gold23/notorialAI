@@ -333,7 +333,7 @@ export default function Profile() {
                                 <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
                                     {creditStats.total > 0 && (creditStats.consumed / creditStats.total) > 0.8 
                                         ? 'Seus créditos estão acabando.' 
-                                        : 'Você tem saldo suficiente para criar novas atas.'}
+                                        : 'Você tem saldo suficiente para criar novos documentos.'}
                                 </p>
                             </div>
 

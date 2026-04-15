@@ -246,7 +246,7 @@ export default function AdminDashboard() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.85rem', marginBottom: '1.5rem' }}>
               <StatCard icon={Users} label="Advogados" value={stats.total_advogados} color={COLORS.blue} sub={`${stats.registros_este_mes} este mês`} delay={0} />
               <StatCard icon={Clock} label="Pendentes" value={stats.advogados_pendentes} color={COLORS.amber} highlight={stats.advogados_pendentes > 0} sub={stats.advogados_pendentes > 0 ? 'Ação necessária' : 'Nenhum'} delay={50} />
-              <StatCard icon={FileText} label="Total Atas" value={stats.total_atas} color={COLORS.violet} sub={`${stats.atas_este_mes} este mês`} delay={100} />
+              <StatCard icon={FileText} label="Total Documentos" value={stats.total_atas} color={COLORS.violet} sub={`${stats.atas_este_mes} este mês`} delay={100} />
               <StatCard icon={FileCheck} label="Concluídas" value={stats.atas_prontas} color={COLORS.emerald} sub={stats.total_atas > 0 ? `${Math.round(stats.atas_prontas/stats.total_atas*100)}% taxa sucesso` : '—'} delay={150} />
             </div>
 
@@ -254,7 +254,7 @@ export default function AdminDashboard() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.85rem', marginBottom: '1.5rem' }}>
               <MiniStat icon={MessageSquare} label="Mensagens Processadas" value={stats.total_mensagens_processadas} />
               <MiniStat icon={Mic} label="Áudios Transcritos" value={stats.total_audios_transcritos} />
-              <MiniStat icon={AlertTriangle} label="Atas com Erro" value={stats.atas_erro} danger={stats.atas_erro > 0} />
+              <MiniStat icon={AlertTriangle} label="Docs com Erro" value={stats.atas_erro} danger={stats.atas_erro > 0} />
               <MiniStat icon={TrendingUp} label="Processando Agora" value={stats.atas_processando} />
             </div>
 
@@ -263,7 +263,7 @@ export default function AdminDashboard() {
               {/* Weekly Bar Chart */}
               <div className="card" style={{ padding: '1.25rem' }}>
                 <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Calendar size={16} style={{ color: COLORS.blue }} /> Atas por Semana
+                  <Calendar size={16} style={{ color: COLORS.blue }} /> Documentos por Semana
                 </h3>
                 <WeeklyBarChart data={weeklyData} />
               </div>
@@ -280,10 +280,10 @@ export default function AdminDashboard() {
             {/* Quick: Recent Activity on Overview */}
             <div className="card" style={{ padding: '1.25rem' }}>
               <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Activity size={16} style={{ color: COLORS.emerald }} /> Últimas Atas
+                <Activity size={16} style={{ color: COLORS.emerald }} /> Últimos Documentos
               </h3>
               {recentAtas.length === 0 ? (
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>Nenhuma ata processada ainda.</p>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>Nenhum documento processado ainda.</p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                   {recentAtas.slice(0, 5).map((ata, i) => {
@@ -401,7 +401,7 @@ export default function AdminDashboard() {
                 fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)',
                 textTransform: 'uppercase', letterSpacing: '0.06em', gap: '0.5rem',
               }}>
-                <span>Nome</span><span>Email</span><span>OAB</span><span>Atas</span><span>Status</span><span></span>
+                <span>Nome</span><span>Email</span><span>OAB</span><span>Docs</span><span>Status</span><span></span>
               </div>
               {filteredAdvogados.length === 0 ? (
                 <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
@@ -451,7 +451,7 @@ export default function AdminDashboard() {
             </h2>
             {recentAtas.length === 0 ? (
               <div className="card" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-                Nenhuma ata processada ainda.
+                Nenhum documento processado ainda.
               </div>
             ) : (
               <div style={{ position: 'relative', paddingLeft: '2rem' }}>
@@ -478,7 +478,7 @@ export default function AdminDashboard() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', flexWrap: 'wrap' }}>
                           <div style={{ minWidth: 0 }}>
                             <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.9rem', marginBottom: '0.25rem' }}>
-                              {ata.titulo || 'Ata sem título'}
+                              {ata.titulo || 'Documento sem título'}
                             </div>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                               <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
@@ -523,7 +523,7 @@ export default function AdminDashboard() {
         onClose={() => setConfirmModal({ isOpen: false, id: null, nome: '' })}
         onConfirm={confirmDelete}
         title="Excluir Advogado"
-        message={`Tem certeza que deseja excluir "${confirmModal.nome}" e TODOS os dados (atas, PDFs)? Esta ação é irreversível.`}
+        message={`Tem certeza que deseja excluir "${confirmModal.nome}" e TODOS os dados (documentos, PDFs)? Esta ação é irreversível.`}
         confirmText="Excluir Permanentemente"
         variant="danger"
       />
@@ -537,7 +537,7 @@ export default function AdminDashboard() {
 
 function WeeklyBarChart({ data }) {
   if (!data || data.length === 0) {
-    return <EmptyChart message="Sem dados de atas semanais" />;
+    return <EmptyChart message="Sem dados semanais" />;
   }
 
   const max = Math.max(...data.map(d => Number(d.total)), 1);
@@ -615,7 +615,7 @@ function DonutChart({ data }) {
           );
         })}
         <text x="75" y="72" textAnchor="middle" fill="var(--text-main)" fontSize="22" fontWeight="700">{total}</text>
-        <text x="75" y="90" textAnchor="middle" fill="var(--text-muted)" fontSize="10">total atas</text>
+        <text x="75" y="90" textAnchor="middle" fill="var(--text-muted)" fontSize="10">total docs</text>
       </svg>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
         {data.map((d, i) => {
