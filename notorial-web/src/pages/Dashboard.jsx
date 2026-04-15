@@ -256,6 +256,8 @@ export default function Dashboard({ isAdmin = false }) {
                                 alignItems: 'center',
                                 gap: '0.5rem',
                                 position: 'relative',
+                                flex: '1 1 100px',
+                                minWidth: '80px',
                             }}>
                                 <div style={{
                                     width: '48px',

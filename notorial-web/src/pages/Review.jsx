@@ -523,7 +523,9 @@ export default function Review() {
                 background: 'var(--panel-bg)',
                 borderRadius: '0.75rem',
                 border: '1px solid var(--border-color)',
-            }}>
+            }}
+                className="review-actions"
+            >
                 <button
                     className={saved ? 'btn-primary' : 'btn-gradient'}
                     onClick={handleSave}
