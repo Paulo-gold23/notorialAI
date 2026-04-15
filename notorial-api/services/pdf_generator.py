@@ -158,8 +158,20 @@ def _wrap_html_for_pdf(html_str: str) -> str:
 </html>"""
 
 
+MAX_PDF_RETRIES = 3
+PDF_RETRY_BASE_DELAY = 2  # seconds
+
+
+class PdfGenerationError(Exception):
+    """Raised when PDF generation fails with a user-friendly message."""
+    pass
+
+
 async def generate_pdf_from_html(html_str: str, reviewer_name: str = "") -> bytes | None:
-    """Consome a API do Gotenberg via URL do Env"""
+    """
+    Consome a API do Gotenberg via URL do Env.
+    Inclui retry automático com backoff para lidar com instabilidades do Gotenberg.
+    """
     url = getattr(settings, 'PDF_CONVERTER_URL', getattr(settings, 'GOTENBERG_URL', "http://localhost:3000/forms/chromium/convert/html"))
 
     if "convert/html" not in url:
@@ -194,11 +206,6 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "") -> byte
 </div>
 </body></html>"""
 
-    # Multipart como lista para suportar múltiplos arquivos com a mesma chave 'files'
-    files = [
-        ('files', ('index.html', html_for_pdf, 'text/html')),
-        ('files', ('footer.html', footer_html, 'text/html')),
-    ]
     data = {
         'marginTop': '20mm',
         'marginBottom': '16mm',
@@ -207,16 +214,83 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "") -> byte
         'printBackground': 'true',
     }
 
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, files=files, data=data, timeout=60.0)
+    last_error = None
 
-        if response.status_code == 200:
-            return response.content
-        else:
-            logger.error(f"Erro no Gotenberg {response.status_code}: {response.text}")
-            return None
+    for attempt in range(1, MAX_PDF_RETRIES + 1):
+        # Rebuild files tuple on each attempt (httpx consumes the generator)
+        files = [
+            ('files', ('index.html', html_for_pdf, 'text/html')),
+            ('files', ('footer.html', footer_html, 'text/html')),
+        ]
 
-    except Exception as e:
-        logger.error(f"Gotenberg exception: {e}")
-        return None
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, files=files, data=data, timeout=90.0)
+
+            if response.status_code == 200:
+                if attempt > 1:
+                    logger.info(f"Gotenberg PDF gerado com sucesso na tentativa {attempt}")
+                return response.content
+
+            # Server error — worth retrying
+            if response.status_code >= 500:
+                last_error = f"Gotenberg retornou erro {response.status_code}"
+                logger.warning(
+                    f"Gotenberg erro {response.status_code} na tentativa {attempt}/{MAX_PDF_RETRIES}: "
+                    f"{response.text[:200]}"
+                )
+                if attempt < MAX_PDF_RETRIES:
+                    import asyncio
+                    await asyncio.sleep(PDF_RETRY_BASE_DELAY * attempt)
+                    continue
+
+            # Client error (4xx) — no point retrying
+            error_detail = response.text[:200]
+            logger.error(f"Gotenberg erro fatal {response.status_code}: {error_detail}")
+            raise PdfGenerationError(
+                "Falha ao gerar PDF: o serviço de conversão retornou um erro. "
+                "Tente novamente em alguns instantes."
+            )
+
+        except httpx.TimeoutException:
+            last_error = "Timeout na geração do PDF"
+            logger.warning(
+                f"Gotenberg timeout na tentativa {attempt}/{MAX_PDF_RETRIES}"
+            )
+            if attempt < MAX_PDF_RETRIES:
+                import asyncio
+                await asyncio.sleep(PDF_RETRY_BASE_DELAY * attempt)
+                continue
+
+        except httpx.ConnectError:
+            last_error = "Serviço de PDF indisponível"
+            logger.error(
+                f"Gotenberg conexão recusada na tentativa {attempt}/{MAX_PDF_RETRIES}. "
+                f"URL: {url}"
+            )
+            if attempt < MAX_PDF_RETRIES:
+                import asyncio
+                await asyncio.sleep(PDF_RETRY_BASE_DELAY * attempt)
+                continue
+            raise PdfGenerationError(
+                "O serviço de geração de PDF não está disponível no momento. "
+                "Verifique se o Gotenberg está rodando e tente novamente."
+            )
+
+        except PdfGenerationError:
+            raise
+
+        except Exception as e:
+            last_error = str(e)
+            logger.error(f"Gotenberg exceção inesperada: {e}", exc_info=True)
+            if attempt < MAX_PDF_RETRIES:
+                import asyncio
+                await asyncio.sleep(PDF_RETRY_BASE_DELAY * attempt)
+                continue
+
+    # Exhausted all retries
+    logger.error(f"Gotenberg falhou após {MAX_PDF_RETRIES} tentativas. Último erro: {last_error}")
+    raise PdfGenerationError(
+        f"Falha ao gerar PDF após {MAX_PDF_RETRIES} tentativas. "
+        "O documento foi preservado — você pode tentar gerar o PDF novamente."
+    )

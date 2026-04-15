@@ -12,11 +12,14 @@ import ConfirmModal from '../components/ConfirmModal';
 import BackButton from '../components/BackButton';
 import { Skeleton } from '../components/Skeleton';
 import { useToast } from '../components/ToastContext';
+import ErrorState from '../components/ErrorState';
+import LegalFooter from '../components/LegalFooter';
 import {
     FileText, FileCheck, Plus, Save, Check, Bold, Italic, Strikethrough,
     Heading1, Heading2, List, ListOrdered, Undo, Redo, ArrowDown, ArrowUp,
     Copy, Lightbulb, Users, MessageSquare, Mic, CalendarRange,
     AlignLeft, AlignCenter, AlignRight, AlignJustify,
+    Coins, RefreshCw, Wallet, X,
 } from 'lucide-react';
 import Logo from '../components/Logo';
 import { supabase } from '../services/supabase';
@@ -48,7 +51,10 @@ export default function Review() {
     // termsModal: null | 'save' | 'pdf_preparatorio' | 'pdf_formal'
     const [termsModal, setTermsModal] = useState(null);
     const [termsChecked, setTermsChecked] = useState(false);
+    // Credit report after PDF generation
+    const [creditReport, setCreditReport] = useState(null);
     const [termsScrolledToBottom, setTermsScrolledToBottom] = useState(false);
+    const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
 
     const tabsRef = useRef(null);
 
@@ -162,10 +168,13 @@ export default function Review() {
     }, [activeTab, conteudo, editor]);
 
     const handleSave = () => {
-        // Abre modal de termos antes de salvar
-        setTermsChecked(false);
-        setTermsScrolledToBottom(false);
-        setTermsModal('save');
+        if (hasAcceptedTerms) {
+            _doSave();
+        } else {
+            setTermsChecked(false);
+            setTermsScrolledToBottom(false);
+            setTermsModal('save');
+        }
     };
 
     const _doSave = async () => {
@@ -221,13 +230,32 @@ export default function Review() {
     };
 
     const handleGeneratePdf = (tipo) => {
-        // Abre modal de termos antes de gerar o PDF
-        setTermsChecked(false);
-        setTermsScrolledToBottom(false);
-        setTermsModal(`pdf_${tipo}`);
+        if (hasAcceptedTerms) {
+            _doGeneratePdf(tipo);
+        } else {
+            // Abre modal de termos antes de gerar o PDF
+            setTermsChecked(false);
+            setTermsScrolledToBottom(false);
+            setTermsModal(`pdf_${tipo}`);
+        }
     };
 
-    const _doGeneratePdf = async (tipo, previewWindow) => {
+    // Stores the generated PDF blob URL for the credit report modal's "Ver PDF" button
+    const pdfBlobUrlRef = useRef(null);
+
+    const handleOpenPdf = () => {
+        if (pdfBlobUrlRef.current) {
+            const a = document.createElement('a');
+            a.href = pdfBlobUrlRef.current;
+            a.download = `ata_notarial_${id}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+        setCreditReport(null);
+    };
+
+    const _doGeneratePdf = async (tipo) => {
         setGenerating(true);
         try {
             const data = await apiRequest(`/api/atas/${id}/generate-pdf`, {
@@ -245,24 +273,39 @@ export default function Review() {
                 if (!pdfResponse.ok) throw new Error('Erro ao baixar o PDF gerado.');
                 const blob = await pdfResponse.blob();
                 const blobUrl = URL.createObjectURL(blob);
+                pdfBlobUrlRef.current = blobUrl;
 
-                if (previewWindow && !previewWindow.closed) {
-                    // Navega a janela aberta sincronamente no click — nunca bloqueada
-                    previewWindow.location.href = blobUrl;
+                // Auto-revoke after 5 minutes
+                setTimeout(() => {
+                    if (pdfBlobUrlRef.current === blobUrl) {
+                        URL.revokeObjectURL(blobUrl);
+                        pdfBlobUrlRef.current = null;
+                    }
+                }, 300000);
+
+                // Show credit report with PDF data
+                const hasReport = data.actual_pages || data.estimated_pages;
+                if (hasReport) {
+                    setCreditReport({
+                        estimated: data.estimated_pages || 0,
+                        actual: data.actual_pages || data.estimated_pages || 0,
+                        creditsUsed: data.credits_used || 0,
+                        refunded: data.refunded_credits || 0,
+                        balanceAfter: data.balance_after,
+                        pdfTipo: tipo,
+                    });
                 } else {
-                    // Fallback: download direto se a janela foi bloqueada ou fechada
+                    // Fallback: download PDF directly if no credit data
                     const a = document.createElement('a');
                     a.href = blobUrl;
-                    a.download = `ata-notarial-${tipo}.pdf`;
+                    a.download = `ata_notarial_${id}.pdf`;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
+                    toast.success('PDF gerado com sucesso!');
                 }
-                setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
-                toast.success('PDF gerado! Abrindo em nova aba...');
             }
         } catch (err) {
-            if (previewWindow && !previewWindow.closed) previewWindow.close();
             toast.error('Erro ao gerar PDF: ' + err.message);
         } finally {
             setGenerating(false);
@@ -273,21 +316,16 @@ export default function Review() {
         const action = termsModal;
         setTermsModal(null);
         setTermsChecked(false);
-
-        // CRÍTICO: abrir a janela SINCRONAMENTE dentro do click handler,
-        // antes de qualquer await. O browser só permite window.open sem
-        // bloqueio quando chamado durante um evento de usuário ativo.
-        let previewWindow = null;
-        if (action !== 'save') {
-            previewWindow = window.open('about:blank', '_blank');
-        }
+        setHasAcceptedTerms(true);
+        // Descomentar para persistir a flag:
+        // localStorage.setItem('legisvox_terms_accepted', 'true');
 
         if (action === 'save') {
             await _doSave();
         } else if (action === 'pdf_preparatorio') {
-            await _doGeneratePdf('preparatorio', previewWindow);
+            await _doGeneratePdf('preparatorio');
         } else if (action === 'pdf_formal') {
-            await _doGeneratePdf('formal', previewWindow);
+            await _doGeneratePdf('formal');
         }
     };
 
@@ -688,6 +726,206 @@ export default function Review() {
                 </div>
             )}
 
+            {/* Credit Report Modal */}
+            {creditReport && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 9999,
+                    background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: '1rem',
+                    animation: 'fadeIn 0.2s ease-out',
+                }}>
+                    <div style={{
+                        background: 'var(--panel-bg)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '1rem',
+                        padding: '2rem',
+                        maxWidth: '440px',
+                        width: '100%',
+                        boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
+                        animation: 'slideUp 0.3s ease-out',
+                    }}>
+                        {/* Header */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                <div style={{
+                                    width: 44, height: 44, borderRadius: '0.7rem',
+                                    background: 'linear-gradient(135deg, rgba(59,130,246,0.15), rgba(16,185,129,0.15))',
+                                    border: '1px solid rgba(59,130,246,0.25)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    color: 'var(--primary-color)', flexShrink: 0,
+                                }}>
+                                    <Coins size={22} />
+                                </div>
+                                <div>
+                                    <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                                        Relatório de Créditos
+                                    </h2>
+                                    <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                        PDF gerado com sucesso
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setCreditReport(null)}
+                                style={{
+                                    background: 'var(--surface-color)',
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: '0.5rem',
+                                    width: 32, height: 32,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    cursor: 'pointer', color: 'var(--text-muted)',
+                                    transition: 'all 0.15s',
+                                }}
+                                onMouseOver={e => { e.currentTarget.style.color = 'var(--text-main)'; e.currentTarget.style.borderColor = 'var(--text-muted)'; }}
+                                onMouseOut={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        {/* Stats Grid */}
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: creditReport.refunded > 0 ? '1fr 1fr' : '1fr 1fr',
+                            gap: '0.75rem',
+                            marginBottom: '1.25rem',
+                        }}>
+                            {/* Créditos Cobrados */}
+                            <div style={{
+                                padding: '1rem',
+                                borderRadius: '0.75rem',
+                                background: 'var(--surface-color)',
+                                border: '1px solid var(--border-color)',
+                                textAlign: 'center',
+                            }}>
+                                <div style={{
+                                    width: 36, height: 36, borderRadius: '50%',
+                                    background: 'rgba(59,130,246,0.12)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    margin: '0 auto 0.5rem',
+                                    color: 'var(--primary-color)',
+                                }}>
+                                    <Coins size={18} />
+                                </div>
+                                <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--primary-color)', lineHeight: 1 }}>
+                                    {creditReport.estimated}
+                                </div>
+                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>
+                                    Créditos Cobrados
+                                </div>
+                            </div>
+
+                            {/* Páginas Geradas */}
+                            <div style={{
+                                padding: '1rem',
+                                borderRadius: '0.75rem',
+                                background: 'var(--surface-color)',
+                                border: '1px solid var(--border-color)',
+                                textAlign: 'center',
+                            }}>
+                                <div style={{
+                                    width: 36, height: 36, borderRadius: '50%',
+                                    background: 'rgba(16,185,129,0.12)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    margin: '0 auto 0.5rem',
+                                    color: 'var(--success)',
+                                }}>
+                                    <FileText size={18} />
+                                </div>
+                                <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--success)', lineHeight: 1 }}>
+                                    {creditReport.actual || '?'}
+                                </div>
+                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>
+                                    Páginas no PDF
+                                </div>
+                            </div>
+
+                            {/* Reembolso (condicional) */}
+                            {creditReport.refunded > 0 && (
+                                <div style={{
+                                    padding: '1rem',
+                                    borderRadius: '0.75rem',
+                                    background: 'rgba(250,204,21,0.06)',
+                                    border: '1px solid rgba(250,204,21,0.2)',
+                                    textAlign: 'center',
+                                }}>
+                                    <div style={{
+                                        width: 36, height: 36, borderRadius: '50%',
+                                        background: 'rgba(250,204,21,0.15)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        margin: '0 auto 0.5rem',
+                                        color: '#eab308',
+                                    }}>
+                                        <RefreshCw size={18} />
+                                    </div>
+                                    <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#eab308', lineHeight: 1 }}>
+                                        +{creditReport.refunded}
+                                    </div>
+                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>
+                                        Devolvidos
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{
+                            background: 'var(--surface-color)', padding: '1rem',
+                            borderRadius: '0.6rem', border: '1px solid var(--border-color)',
+                            marginBottom: '1rem'
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>Páginas do PDF:</span>
+                                <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{creditReport.actual} páginas</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.75rem', borderBottom: '1px dashed var(--border-color)', marginBottom: '0.75rem' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>Custo Exato:</span>
+                                <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{creditReport.actual} créditos</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>Meu Saldo:</span>
+                                <span style={{ fontWeight: 600, color: 'var(--primary-color)' }}>{Math.floor(creditReport.balanceAfter)} créditos</span>
+                            </div>
+                        </div>
+
+                        {/* Note about precision adjustment */}
+                        <div style={{
+                            padding: '0.6rem 1rem',
+                            borderRadius: '0.6rem',
+                            background: 'rgba(59, 130, 246, 0.08)',
+                            border: '1px solid rgba(59, 130, 246, 0.2)',
+                            fontSize: '0.8rem',
+                            color: 'var(--primary-color)',
+                            textAlign: 'center',
+                            marginBottom: '1.25rem',
+                        }}>
+                            💡 O ajuste matemático já foi realizado na sua reserva. Você pagou exatamente pelas {creditReport.actual} páginas do documento.
+                        </div>
+
+                        {/* Buttons */}
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                            <button
+                                className="btn-secondary"
+                                onClick={() => setCreditReport(null)}
+                                style={{ flex: 1, justifyContent: 'center' }}
+                            >
+                                Fechar
+                            </button>
+                            <button
+                                className="btn-gradient"
+                                onClick={() => {
+                                    handleOpenPdf();
+                                }}
+                                autoFocus
+                                style={{ flex: 2, justifyContent: 'center' }}
+                            >
+                                <FileText size={16} /> Baixar PDF
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <ConfirmModal
                 isOpen={confirmModal.isOpen}
                 onClose={() => setConfirmModal({ isOpen: false })}
@@ -697,6 +935,62 @@ export default function Review() {
                 confirmText="Gerar Versão"
                 variant="primary"
             />
+
+            {/* PDF Generation Overlay */}
+            {generating && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 9998,
+                    background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexDirection: 'column', gap: '1.5rem',
+                    animation: 'fadeIn 0.3s ease-out',
+                }}>
+                    <div style={{
+                        width: 60, height: 60, borderRadius: '50%',
+                        background: 'rgba(59, 130, 246, 0.15)',
+                        border: '1px solid rgba(59, 130, 246, 0.3)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                        <div className="sp-wave" style={{ width: 24, height: 24 }} />
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                        <p style={{ color: '#fff', fontSize: '1.1rem', fontWeight: 600, margin: '0 0 0.5rem' }}>
+                            Gerando PDF...
+                        </p>
+                        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem', margin: 0 }}>
+                            Isso pode levar alguns segundos. Não feche esta janela.
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {/* Formal Version Generation Overlay */}
+            {generatingFormal && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 9998,
+                    background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexDirection: 'column', gap: '1.5rem',
+                    animation: 'fadeIn 0.3s ease-out',
+                }}>
+                    <div style={{
+                        width: 60, height: 60, borderRadius: '50%',
+                        background: 'rgba(167, 139, 250, 0.15)',
+                        border: '1px solid rgba(167, 139, 250, 0.3)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                        <div className="sp-wave" style={{ width: 24, height: 24 }} />
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                        <p style={{ color: '#fff', fontSize: '1.1rem', fontWeight: 600, margin: '0 0 0.5rem' }}>
+                            Gerando Versão Cartorária...
+                        </p>
+                        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem', margin: 0, maxWidth: '380px' }}>
+                            A IA está convertendo o material preparatório em linguagem jurídica formal. Isso pode levar 1-3 minutos.
+                        </p>
+                    </div>
+                </div>
+            )}
 
             {/* Scroll button — only visible when page has scrollable content */}
             {hasScroll && (
@@ -728,6 +1022,7 @@ export default function Review() {
                     {isAtBottom ? <ArrowUp size={20} /> : <ArrowDown size={20} />}
                 </button>
             )}
+            <LegalFooter style={{ marginTop: '2rem' }} />
         </div>
     );
 }
@@ -743,7 +1038,6 @@ function ToolBtn({ icon, active, onClick, title }) {
                 justifyContent: 'center',
                 width: '34px',
                 height: '34px',
-                border: 'none',
                 borderRadius: '0.375rem',
                 background: active ? 'var(--primary-glow)' : 'transparent',
                 color: active ? 'var(--primary-color)' : 'var(--text-muted)',

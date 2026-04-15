@@ -746,6 +746,17 @@ input:focus, select:focus {
   }
 }
 
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* ========================================
    UTILITY CLASSES
    ======================================== */
@@ -989,8 +1000,87 @@ input:focus, select:focus {
     max-width: 100%;
   }
 }
+
+/* ── Login page responsive overrides ── */
+
+/* Force benefits panel off on small screens (JS width animation won't fire) */
+@media (max-width: 860px) {
+  .auth-benefits-panel {
+    display: none !important;
+  }
+}
+
+/* Tighter card padding on mobile */
+@media (max-width: 480px) {
+  .auth-card-inner {
+    padding: 1.5rem 1.25rem !important;
+  }
+}
 /* Editor-specific image hiding */
 .tiptap img.ata-imagem-anexada {
   display: none !important;
 }
+
+/* ========================================
+   CUSTOM RANGE SLIDER (Pricing)
+   ======================================== */
+
+.custom-range-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border-color);
+  outline: none;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.custom-range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--primary-color);
+  cursor: pointer;
+  border: 3px solid var(--panel-bg);
+  box-shadow: 0 0 0 2px var(--primary-color), 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.custom-range-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 3px var(--primary-color), 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.custom-range-slider::-webkit-slider-thumb:active {
+  transform: scale(1.05);
+}
+
+.custom-range-slider::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--primary-color);
+  cursor: pointer;
+  border: 3px solid var(--panel-bg);
+  box-shadow: 0 0 0 2px var(--primary-color), 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s;
+}
+
+.custom-range-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border-color);
+}
+
+.custom-range-slider:focus {
+  outline: none;
+}
+
+.custom-range-slider:focus::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px var(--primary-color), 0 0 12px var(--primary-glow);
+}
+
 

@@ -3,12 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 import logging
 
-logging.basicConfig(level=logging.INFO)
-# Also write to file for post-run inspection
-_fh = logging.FileHandler("api.log", encoding="utf-8")
-_fh.setLevel(logging.INFO)
-_fh.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
-logging.getLogger().addHandler(_fh)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)s %(levelname)s %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -18,21 +16,27 @@ app = FastAPI(
 )
 
 # Import and include routers
-from routers import atas
+from routers import atas, credits, webhooks
 app.include_router(atas.router)
+app.include_router(credits.router)
+app.include_router(webhooks.router)
 
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        # Production
+        "https://legisvox.com",
+        "https://www.legisvox.com",
+        # Development
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-        "https://paulo-gold23.github.io",
-        "https://Paulo-gold23.github.io"
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
     ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "advogado_id", "asaas_access_token", "asaas-access-token"],
 )
 
 @app.on_event("startup")

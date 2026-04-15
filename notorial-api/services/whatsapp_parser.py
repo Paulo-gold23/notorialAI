@@ -32,9 +32,12 @@ MEDIA_OMITTED_KEYWORDS = [
     'gif omitido', 'gif omitted', 'documento omitido', 'document omitted',
 ]
 
-IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp']
+IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png']
 VIDEO_EXTENSIONS = ['.mp4', '.3gp']
 AUDIO_EXTENSIONS = ('.opus', '.ogg', '.m4a', '.mp3', '.aac', '.wav', '.webm')
+
+# Prefixos de arquivo que indicam sticker/figurinha (excluir de imagens)
+STICKER_PREFIXES = ('sticker', 'stk-')
 
 # Pré-compilar regex de extração de nome de arquivo de áudio
 # Cobre todos os formatos conhecidos do WhatsApp:
@@ -44,7 +47,8 @@ AUDIO_FILE_RE = re.compile(
     re.IGNORECASE
 )
 IMAGE_EXTENSIONS_TUPLE = tuple(IMAGE_EXTENSIONS)
-IMAGE_FILE_RE = re.compile(r'([^\s<>()\[\]"]+\.(?:jpg|jpeg|png|webp))', re.IGNORECASE)
+IMAGE_FILE_RE = re.compile(r'([^\s<>()\[\]"]+\.(?:jpg|jpeg|png))', re.IGNORECASE)
+VIDEO_FILE_RE = re.compile(r'([^\s<>()\[\]"]+\.(?:mp4|3gp))', re.IGNORECASE)
 
 
 def _normalize_for_match(value: str) -> str:
@@ -178,6 +182,10 @@ def _classify_message(conteudo: str, audio_exact_paths: set[str], audio_by_basen
         file_match = IMAGE_FILE_RE.search(conteudo)
         if file_match:
             filename = file_match.group(1).replace('\u200e', '').replace('\u200f', '')
+            # Detectar sticker por prefixo do nome do arquivo (STICKER-xxx.jpg)
+            basename_lower = os.path.basename(filename).lower()
+            if basename_lower.startswith(STICKER_PREFIXES):
+                return 'figurinha', None
             if image_exact_paths and filename in image_exact_paths:
                 return 'imagem', filename
             if image_by_basename:
@@ -188,6 +196,10 @@ def _classify_message(conteudo: str, audio_exact_paths: set[str], audio_by_basen
         # Extension found but no filename match — still mark as imagem
         return 'imagem', None
 
+    # Verificar Figurinha (Stickers .webp animados/estáticos anexos)
+    if '.webp' in conteudo_lower:
+        return 'figurinha', None
+
     # Verificar mídia omitida genérica (sem extensão de imagem reconhecível)
     for kw in NORMALIZED_MEDIA_OMITTED_KEYWORDS:
         if kw in conteudo_norm:
@@ -196,9 +208,17 @@ def _classify_message(conteudo: str, audio_exact_paths: set[str], audio_by_basen
         return 'midia_omitida', None
     
     if any(ext in conteudo_lower for ext in VIDEO_EXTENSIONS):
+        file_match = VIDEO_FILE_RE.search(conteudo)
+        if file_match:
+            filename = file_match.group(1).replace('\u200e', '').replace('\u200f', '')
+            return 'video', filename
         return 'video', None
     
     if '(arquivo anexado)' in conteudo_lower or '(file attached)' in conteudo_lower:
+        file_match = re.search(r'^(.+?)\s*\((?:arquivo anexado|file attached)\)', conteudo, re.IGNORECASE)
+        if file_match:
+            filename = file_match.group(1).replace('\u200e', '').replace('\u200f', '').strip()
+            return 'arquivo', filename
         return 'arquivo', None
     
     return 'texto', None
@@ -232,11 +252,19 @@ def _list_audio_files(all_files: list[str]) -> list[str]:
     return found
 
 
+def _is_sticker_file(filepath: str) -> bool:
+    """Detecta se um arquivo é um sticker/figurinha pelo prefixo do nome."""
+    basename = os.path.basename(filepath).lower()
+    return basename.startswith(STICKER_PREFIXES)
+
+
 def _list_image_files(all_files: list[str]) -> list[str]:
-    """Lista os caminhos de imagem presentes no ZIP."""
+    """Lista os caminhos de imagem presentes no ZIP, excluindo stickers."""
     return [
         name for name in all_files
-        if name.lower().endswith(IMAGE_EXTENSIONS_TUPLE) and '__MACOSX' not in name
+        if name.lower().endswith(IMAGE_EXTENSIONS_TUPLE)
+        and '__MACOSX' not in name
+        and not _is_sticker_file(name)
     ]
 
 
@@ -588,7 +616,10 @@ def parse_whatsapp_zip(zip_bytes: bytes, start_date: str = None, end_date: str =
             # Covers: (a) imagem without arquivo, (b) midia_omitida that are actually
             # images — common when chat says <Media omitted> but ZIP has the files.
             if arquivos_imagens:
-                sorted_imgs = sorted(arquivos_imagens.keys())
+                sorted_imgs = sorted(
+                    name for name in arquivos_imagens.keys()
+                    if not _is_sticker_file(name)
+                )
                 img_idx = 0
                 for m in mensagens:
                     tipo = m.get("tipo")

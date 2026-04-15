@@ -6,10 +6,12 @@ from services.whatsapp_parser import parse_whatsapp_zip
 from services.transcription import transcribe_all
 from services.ai_organizer import organize_chat_with_ai
 from services.pdf_generator import generate_pdf_from_html
+from services.credits import credits_service
 import logging
 import uuid
 import time
 import os
+import io
 import asyncio
 from fastapi.responses import Response
 
@@ -23,9 +25,16 @@ _ALLOW_BYPASS = os.getenv("ALLOW_TEST_BYPASS", "false").lower() == "true"
 # In-memory PDF cache with TTL: {pdf_id: (bytes, timestamp)}
 pdf_cache = {}
 
+# Estimation cache for credit gate: {ata_id: {..., zip_bytes, timestamp}}
+estimate_cache = {}
+ESTIMATE_CACHE_TTL = 600  # 10 minutes
+
 class AtaContentUpdate(BaseModel):
     tipo: str
     conteudo: str
+
+class AtaTitleUpdate(BaseModel):
+    titulo: str
 
 
 class PdfGenerateRequest(BaseModel):
@@ -83,11 +92,12 @@ def _update_status(ata_id: str, is_local: bool, supabase, status_name: str, prog
 
 # ── Pipeline de processamento (async, roda via asyncio.create_task) ──
 async def _process_pipeline(ata_id: str, zip_bytes: bytes, is_local: bool, start_date: str = None, end_date: str = None, token: str = None, advogado_id: str = None):
-    """Pipeline completo: parse → transcrição → IA → salvar."""
+    # IMPORTANT: Use the global Supabase client (anon key) for the pipeline.
+    # Do NOT use the user's JWT token here — it expires during long processing
+    # (transcription + AI can take 5-15 mins) causing "JWT expired" errors.
+    # RLS policies already allow anon access via "Service can manage" policies.
     supabase = get_supabase_client()
     is_bypass = _ALLOW_BYPASS and token == "bypass_admin"
-    if supabase and token and not is_bypass:
-        supabase.postgrest.auth(token)
 
     def update(status_name, message="", progress=0):
         _update_status(ata_id, is_local, supabase, status_name, progress=progress, message=message)
@@ -228,12 +238,41 @@ async def _process_pipeline(ata_id: str, zip_bytes: bytes, is_local: bool, start
                     'conteudo_preparatorio': preparatorio_data.get('conteudo')
                 }).execute()
 
+            # Gerar título descritivo a partir dos participantes + período
+            participantes_list = parsed_data.get('participantes', [])
+            periodo = parsed_data.get('periodo', {})
+            p_inicio = periodo.get('inicio', '')
+            p_fim = periodo.get('fim', '')
+            
+            # Formatar: "João, Maria - Jan/2025 a Mar/2025"
+            nomes = ', '.join(participantes_list[:3])
+            if len(participantes_list) > 3:
+                nomes += f' +{len(participantes_list) - 3}'
+            
+            periodo_fmt = ''
+            if p_inicio and p_fim:
+                try:
+                    from datetime import datetime as dt_fmt
+                    d1 = dt_fmt.fromisoformat(p_inicio)
+                    d2 = dt_fmt.fromisoformat(p_fim)
+                    meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+                    periodo_fmt = f"{meses[d1.month-1]}/{d1.year} a {meses[d2.month-1]}/{d2.year}"
+                except Exception:
+                    periodo_fmt = f"{p_inicio} a {p_fim}"
+            elif p_inicio:
+                periodo_fmt = p_inicio
+            
+            titulo_smart = nomes
+            if periodo_fmt:
+                titulo_smart += f" - {periodo_fmt}"
+            
             supabase.table('atas').update({
                 'status': 'ready',
                 'status_message': done_msg,
+                'titulo': titulo_smart,
                 'participantes': parsed_data.get('participantes'),
-                'periodo_inicio': parsed_data.get('periodo', {}).get('inicio'),
-                'periodo_fim': parsed_data.get('periodo', {}).get('fim'),
+                'periodo_inicio': p_inicio,
+                'periodo_fim': p_fim,
                 'total_mensagens': parsed_data.get('total_mensagens'),
                 'total_audios': parsed_data.get('total_audios')
             }).eq('id', ata_id).execute()
@@ -262,15 +301,44 @@ async def _process_pipeline(ata_id: str, zip_bytes: bytes, is_local: bool, start
             }
 
     except Exception as e:
-        err_msg = str(e)
-        logger.error(f"[{ata_id}] Error processing ZIP: {err_msg}", exc_info=True)
+        raw_msg = str(e)
+        logger.error(f"[{ata_id}] Error processing ZIP: {raw_msg}", exc_info=True)
+
+        # Categorize error for user-friendly display on frontend
+        err_lower = raw_msg.lower()
+        if 'badzip' in err_lower or 'zip inválido' in err_lower or 'corrompido' in err_lower:
+            err_category = 'ZIP_INVALID'
+            err_msg = 'O arquivo ZIP está corrompido ou não é válido. Por favor, exporte novamente a conversa do WhatsApp.'
+        elif 'nenhum arquivo de conversa' in err_lower or 'nenhuma mensagem' in err_lower or '_chat.txt' in err_lower:
+            err_category = 'ZIP_NO_CHAT'
+            err_msg = 'O ZIP enviado não contém uma conversa do WhatsApp. Certifique-se de exportar a conversa pelo WhatsApp usando a opção "Exportar conversa".'
+        elif 'nenhuma mensagem encontrada no período' in err_lower:
+            err_category = 'DATE_FILTER_EMPTY'
+            err_msg = raw_msg  # já é amigável
+        elif 'timeout' in err_lower or 'timed out' in err_lower:
+            err_category = 'API_TIMEOUT'
+            err_msg = 'O processamento demorou mais do que o esperado. Isso pode acontecer com conversas muito longas. Tente novamente.'
+        elif 'rate limit' in err_lower or '429' in err_lower:
+            err_category = 'API_RATE_LIMIT'
+            err_msg = 'Os serviços de IA estão temporariamente sobrecarregados. Aguarde alguns minutos e tente novamente.'
+        elif 'openai' in err_lower or 'groq' in err_lower or 'falha ao comunicar' in err_lower:
+            err_category = 'AI_ERROR'
+            err_msg = 'Houve uma falha na comunicação com o serviço de inteligência artificial. Tente novamente em instantes.'
+        elif 'gotenberg' in err_lower or 'pdf' in err_lower:
+            err_category = 'PDF_ERROR'
+            err_msg = 'Erro ao gerar o documento PDF. O conteúdo foi preservado — você pode tentar gerar o PDF novamente na tela de revisão.'
+        else:
+            err_category = 'INTERNAL'
+            err_msg = 'Ocorreu um erro inesperado no processamento. Nossa equipe foi notificada. Tente novamente.'
+
         if ata_id not in local_results:
             local_results[ata_id] = {}
         local_results[ata_id].update({
             'status': 'error',
             'progress': 0,
             'status_message': err_msg,
-            'error_message': err_msg
+            'error_message': err_msg,
+            'error_category': err_category
         })
         if supabase:
             try:
@@ -318,6 +386,10 @@ async def delete_ata(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_conte
     supabase = auth_ctx.client
     if supabase:
         try:
+            # Remove transações de crédito associadas para não violar constraint de Foreign Key
+            supabase.table("credit_transactions").delete().eq("ata_id", ata_id).execute()
+            
+            # Deleta a ata
             supabase.table("atas").delete().eq("id", ata_id).execute()
         except Exception as e:
             logger.error(f"Erro ao deletar ata {ata_id}: {e}")
@@ -361,7 +433,7 @@ async def upload_whatsapp_zip(
         try:
             response = supabase.table('atas').insert({
                 'advogado_id': advogado_id,
-                'titulo': f"Import do WhatsApp - {file.filename}",
+                'titulo': f"Conversa - {file.filename}",
                 'status': 'uploading',
                 'zip_filename': file.filename
             }).execute()
@@ -391,6 +463,193 @@ async def upload_whatsapp_zip(
     
     return {"status": "processing", "ata_id": ata_id}
 
+
+# ══════════════════════════════════════════════════════════════════
+# ESTIMATION GATE — Credit Checkpoint Endpoints
+# ══════════════════════════════════════════════════════════════════
+
+class ConfirmUploadRequest(BaseModel):
+    ata_id: str
+
+
+def _cleanup_estimate_cache():
+    """Remove expired estimates."""
+    now = time.time()
+    expired = [eid for eid, data in estimate_cache.items() if now - data["timestamp"] > ESTIMATE_CACHE_TTL]
+    for eid in expired:
+        del estimate_cache[eid]
+    if expired:
+        logger.info(f"Cleaned up {len(expired)} expired estimates from cache")
+
+
+@router.post("/upload/estimate")
+async def estimate_upload(
+    file: UploadFile = File(...),
+    startDate: str = Form(None),
+    endDate: str = Form(None),
+    auth_ctx: AuthContext = Depends(get_auth_context)
+):
+    """Phase 1: Parse ZIP and estimate pages without processing."""
+    start_date = startDate.strip() if startDate and startDate.strip() else None
+    end_date = endDate.strip() if endDate and endDate.strip() else None
+
+    if not file.filename.endswith('.zip'):
+        raise HTTPException(status_code=400, detail="Apenas arquivos .zip são aceitos")
+
+    zip_bytes = await file.read()
+    if len(zip_bytes) > MAX_UPLOAD_SIZE:
+        size_mb = len(zip_bytes) / (1024 * 1024)
+        raise HTTPException(status_code=413, detail=f"Arquivo muito grande ({size_mb:.0f}MB). Limite: {MAX_UPLOAD_SIZE // (1024*1024)}MB")
+
+    advogado_id = auth_ctx.advogado_id
+
+    # Parse rápido (sem transcrição, sem IA)
+    try:
+        loop = asyncio.get_running_loop()
+        parsed_data = await loop.run_in_executor(
+            None,
+            lambda: parse_whatsapp_zip(zip_bytes, start_date=start_date, end_date=end_date)
+        )
+    except Exception as e:
+        logger.error(f"[ESTIMATE] Erro ao analisar ZIP: {e}")
+        raise HTTPException(status_code=400, detail=f"Erro ao analisar arquivo: {str(e)}")
+
+    all_audio_bytes = parsed_data.get("arquivos_extraidos", {})
+
+    # Build audio file sizes dict (both full path and basename for safety)
+    audio_file_sizes = {}
+    for fname, data in all_audio_bytes.items():
+        audio_file_sizes[fname] = len(data)
+        audio_file_sizes[os.path.basename(fname)] = len(data)
+
+    # Always estimate pages from parsed data
+    estimated_pages = credits_service.estimate_pages(parsed_data, audio_file_sizes)
+
+    # Credit check depends on Supabase being available
+    is_bypass = _ALLOW_BYPASS and advogado_id == "bypass-admin-id"
+    if is_bypass or not auth_ctx.client:
+        balance = 999
+        has_credits = True
+    else:
+        balance = credits_service.get_balance(advogado_id)
+        has_credits = balance >= estimated_pages
+
+    # Generate temporary ID and cache ZIP for confirm phase
+    ata_id = str(uuid.uuid4())
+    _cleanup_estimate_cache()
+    estimate_cache[ata_id] = {
+        "zip_bytes": zip_bytes,
+        "start_date": start_date,
+        "end_date": end_date,
+        "advogado_id": advogado_id,
+        "token": auth_ctx.token,
+        "estimated_pages": estimated_pages,
+        "confirmed": False,
+        "timestamp": time.time(),
+        "zip_filename": file.filename
+    }
+
+    logger.info(f"[ESTIMATE] {ata_id}: {estimated_pages} páginas estimadas, saldo={balance}, suficiente={has_credits}")
+
+    return {
+        "ata_id": ata_id,
+        "estimated_pages": estimated_pages,
+        "balance": balance,
+        "has_credits": has_credits,
+        "total_mensagens": parsed_data.get("total_mensagens", 0),
+        "total_audios": parsed_data.get("total_audios", 0),
+    }
+
+
+@router.post("/upload/confirm")
+async def confirm_upload(
+    req: ConfirmUploadRequest,
+    auth_ctx: AuthContext = Depends(get_auth_context)
+):
+    """Phase 2: Debit credits and start processing."""
+    ata_id = req.ata_id
+    advogado_id = auth_ctx.advogado_id
+
+    # Verify cache
+    cached = estimate_cache.get(ata_id)
+    if not cached:
+        raise HTTPException(status_code=404, detail="Estimativa expirada ou não encontrada. Envie o arquivo novamente.")
+
+    # Verify ownership
+    if cached["advogado_id"] != advogado_id:
+        raise HTTPException(status_code=403, detail="Acesso não autorizado.")
+
+    # Verify TTL
+    if time.time() - cached["timestamp"] > ESTIMATE_CACHE_TTL:
+        del estimate_cache[ata_id]
+        raise HTTPException(status_code=410, detail="Estimativa expirou (10 minutos). Envie o arquivo novamente.")
+
+    # Prevent double-confirm
+    if cached["confirmed"]:
+        raise HTTPException(status_code=409, detail="Este processamento já foi confirmado.")
+
+    # Prepare data
+    estimated_pages = cached["estimated_pages"]
+    is_bypass = _ALLOW_BYPASS and advogado_id == "bypass-admin-id"
+    supabase = auth_ctx.client
+    zip_bytes = cached["zip_bytes"]
+    start_date = cached["start_date"]
+    end_date = cached["end_date"]
+    token = cached["token"]
+    is_bypass_user = _ALLOW_BYPASS and advogado_id == "bypass-admin-id"
+
+    # Check credits first (without debiting yet)
+    if not is_bypass and supabase:
+        if not credits_service.has_sufficient_credits(advogado_id, estimated_pages):
+            raise HTTPException(status_code=402, detail=f"Saldo insuficiente. Necessário: {estimated_pages} créditos.")
+
+    cached["confirmed"] = True
+
+    # Step 1: Create ata record FIRST (FK on credit_transactions.ata_id requires this)
+    ata_record = None
+    if supabase and not is_bypass_user:
+        try:
+            zip_filename = cached.get("zip_filename", "upload.zip")
+            response = supabase.table('atas').insert({
+                'id': ata_id,
+                'advogado_id': advogado_id,
+                'titulo': f"Conversa - {zip_filename}",
+                'status': 'uploading',
+                'zip_filename': zip_filename,
+                'estimated_pages': estimated_pages
+            }).execute()
+            if response.data:
+                ata_record = response.data[0]
+        except Exception as e:
+            logger.warning(f"Supabase insert ata failed (using local mode): {e}")
+
+    # Step 2: Debit credits AFTER ata exists (so FK ata_id is valid)
+    if not is_bypass and supabase:
+        if not credits_service.debit_credits(advogado_id, ata_id, estimated_pages):
+            logger.error(f"[CONFIRM] Failed to debit credits for {ata_id}")
+            # Don't block processing — credits were verified above
+
+    is_local = ata_record is None
+    local_results[ata_id] = {
+        "status": "uploading",
+        "progress": 0,
+        "status_message": "Créditos debitados. Iniciando processamento...",
+        "user_id": advogado_id,
+        "is_local": is_local
+    }
+
+    # Dispatch existing pipeline (untouched)
+    asyncio.create_task(
+        _process_pipeline(ata_id, zip_bytes, is_local, start_date, end_date, token, advogado_id)
+    )
+
+    # Free ZIP from cache memory
+    cached["zip_bytes"] = None
+
+    logger.info(f"[CONFIRM] {ata_id}: {estimated_pages} créditos debitados, pipeline iniciada.")
+    return {"status": "processing", "ata_id": ata_id, "debited_credits": estimated_pages}
+
+
 @router.get("/{ata_id}/status")
 async def get_ata_status(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_context)):
     try:
@@ -402,7 +661,8 @@ async def get_ata_status(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_c
                     "status": cached.get('status', 'ready'), 
                     "progress": cached.get('progress', 0),
                     "status_message": cached.get('status_message', ""),
-                    "error_message": cached.get('error_message')
+                    "error_message": cached.get('error_message'),
+                    "error_category": cached.get('error_category')
                 }
             return {"status": "uploading", "progress": 0, "status_message": "Aguardando início..."}
         
@@ -475,6 +735,23 @@ async def update_ata_content(
     column = "conteudo_formal" if update_data.tipo == "formal" else "conteudo_preparatorio"
     supabase.table("atas_conteudo").update({column: update_data.conteudo}).eq("ata_id", ata_id).execute()
     return {"status": "success"}
+
+@router.patch("/{ata_id}/titulo")
+async def update_ata_title(
+    ata_id: str,
+    update_data: AtaTitleUpdate,
+    auth_ctx: AuthContext = Depends(get_auth_context)
+):
+    supabase = auth_ctx.client
+    if not supabase or ata_id in local_results:
+        if ata_id in local_results:
+            local_results[ata_id]["titulo"] = update_data.titulo
+        return {"status": "success", "message": "Mocked update"}
+
+    # Update only the title in the atas table
+    supabase.table("atas").update({"titulo": update_data.titulo}).eq("id", ata_id).execute()
+    return {"status": "success"}
+
 
 @router.post("/{ata_id}/generate-formal")
 async def generate_formal_content(
@@ -550,6 +827,38 @@ async def generate_pdf(
     if not pdf_bytes:
         raise HTTPException(status_code=500, detail="Erro ao gerar PDF")
 
+    # ── Contagem real de páginas e reembolso automático ──
+    actual_pages = None
+    estimated_pages = 0
+    refunded_credits = 0
+    balance_after = None
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        actual_pages = len(reader.pages)
+        logger.info(f"[PDF] {ata_id}: {actual_pages} páginas reais no PDF gerado")
+    except Exception as e:
+        logger.warning(f"[PDF] Falha ao contar páginas do PDF: {e}")
+
+    if auth_ctx.client:
+        try:
+            # Buscar estimativa original da ata sempre, para exibir no relatório frontend
+            ata_resp = auth_ctx.client.table("atas").select("estimated_pages").eq("id", ata_id).execute()
+            if ata_resp.data:
+                estimated_pages = ata_resp.data[0].get("estimated_pages", 0)
+                
+            # Só faz reembolso se conseguiu contar as páginas reais e a estimativa for maior
+            if actual_pages and estimated_pages > actual_pages:
+                refunded_credits = estimated_pages - actual_pages
+                credits_service.refund_credits(auth_ctx.advogado_id, ata_id, estimated_pages, actual_pages)
+                logger.info(f"[REFUND] {ata_id}: devolvidos {refunded_credits} créditos "
+                            f"(estimado={estimated_pages}, real={actual_pages})")
+            
+            # Buscar saldo atualizado sempre
+            balance_after = credits_service.get_balance(auth_ctx.advogado_id)
+        except Exception as e:
+            logger.warning(f"[REFUND] Falha ao processar reembolso: {e}")
+
     # Cleanup expired PDFs before adding new one
     _cleanup_pdf_cache()
 
@@ -557,7 +866,14 @@ async def generate_pdf(
     pdf_cache[pdf_id] = (pdf_bytes, time.time(), auth_ctx.advogado_id)
     
     api_url = str(request.base_url).rstrip('/')
-    return {"pdf_url": f"{api_url}/api/atas/download/{pdf_id}"}
+    return {
+        "pdf_url": f"{api_url}/api/atas/download/{pdf_id}",
+        "actual_pages": actual_pages,
+        "estimated_pages": estimated_pages,
+        "credits_used": actual_pages or estimated_pages,
+        "refunded_credits": refunded_credits,
+        "balance_after": balance_after,
+    }
 
 
 def _cleanup_pdf_cache():

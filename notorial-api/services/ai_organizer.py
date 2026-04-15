@@ -157,11 +157,23 @@ def _chat_to_text(chat_json: dict) -> str:
             else:
                 lines.append(f"{timestamp} {remetente}: \U0001f4f7 [IMAGEM ANEXADA]")
         elif tipo == "video":
-            lines.append(f"{timestamp} {remetente}: \U0001f3a5 [VÍDEO ANEXADO]")
+            arquivo = msg.get("arquivo")
+            if arquivo:
+                vid_name = os.path.basename(arquivo)
+                lines.append(f"{timestamp} {remetente}: \U0001f3a5 [VÍDEO ANEXADO: {vid_name}]")
+            else:
+                lines.append(f"{timestamp} {remetente}: \U0001f3a5 [VÍDEO ANEXADO]")
         elif tipo == "midia_omitida":
             lines.append(f"{timestamp} {remetente}: \U0001f4ce [MÍDIA OMITIDA]")
+        elif tipo == "figurinha":
+            continue  # Figurinhas/stickers são irrelevantes — não incluir no documento
         elif tipo == "arquivo":
-            lines.append(f"{timestamp} {remetente}: \U0001f4c4 [DOCUMENTO ANEXADO]")
+            arquivo_str = msg.get("arquivo")
+            if arquivo_str:
+                file_basename = os.path.basename(arquivo_str)
+                lines.append(f"{timestamp} {remetente}: \U0001f4c4 [DOCUMENTO ANEXADO: {file_basename}]")
+            else:
+                lines.append(f"{timestamp} {remetente}: \U0001f4c4 [DOCUMENTO ANEXADO]")
         else:
             lines.append(f'{timestamp} {remetente}: "{clean_content}"')
     
@@ -559,6 +571,34 @@ def _inject_images_base64(html_str: str, image_bytes_dict: dict) -> str:
     return result
 
 
+def _inject_document_thumbnails(html_str: str) -> str:
+    """Substitui marcadores [DOCUMENTO ANEXADO: filename] por um bloco HTML de thumbnail estilizado."""
+    DOC_MARKER_RE = re.compile(r'\[DOCUMENTO ANEXADO:\s*([^\]]+?)\]')
+    
+    def render_doc_html(match):
+        filename = match.group(1).strip()
+        
+        # Extrai extensão do arquivo
+        parts = filename.split('.')
+        ext = parts[-1].upper() if len(parts) > 1 else 'DOC'
+        # Limita a 5 caracteres para não quebrar layout
+        ext = ext[:5]
+        
+        # Estilo inline visando compatibilidade com PDF Chromium/wkhtmltopdf
+        return f'''<div style="display: inline-flex; align-items: center; align-content: center; background-color: #f0f2f5; border-radius: 6px; padding: 6px 12px; margin: 4px 0; border: 1px solid #e0e0e0; max-width: 320px;">
+    <div style="background-color: #ff5252; color: #ffffff; border-radius: 4px; padding: 4px 8px; font-weight: bold; font-family: monospace; font-size: 11px; margin-right: 10px;">
+        {ext}
+    </div>
+    <div style="display: flex; flex-direction: column; overflow: hidden;">
+        <span style="font-weight: 600; font-size: 12px; color: #111b21; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 230px;">{filename}</span>
+        <span style="font-size: 10px; color: #667781; margin-top: 1px;">Documento Anexado</span>
+    </div>
+</div>'''
+    
+    return DOC_MARKER_RE.sub(render_doc_html, html_str)
+
+
+
 async def organize_chat_with_ai(chat_json: dict, is_formal: bool = True, on_progress: callable = None, image_bytes: dict = None) -> dict:
     """
     Transforma o chat parseado em documento organizado via OpenAI.
@@ -587,6 +627,7 @@ async def organize_chat_with_ai(chat_json: dict, is_formal: bool = True, on_prog
                 content = _restore_audio_markers(result, chat_text)
                 content = _unify_index_section(_apply_formatting(content))
                 html = _markdown_to_html(content)
+                html = _inject_document_thumbnails(html)
                 if image_bytes:
                     html = _inject_images_base64(html, image_bytes)
                 return {"conteudo": html}
@@ -635,6 +676,7 @@ async def organize_chat_with_ai(chat_json: dict, is_formal: bool = True, on_prog
             final_content = _restore_audio_markers(final_content, chat_text)
             content = _unify_index_section(_apply_formatting(final_content))
             html = _markdown_to_html(content)
+            html = _inject_document_thumbnails(html)
             if image_bytes:
                 html = _inject_images_base64(html, image_bytes)
             return {"conteudo": html}

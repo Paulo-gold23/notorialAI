@@ -3,11 +3,17 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { supabase } from './services/supabase';
 import { checkIsAdmin } from './services/adminApi';
 import { ToastProvider } from './components/ToastContext';
+import ErrorBoundary from './components/ErrorBoundary';
+import OfflineBanner from './components/OfflineBanner';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Upload from './pages/Upload';
 import Review from './pages/Review';
 import AdminDashboard from './pages/AdminDashboard';
+import Credits from './pages/Credits';
+import Profile from './pages/Profile';
+import TermsOfUse from './pages/TermsOfUse';
+import PrivacyPolicy from './pages/PrivacyPolicy';
 
 // Apply saved theme on app load
 function initializeTheme() {
@@ -44,14 +50,6 @@ function App() {
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    // Test admin override
-    if (sessionStorage.getItem('notorial_test_admin') === 'true') {
-      setSession({
-        user: { email: 'demo@legisvox.ai', user_metadata: { nome: 'Visitante' } },
-      });
-      return;
-    }
-
     const checkApprovalStatus = async (currentSession) => {
       if (!currentSession) {
         setSession(null);
@@ -91,9 +89,7 @@ function App() {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (sessionStorage.getItem('notorial_test_admin') !== 'true') {
-        checkApprovalStatus(session);
-      }
+      checkApprovalStatus(session);
     });
 
     return () => subscription.unsubscribe();
@@ -113,26 +109,37 @@ function App() {
   }
 
   return (
-    <ToastProvider>
-      <HashRouter>
-        <Routes>
-          {!session ? (
-            <>
-              <Route path="/login" element={<Login />} />
-              <Route path="*" element={<Navigate to="/login" replace />} />
-            </>
-          ) : (
-            <>
-              <Route path="/" element={<Dashboard isAdmin={isAdmin} />} />
-              <Route path="/upload" element={<Upload />} />
-              <Route path="/review/:id" element={<Review />} />
-              <Route path="/admin" element={isAdmin ? <AdminDashboard /> : <Navigate to="/" replace />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </>
-          )}
-        </Routes>
-      </HashRouter>
-    </ToastProvider>
+    <>
+      <OfflineBanner />
+      <ErrorBoundary>
+      <ToastProvider>
+        <HashRouter>
+          <Routes>
+            {!session ? (
+              <>
+                <Route path="/login" element={<Login />} />
+                <Route path="/terms" element={<TermsOfUse />} />
+                <Route path="/privacy" element={<PrivacyPolicy />} />
+                <Route path="*" element={<Navigate to="/login" replace />} />
+              </>
+            ) : (
+              <>
+                <Route path="/" element={<Dashboard isAdmin={isAdmin} />} />
+                <Route path="/upload" element={<Upload />} />
+                <Route path="/review/:id" element={<Review />} />
+                <Route path="/credits" element={<Credits />} />
+                <Route path="/profile" element={<Profile />} />
+                <Route path="/terms" element={<TermsOfUse />} />
+                <Route path="/privacy" element={<PrivacyPolicy />} />
+                <Route path="/admin" element={isAdmin ? <AdminDashboard /> : <Navigate to="/" replace />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </>
+            )}
+          </Routes>
+        </HashRouter>
+      </ToastProvider>
+    </ErrorBoundary>
+    </>
   );
 }
 

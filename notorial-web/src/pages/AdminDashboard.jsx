@@ -102,7 +102,23 @@ export default function AdminDashboard() {
   const handleApprove = async (id, nome) => {
     try {
       await updateAdvogadoStatus(id, 'aprovado');
-      toast.success(`${nome} aprovado com sucesso.`);
+      
+      // Conceder 50 créditos de boas-vindas automaticamente
+      try {
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        if (token) {
+          await fetch(`${API_URL}/api/credits/welcome`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'advogado_id': id }
+          });
+        }
+      } catch (creditErr) {
+        console.warn('Créditos de boas-vindas não concedidos:', creditErr);
+      }
+      
+      toast.success(`${nome} aprovado com sucesso! 🎁 50 créditos de boas-vindas concedidos.`);
       await loadAll();
     } catch (err) { toast.error(err.message); }
   };

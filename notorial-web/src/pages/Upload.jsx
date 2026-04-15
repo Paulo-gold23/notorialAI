@@ -1,19 +1,22 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { uploadZip, getAtaStatus } from '../services/api';
-import { UploadCloud, Calendar, Send, Check as CheckIcon, ArrowRight, FileText, FileAudio, FileImage, FileStack, Loader2 } from 'lucide-react';
+import { uploadZip, getAtaStatus, estimateUpload, confirmUpload } from '../services/api';
+import { UploadCloud, Calendar, Send, Check as CheckIcon, ArrowRight, FileText, FileAudio, FileImage, FileStack, Loader2, Coins, AlertTriangle, ShieldCheck } from 'lucide-react';
 import JSZip from 'jszip';
 import Logo from '../components/Logo';
 import BackButton from '../components/BackButton';
 import AnimatedNumber from '../components/AnimatedNumber';
 import { useToast } from '../components/ToastContext';
+import ErrorState from '../components/ErrorState';
+import LegalFooter from '../components/LegalFooter';
 
 const STEPS = [
     { key: 'optimizing', label: 'Otimizando arquivo', desc: 'Filtrando mídias fora do período' },
-    { key: 'uploading', label: 'Enviando ZIP', desc: 'Transferindo arquivo para o servidor' },
-    { key: 'parsing', label: 'Parseando conversa', desc: 'Extraindo mensagens e metadados' },
+    { key: 'estimating', label: 'Analisando conteúdo', desc: 'Estimando custo de processamento' },
+    { key: 'uploading', label: 'Preparando processamento', desc: 'Debitando créditos e iniciando' },
+    { key: 'parsing', label: 'Extraindo mensagens', desc: 'Processando conversas e metadados' },
     { key: 'transcribing', label: 'Transcrevendo áudios', desc: 'Convertendo áudio em texto com IA' },
-    { key: 'organizing', label: 'Organizando com IA', desc: 'Estruturando conteúdo cronologicamente' },
+    { key: 'organizing', label: 'Organizando documento', desc: 'Estruturando conteúdo cronologicamente' },
     { key: 'ready', label: 'Pronta!', desc: 'Ata gerada com sucesso' },
 ];
 
@@ -60,6 +63,8 @@ export default function Upload() {
     const [statusMessage, setStatusMessage] = useState('');
     const [zipPreview, setZipPreview] = useState(null);
     const [invalidDrop, setInvalidDrop] = useState(false);
+    const [estimationData, setEstimationData] = useState(null);
+    const [errorCategory, setErrorCategory] = useState(null);
     const inputRef = useRef(null);
     const navigate = useNavigate();
     const toast = useToast();
@@ -154,6 +159,7 @@ export default function Upload() {
 
                 if (data.status === 'error') {
                     setError(data.error_message || 'Erro no processamento');
+                    setErrorCategory(data.error_category || 'INTERNAL');
                     setUploading(false);
                     toast.error(data.error_message || 'Erro no processamento');
                 }
@@ -200,7 +206,20 @@ export default function Upload() {
         setStartDate('');
         setEndDate('');
         setError('');
+        setErrorCategory(null);
         setZipPreview(null);
+        setEstimationData(null);
+    };
+
+    const handleRetry = () => {
+        setError('');
+        setErrorCategory(null);
+        setCurrentStatus(null);
+        setUploading(false);
+        setAtaId(null);
+        setProgress(0);
+        setStatusMessage('');
+        // Keep file selected so user can retry without re-selecting
     };
 
     const handleUpload = async () => {
@@ -294,16 +313,38 @@ export default function Upload() {
             }
         }
 
-        setCurrentStatus('uploading');
+        setCurrentStatus('estimating');
+        setStatusMessage('Analisando conversa e estimando custo...');
 
         try {
-            const data = await uploadZip(fileToUpload, { startDate, endDate });
+            const data = await estimateUpload(fileToUpload, { startDate, endDate });
+            setEstimationData(data);
+            setCurrentStatus(null);
+            setUploading(false);
+        } catch (err) {
+            setError(err.message || 'Erro ao analisar arquivo');
+            setUploading(false);
+            setCurrentStatus(null);
+            toast.error(err.message || 'Erro ao analisar arquivo');
+        }
+    };
+
+    const handleConfirm = async () => {
+        if (!estimationData) return;
+        setUploading(true);
+        setEstimationData(null);
+        setCurrentStatus('uploading');
+        setStatusMessage('Debitando créditos e iniciando processamento...');
+
+        try {
+            const data = await confirmUpload(estimationData.ata_id);
             setAtaId(data.ata_id);
             setCurrentStatus('parsing');
         } catch (err) {
-            setError(err.message || 'Erro ao enviar arquivo');
+            setError(err.message || 'Erro ao confirmar processamento');
             setUploading(false);
-            toast.error(err.message || 'Erro ao enviar arquivo');
+            setCurrentStatus(null);
+            toast.error(err.message || 'Erro ao confirmar processamento');
         }
     };
 
@@ -321,14 +362,14 @@ export default function Upload() {
             <BackButton />
 
             <h1 className="font-serif" style={{ fontSize: '1.5rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Logo size={32} /> Nova Ata Notarial
+                <Logo size={32} /> Nova Conversa
             </h1>
             <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>
                 Exporte a conversa do WhatsApp como ZIP e faça o upload abaixo.
             </p>
 
             {/* Drop Zone */}
-            {!uploading && !currentStatus && (
+            {!uploading && !currentStatus && !estimationData && (
                 <>
                     <div
                         onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
@@ -474,6 +515,104 @@ export default function Upload() {
                 </>
             )}
 
+            {/* Estimation Gate */}
+            {estimationData && !currentStatus && (
+                <div className="card animate-scale-in" style={{ marginTop: '1.5rem', position: 'relative' }}>
+                    <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+                        <div style={{
+                            width: '64px', height: '64px', borderRadius: '50%',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            margin: '0 auto 1rem',
+                            background: estimationData.has_credits ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                            color: estimationData.has_credits ? '#10b981' : 'var(--danger)',
+                        }}>
+                            {estimationData.has_credits ? <ShieldCheck size={32} /> : <AlertTriangle size={32} />}
+                        </div>
+                        <h3 className="font-serif text-xl" style={{ color: 'var(--text-main)', marginBottom: '0.5rem' }}>
+                            Estimativa de Processamento
+                        </h3>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                            Analisamos o conteúdo do seu arquivo. Confira os detalhes:
+                        </p>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+                        <div style={{
+                            background: 'var(--surface-color)', padding: '1.25rem',
+                            borderRadius: '0.75rem', border: '1px solid var(--border-color)',
+                            textAlign: 'center'
+                        }}>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
+                                Reserva Estimada
+                            </div>
+                            <div style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                                {estimationData.estimated_pages}
+                            </div>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>créditos</div>
+                        </div>
+                        <div style={{
+                            background: 'var(--surface-color)', padding: '1.25rem',
+                            borderRadius: '0.75rem', border: '1px solid var(--border-color)',
+                            textAlign: 'center'
+                        }}>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
+                                Seu Saldo Atual
+                            </div>
+                            <div style={{
+                                fontSize: '2rem', fontWeight: 700,
+                                color: estimationData.has_credits ? 'var(--success)' : 'var(--danger)'
+                            }}>
+                                {Math.floor(estimationData.balance)}
+                            </div>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>créditos disponíveis</div>
+                        </div>
+                    </div>
+
+                    {estimationData.has_credits ? (
+                        <div>
+                            <div style={{
+                                background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)',
+                                borderRadius: '0.5rem', padding: '0.75rem 1rem', marginBottom: '1rem',
+                                fontSize: '0.85rem', color: 'var(--primary-color)', textAlign: 'center'
+                            }}>
+                                💡 Após a geração do PDF, faremos o <strong>ajuste exato</strong> do saldo: você pagará apenas pelo número real de páginas geradas (1 página = 1 crédito).
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.75rem' }}>
+                                <button onClick={handleCancel} className="btn-secondary" style={{ flex: 1 }}>
+                                    Cancelar
+                                </button>
+                                <button onClick={handleConfirm} className="btn-gradient" style={{ flex: 2 }}>
+                                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                                        <Coins size={18} /> Reservar {estimationData.estimated_pages} créditos e Processar
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div>
+                            <div style={{
+                                background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)',
+                                borderRadius: '0.5rem', padding: '0.75rem 1rem', marginBottom: '1rem',
+                                fontSize: '0.85rem', color: 'var(--danger)', textAlign: 'center'
+                            }}>
+                                ⚠️ Saldo insuficiente para iniciar. Você precisa reservar {estimationData.estimated_pages} créditos, mas possui apenas {Math.floor(estimationData.balance)}.
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '0.75rem' }}>
+                                <button onClick={handleCancel} className="btn-secondary" style={{ flex: 1 }}>
+                                    Cancelar
+                                </button>
+                                <button onClick={() => navigate('/credits')} className="btn-gradient" style={{ flex: 2 }}>
+                                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                                        <Coins size={18} /> Adquirir Créditos
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* Progress Steps */}
             {currentStatus && (
                 <div className="card animate-scale-in" style={{ marginTop: '1rem', position: 'relative' }}>
@@ -605,21 +744,17 @@ export default function Upload() {
 
             {/* Error */}
             {error && (
-                <div className="animate-shake" style={{
-                    background: 'rgba(239,68,68,0.12)',
-                    border: '1px solid rgba(239,68,68,0.25)',
-                    borderRadius: '0.5rem',
-                    padding: '0.75rem 1rem',
-                    marginTop: '1rem',
-                    color: 'var(--danger)',
-                    fontSize: '0.875rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                }}>
-                    <span>⚠</span> {error}
+                <div style={{ marginTop: '1rem' }}>
+                    <ErrorState
+                        category={errorCategory || 'INTERNAL'}
+                        message={error}
+                        onRetry={handleRetry}
+                        onBack={handleCancel}
+                        compact={true}
+                    />
                 </div>
             )}
+            <LegalFooter style={{ marginTop: '3rem' }} />
         </div>
     );
 }

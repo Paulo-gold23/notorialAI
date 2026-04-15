@@ -1,19 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, FileText, LogOut, Trash2, Plus, Settings, Upload, Sparkles, FileCheck, Shield } from 'lucide-react';
-import { listAtas, deleteAta } from '../services/api';
+import { Search, FileText, LogOut, Trash2, Plus, Settings, Upload, Sparkles, FileCheck, Shield, Edit2, Check, X, User } from 'lucide-react';
+import { listAtas, deleteAta, updateAtaTitle } from '../services/api';
+import { creditsApi } from '../services/creditsApi';
 import { supabase } from '../services/supabase';
 import ConfirmModal from '../components/ConfirmModal';
 import SettingsModal from '../components/SettingsModal';
+import TutorialModal from '../components/TutorialModal';
 import { SkeletonList } from '../components/Skeleton';
 import { useToast } from '../components/ToastContext';
 import Logo from '../components/Logo';
+import CreditBalance from '../components/CreditBalance';
+import { HelpCircle } from 'lucide-react';
+import LegalFooter from '../components/LegalFooter';
 
 const STATUS_LABELS = {
     uploading: { text: 'Enviando...', className: 'bg-yellow-500/20 text-yellow-500' },
-    parsing: { text: 'Parseando chat', className: 'bg-orange-500/20 text-orange-400' },
+    parsing: { text: 'Extraindo mensagens', className: 'bg-orange-500/20 text-orange-400' },
     transcribing: { text: 'Transcrevendo', className: 'bg-indigo-500/20 text-indigo-400' },
-    organizing: { text: 'Organizando com IA', className: 'bg-sky-500/20 text-sky-400' },
+    organizing: { text: 'Organizando documento', className: 'bg-sky-500/20 text-sky-400' },
     ready: { text: 'Pronta', className: 'bg-green-500/20 text-green-400' },
     error: { text: 'Erro', className: 'bg-red-500/20 text-red-400' },
 };
@@ -32,21 +37,37 @@ export default function Dashboard({ isAdmin = false }) {
     const [searchQuery, setSearchQuery] = useState('');
     const [confirmModal, setConfirmModal] = useState({ isOpen: false, id: null });
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isTutorialOpen, setIsTutorialOpen] = useState(false);
+    const [editingId, setEditingId] = useState(null);
+    const [editTitle, setEditTitle] = useState('');
 
     const navigate = useNavigate();
     const toast = useToast();
 
     useEffect(() => {
         loadData();
+        // Check tutorial status on first load
+        if (!localStorage.getItem('legisvox_tutorial_seen')) {
+            setIsTutorialOpen(true);
+            localStorage.setItem('legisvox_tutorial_seen', 'true');
+        }
     }, []);
 
     const loadData = async () => {
         try {
-            if (sessionStorage.getItem('notorial_test_admin') === 'true') {
-                setUserName('Visitante');
-            } else {
-                const { data: { user } } = await supabase.auth.getUser();
-                setUserName(user?.user_metadata?.nome || user?.email || '');
+            const { data: { user } } = await supabase.auth.getUser();
+            setUserName(user?.user_metadata?.nome || user?.email || '');
+            
+            // Auto-claim welcome credits logic
+            try {
+                const trialStatus = await creditsApi.getTrialStatus();
+                if (trialStatus.trial_eligible) {
+                    await creditsApi.claimWelcomeCredits();
+                    window.dispatchEvent(new Event('creditsUpdated'));
+                    toast.success('Você recebeu 50 créditos gratuitos de boas-vindas!', { duration: 5000 });
+                }
+            } catch(e) {
+                console.error("Falha ao checar/resgatar créditos de boas-vindas:", e);
             }
             const data = await listAtas();
             setAtas(Array.isArray(data) ? data : []);
@@ -59,11 +80,7 @@ export default function Dashboard({ isAdmin = false }) {
     };
 
     const handleLogout = async () => {
-        const isDemo = sessionStorage.getItem('notorial_test_admin') === 'true';
-        sessionStorage.removeItem('notorial_test_admin');
-        if (!isDemo) {
-            try { await supabase.auth.signOut(); } catch (e) { /* ignore */ }
-        }
+        try { await supabase.auth.signOut(); } catch (e) { /* ignore */ }
         window.location.reload();
     };
 
@@ -86,6 +103,31 @@ export default function Dashboard({ isAdmin = false }) {
         }
     };
 
+    const handleEditClick = (e, ata) => {
+        e.stopPropagation();
+        setEditingId(ata.id);
+        setEditTitle(ata.titulo || 'Ata sem título');
+    };
+
+    const cancelEdit = (e) => {
+        e.stopPropagation();
+        setEditingId(null);
+    };
+
+    const saveEdit = async (e, id) => {
+        e.stopPropagation();
+        if (!editTitle.trim()) return;
+        
+        try {
+            await updateAtaTitle(id, editTitle);
+            setAtas(prev => prev.map(a => a.id === id ? { ...a, titulo: editTitle } : a));
+            setEditingId(null);
+            toast.success('Título atualizado com sucesso.');
+        } catch (err) {
+            toast.error('Erro ao atualizar título: ' + err.message);
+        }
+    };
+
     const filteredAtas = atas.filter(ata =>
         (ata.titulo || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
@@ -102,9 +144,23 @@ export default function Dashboard({ isAdmin = false }) {
                         {getGreeting()}, {userName}
                     </p>
                 </div>
-                <div className="flex gap-3 w-full md:w-auto">
+                <div className="flex gap-3 w-full md:w-auto items-center flex-wrap">
+                    <CreditBalance />
+                    
+                    <button 
+                        onClick={() => setIsTutorialOpen(true)}
+                        className="flex-1 md:flex-none flex items-center justify-center gap-2 p-2.5 rounded-md transition-colors cursor-pointer"
+                        style={{ border: '1px solid var(--border-color)', color: 'var(--text-muted)', background: 'transparent' }}
+                        onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--border-hover)'; e.currentTarget.style.color = 'var(--text-main)'; }}
+                        onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                        title="Como Funciona?"
+                    >
+                        <HelpCircle size={20} />
+                        <span className="md:hidden">Tutorial</span>
+                    </button>
+
                     <button className="btn-primary flex-1 md:flex-none flex items-center justify-center gap-2 py-2.5 px-5" onClick={() => navigate('/upload')}>
-                        <Plus size={18} /> Nova Ata
+                        <Plus size={18} /> Nova Conversa
                     </button>
                     {isAdmin && (
                         <button
@@ -123,12 +179,22 @@ export default function Dashboard({ isAdmin = false }) {
                         </button>
                     )}
                     <button
+                        onClick={() => navigate('/profile')}
+                        className="flex-1 md:flex-none flex items-center justify-center p-2.5 rounded-md transition-colors cursor-pointer"
+                        style={{ border: '1px solid var(--border-color)', color: 'var(--text-muted)', background: 'transparent' }}
+                        onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--border-hover)'; e.currentTarget.style.color = 'var(--text-main)'; }}
+                        onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                        title="Meu Perfil"
+                    >
+                        <User size={20} />
+                    </button>
+                    <button
                         onClick={() => setIsSettingsOpen(true)}
                         className="flex-1 md:flex-none flex items-center justify-center p-2.5 rounded-md transition-colors cursor-pointer"
                         style={{ border: '1px solid var(--border-color)', color: 'var(--text-muted)', background: 'transparent' }}
                         onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--border-hover)'; e.currentTarget.style.color = 'var(--text-main)'; }}
                         onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
-                        title="Configurações"
+                        title="Temas (Configurações)"
                     >
                         <Settings size={20} />
                     </button>
@@ -212,7 +278,7 @@ export default function Dashboard({ isAdmin = false }) {
 
                     <button className="btn-gradient" onClick={() => navigate('/upload')} style={{ padding: '0.75rem 2rem' }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <Plus size={18} /> Criar Primeira Ata
+                            <Plus size={18} /> Criar Primeira Conversa
                         </span>
                     </button>
                 </div>
@@ -263,9 +329,37 @@ export default function Dashboard({ isAdmin = false }) {
                                         }}
                                     >
                                         <div>
-                                            <h3 className="font-serif text-lg font-semibold mb-1" style={{ color: 'var(--text-main)' }}>
-                                                {ata.titulo || 'Ata sem título'}
-                                            </h3>
+                                            {editingId === ata.id ? (
+                                                <div className="flex items-center gap-2 mb-1" onClick={e => e.stopPropagation()}>
+                                                    <input 
+                                                        autoFocus
+                                                        type="text" 
+                                                        value={editTitle}
+                                                        onChange={(e) => setEditTitle(e.target.value)}
+                                                        className="input-login py-1 px-2 text-sm"
+                                                        style={{ width: '100%', minWidth: '200px' }}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') saveEdit(e, ata.id);
+                                                            if (e.key === 'Escape') cancelEdit(e);
+                                                        }}
+                                                    />
+                                                    <button onClick={(e) => saveEdit(e, ata.id)} className="text-green-500 hover:text-green-600 transition-colors"><Check size={18}/></button>
+                                                    <button onClick={cancelEdit} className="text-red-500 hover:text-red-600 transition-colors"><X size={18}/></button>
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-center gap-2 mb-1 group">
+                                                    <h3 className="font-serif text-lg font-semibold cursor-text" style={{ color: 'var(--text-main)' }}>
+                                                        {ata.titulo || 'Ata sem título'}
+                                                    </h3>
+                                                    <button 
+                                                        onClick={(e) => handleEditClick(e, ata)}
+                                                        className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-amber-500"
+                                                        title="Editar título"
+                                                    >
+                                                        <Edit2 size={16} />
+                                                    </button>
+                                                </div>
+                                            )}
                                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                                 {ata.total_mensagens && <span>{ata.total_mensagens} msgs</span>}
                                                 {ata.total_audios > 0 && <span>{ata.total_audios} áudios</span>}
@@ -323,10 +417,17 @@ export default function Dashboard({ isAdmin = false }) {
                 variant="danger"
             />
 
+            <TutorialModal 
+                isOpen={isTutorialOpen} 
+                onClose={() => setIsTutorialOpen(false)} 
+            />
+
             <SettingsModal
                 isOpen={isSettingsOpen}
                 onClose={() => setIsSettingsOpen(false)}
             />
+
+            <LegalFooter />
         </div>
     );
 }
