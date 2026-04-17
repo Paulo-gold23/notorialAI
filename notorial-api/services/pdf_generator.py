@@ -1,6 +1,8 @@
 import httpx
 import logging
 import re
+import io
+import secrets
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -167,7 +169,7 @@ class PdfGenerationError(Exception):
     pass
 
 
-async def generate_pdf_from_html(html_str: str, reviewer_name: str = "") -> bytes | None:
+async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_hash: str = "") -> bytes | None:
     """
     Consome a API do Gotenberg via URL do Env.
     Inclui retry automático com backoff para lidar com instabilidades do Gotenberg.
@@ -181,14 +183,18 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "") -> byte
     
     conferido_por = f"e conferido por <strong>{reviewer_name}</strong>" if reviewer_name else "e conferido por usuário"
     
+    disclaimer = ""
+    if zip_hash:
+        disclaimer = f"<br><strong>Aviso MCR e LGPD:</strong> Documento gerado por IA via LegisVox. Sem fé pública. A conferência com o arquivo original (Hash SHA-256 do ZIP: {zip_hash}) é obrigatória. As notas de ressalva são independentes e de inteira responsabilidade do usuário."
+
     # Gotenberg: margens e paginação via header nativo do Chrome
     # O footer.html usa as classes especiais do Chromium para numeração nativa por página
     footer_html = f"""<!DOCTYPE html>
 <html><head><style>
   body {{
     font-family: "Times New Roman", Times, serif;
-    font-size: 8.5pt;
-    color: #888;
+    font-size: 8pt;
+    color: #666;
     margin: 0;
     padding: 0;
   }}
@@ -196,12 +202,12 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "") -> byte
     width: 100%;
     text-align: center;
     padding-top: 4px;
-    line-height: 1.5;
+    line-height: 1.4;
   }}
 </style></head>
 <body>
 <div class="footer-bar">
-  Conteúdo organizado por Inteligência Artificial {conferido_por}.<br>
+  Conteúdo organizado por Inteligência Artificial {conferido_por}.{disclaimer}<br>
   P&#225;gina <span class="pageNumber"></span> de <span class="totalPages"></span>
 </div>
 </body></html>"""
@@ -230,7 +236,29 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "") -> byte
             if response.status_code == 200:
                 if attempt > 1:
                     logger.info(f"Gotenberg PDF gerado com sucesso na tentativa {attempt}")
-                return response.content
+                
+                pdf_content = response.content
+                # Protect PDF (Immutable restrictions)
+                try:
+                    from pypdf import PdfReader, PdfWriter
+                    reader = PdfReader(io.BytesIO(pdf_content))
+                    writer = PdfWriter()
+                    for page in reader.pages:
+                        writer.add_page(page)
+                    owner_pass = secrets.token_hex(16)
+                    # allow_printing allows high and low res printing. Modifying, copying prohibited.
+                    writer.encrypt(
+                        user_password="", 
+                        owner_password=owner_pass, 
+                        permissions_flag=0b0000000000100
+                    )
+                    out = io.BytesIO()
+                    writer.write(out)
+                    pdf_content = out.getvalue()
+                except Exception as e:
+                    logger.warning(f"Erro ao proteger PDF com pypdf, continuando: {e}")
+                
+                return pdf_content
 
             # Server error — worth retrying
             if response.status_code >= 500:

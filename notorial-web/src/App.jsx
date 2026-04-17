@@ -5,6 +5,7 @@ import { checkIsAdmin } from './services/adminApi';
 import { ToastProvider } from './components/ToastContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import OfflineBanner from './components/OfflineBanner';
+import ServiceStatusBanner from './components/ServiceStatusBanner';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Upload from './pages/Upload';
@@ -14,6 +15,7 @@ import Credits from './pages/Credits';
 import Profile from './pages/Profile';
 import TermsOfUse from './pages/TermsOfUse';
 import PrivacyPolicy from './pages/PrivacyPolicy';
+import LandingPage from './pages/LandingPage';
 
 // Apply saved theme on app load
 function initializeTheme() {
@@ -111,16 +113,18 @@ function App() {
   return (
     <>
       <OfflineBanner />
+      <ServiceStatusBanner />
       <ErrorBoundary>
       <ToastProvider>
         <HashRouter>
           <Routes>
             {!session ? (
               <>
+                <Route path="/" element={<LandingPage />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/terms" element={<TermsOfUse />} />
                 <Route path="/privacy" element={<PrivacyPolicy />} />
-                <Route path="*" element={<Navigate to="/login" replace />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
               </>
             ) : (
               <>

@@ -13,6 +13,7 @@ import time
 import os
 import io
 import asyncio
+import hashlib
 from fastapi.responses import Response
 
 logger = logging.getLogger(__name__)
@@ -431,11 +432,13 @@ async def upload_whatsapp_zip(
     
     if supabase and not is_bypass_user:
         try:
+            zip_hash = hashlib.sha256(zip_bytes).hexdigest()
             response = supabase.table('atas').insert({
                 'advogado_id': advogado_id,
                 'titulo': f"Conversa - {file.filename}",
                 'status': 'uploading',
-                'zip_filename': file.filename
+                'zip_filename': file.filename,
+                'zip_hash': zip_hash
             }).execute()
             if not response.data:
                 raise HTTPException(status_code=500, detail="Falha ao criar registro no banco de dados.")
@@ -607,6 +610,7 @@ async def confirm_upload(
 
     # Step 1: Create ata record FIRST (FK on credit_transactions.ata_id requires this)
     ata_record = None
+    zip_hash = hashlib.sha256(zip_bytes).hexdigest()
     if supabase and not is_bypass_user:
         try:
             zip_filename = cached.get("zip_filename", "upload.zip")
@@ -616,7 +620,8 @@ async def confirm_upload(
                 'titulo': f"Conversa - {zip_filename}",
                 'status': 'uploading',
                 'zip_filename': zip_filename,
-                'estimated_pages': estimated_pages
+                'estimated_pages': estimated_pages,
+                'zip_hash': zip_hash
             }).execute()
             if response.data:
                 ata_record = response.data[0]
@@ -823,7 +828,17 @@ async def generate_pdf(
     auth_ctx: AuthContext = Depends(get_auth_context)
 ):
     reviewer = req_data.reviewer_name or auth_ctx.advogado_id or ""
-    pdf_bytes = await generate_pdf_from_html(req_data.conteudo, reviewer_name=reviewer)
+    
+    zip_hash = ""
+    if auth_ctx.client:
+        try:
+            ata_resp = auth_ctx.client.table("atas").select("zip_hash").eq("id", ata_id).execute()
+            if ata_resp.data:
+                zip_hash = ata_resp.data[0].get("zip_hash", "")
+        except Exception as e:
+            logger.warning(f"[{ata_id}] Falha ao buscar zip_hash para o PDF: {e}")
+
+    pdf_bytes = await generate_pdf_from_html(req_data.conteudo, reviewer_name=reviewer, zip_hash=zip_hash)
     if not pdf_bytes:
         raise HTTPException(status_code=500, detail="Erro ao gerar PDF")
 

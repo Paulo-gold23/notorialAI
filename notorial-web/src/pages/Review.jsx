@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
+import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
-import Link from '@tiptap/extension-link'
-import Heading from '@tiptap/extension-heading'
-import Placeholder from '@tiptap/extension-placeholder'
-import Image from '@tiptap/extension-image'
-import TextAlign from '@tiptap/extension-text-align'
+import Link from '@tiptap/extension-link';
+import Heading from '@tiptap/extension-heading';
+import Placeholder from '@tiptap/extension-placeholder';
+import Image from '@tiptap/extension-image';
+import TextAlign from '@tiptap/extension-text-align';
+import { Mark, mergeAttributes } from '@tiptap/core';
 import { apiRequest } from '../services/api';
 import ConfirmModal from '../components/ConfirmModal';
 import BackButton from '../components/BackButton';
@@ -15,11 +17,9 @@ import { useToast } from '../components/ToastContext';
 import ErrorState from '../components/ErrorState';
 import LegalFooter from '../components/LegalFooter';
 import {
-    FileText, FileCheck, Plus, Save, Check, Bold, Italic, Strikethrough,
-    Heading1, Heading2, List, ListOrdered, Undo, Redo, ArrowDown, ArrowUp,
-    Copy, Lightbulb, Users, MessageSquare, Mic, CalendarRange,
-    AlignLeft, AlignCenter, AlignRight, AlignJustify,
-    Coins, RefreshCw, Wallet, X,
+    FileText, FileCheck, Plus, Save, Check, Bold, Italic, Strikethrough, ArrowDown, ArrowUp,
+    List, ListOrdered, Undo, Redo, Copy, Lightbulb, Users, MessageSquare, Mic, CalendarRange,
+    Coins, RefreshCw, Wallet, X, PlusCircle, AlertTriangle
 } from 'lucide-react';
 import Logo from '../components/Logo';
 import { supabase } from '../services/supabase';
@@ -30,6 +30,43 @@ function normalizeEditorContent(value) {
     if (typeof value === 'object' && typeof value.conteudo === 'string') return value.conteudo;
     return '<p>Conteúdo recebido em formato não suportado para edição.</p>';
 }
+
+export const UserNote = Mark.create({
+    name: 'userNote',
+    
+    addAttributes() {
+        return {
+            note: {
+                default: null,
+            },
+        };
+    },
+
+    parseHTML() {
+        return [
+            {
+                tag: 'span[data-user-note]',
+            },
+        ];
+    },
+
+    renderHTML({ HTMLAttributes }) {
+        if (!HTMLAttributes.note) {
+            return ['span', mergeAttributes(HTMLAttributes, { 'data-user-note': '' }), 0];
+        }
+        return [
+            'span',
+            mergeAttributes(HTMLAttributes, { 
+                'data-user-note': HTMLAttributes.note,
+                class: 'user-note-wrapper', 
+                style: 'background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; padding: 2px 4px; display: inline; line-height: 1.6; margin: 2px 0;' 
+            }),
+            ['span', { class: 'user-note-content', style: 'text-decoration: underline; text-decoration-style: dashed; text-decoration-color: #d97706;' }, 0],
+            ['span', { class: 'user-note-label', style: 'color: #d97706; font-weight: bold; font-size: 0.85em; margin-left: 4px; user-select: none;' }, ` 📝 [Ressalva: ${HTMLAttributes.note}]`]
+        ];
+    },
+});
+
 
 export default function Review() {
     const { id } = useParams();
@@ -88,6 +125,7 @@ export default function Review() {
     const hasFormal = conteudo?.conteudo_formal && conteudo.conteudo_formal !== null;
 
     const editor = useEditor({
+        editable: false,
         extensions: [
             StarterKit.configure({ heading: false }),
             Heading.extend({
@@ -126,9 +164,28 @@ export default function Review() {
                 types: ['heading', 'paragraph'],
                 alignments: ['left', 'center', 'right', 'justify'],
             }),
+            UserNote,
         ],
         content: '<p>Carregando conteúdo...</p>',
     });
+
+    const handleAddNote = () => {
+        if (!editor || editor.state.selection.empty) return;
+        
+        const noteText = window.prompt("Digite sua nota de ressalva para o texto selecionado:");
+        if (noteText && noteText.trim() !== "") {
+            editor.setOptions({ editable: true });
+            
+            // Re-focus the editor to ensure the transaction originates correctly
+            editor.commands.focus();
+            
+            editor.chain().setMark('userNote', { note: noteText.trim() }).run();
+            
+            editor.setOptions({ editable: false });
+            toast.success("Ressalva adicionada com sucesso!");
+        }
+    };
+
 
     const loadAta = useCallback(async () => {
         try {
@@ -199,6 +256,12 @@ export default function Review() {
 
     const handleCopyAll = async () => {
         if (!editor) return;
+        
+        // Alerta de integridade
+        const confirms = window.confirm("Atenção: Ao copiar o texto livremente, o selo de integridade e a assinatura (hash do ZIP) que atestam a validade jurídica do documento através da plataforma LegisVox serão perdidos e não poderão ser comprovados por fora do sistema. Deseja continuar?");
+        
+        if (!confirms) return;
+
         try {
             const text = editor.getText();
             await navigator.clipboard.writeText(text);
@@ -470,44 +533,63 @@ export default function Review() {
 
             {/* Editor */}
             <div className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                {/* Toolbar */}
+                {/* Minimal Toolbar since it's read-only */}
                 <div className="sticky-toolbar" style={{
-                    display: 'flex', gap: '0.25rem', padding: '0.5rem', flexWrap: 'wrap',
-                    alignItems: 'center',
+                    display: 'flex', gap: '0.25rem', padding: '0.75rem 1rem', flexWrap: 'wrap',
+                    alignItems: 'center', background: 'var(--surface-color)', borderBottom: '1px solid var(--border-color)'
                 }}>
-                    <ToolBtn icon={<Bold className="w-4 h-4" />} active={editor?.isActive('bold')} onClick={() => editor?.chain().focus().toggleBold().run()} title="Negrito (Ctrl+B)" />
-                    <ToolBtn icon={<Italic className="w-4 h-4" />} active={editor?.isActive('italic')} onClick={() => editor?.chain().focus().toggleItalic().run()} title="Itálico (Ctrl+I)" />
-                    <ToolBtn icon={<Strikethrough className="w-4 h-4" />} active={editor?.isActive('strike')} onClick={() => editor?.chain().focus().toggleStrike().run()} title="Tachado" />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                        <AlertTriangle className="w-4 h-4" style={{ color: 'var(--accent-color)' }} />
+                        <span>A edição livre está desativada para manter a integridade e compliance do documento. Selecione qualquer parte do texto para adicionar <strong>Ressalvas</strong>.</span>
+                    </div>
 
-                    <div className="divider-v"></div>
+                    <div style={{ flexGrow: 1 }} />
 
-                    <ToolBtn icon={<Heading1 className="w-4 h-4" />} active={editor?.isActive('heading', { level: 1 })} onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()} title="Título 1" />
-                    <ToolBtn icon={<Heading2 className="w-4 h-4" />} active={editor?.isActive('heading', { level: 2 })} onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()} title="Título 2" />
-
-                    <div className="divider-v"></div>
-
-                    <ToolBtn icon={<AlignLeft className="w-4 h-4" />} active={editor?.isActive({ textAlign: 'left' })} onClick={() => editor?.chain().focus().setTextAlign('left').run()} title="Alinhar à Esquerda" />
-                    <ToolBtn icon={<AlignCenter className="w-4 h-4" />} active={editor?.isActive({ textAlign: 'center' })} onClick={() => editor?.chain().focus().setTextAlign('center').run()} title="Centralizar" />
-                    <ToolBtn icon={<AlignRight className="w-4 h-4" />} active={editor?.isActive({ textAlign: 'right' })} onClick={() => editor?.chain().focus().setTextAlign('right').run()} title="Alinhar à Direita" />
-                    <ToolBtn icon={<AlignJustify className="w-4 h-4" />} active={editor?.isActive({ textAlign: 'justify' })} onClick={() => editor?.chain().focus().setTextAlign('justify').run()} title="Justificar" />
-
-                    <div className="divider-v"></div>
-
-                    <ToolBtn icon={<List className="w-4 h-4" />} active={editor?.isActive('bulletList')} onClick={() => editor?.chain().focus().toggleBulletList().run()} title="Lista com Marcadores" />
-                    <ToolBtn icon={<ListOrdered className="w-4 h-4" />} active={editor?.isActive('orderedList')} onClick={() => editor?.chain().focus().toggleOrderedList().run()} title="Lista Numerada" />
-
-                    <div className="divider-v"></div>
-
-                    <ToolBtn icon={<Undo className="w-4 h-4" />} onClick={() => editor?.chain().focus().undo().run()} title="Desfazer (Ctrl+Z)" />
-                    <ToolBtn icon={<Redo className="w-4 h-4" />} onClick={() => editor?.chain().focus().redo().run()} title="Refazer (Ctrl+Shift+Z)" />
-
-                    <div className="divider-v"></div>
-
-                    <ToolBtn icon={<Copy className="w-4 h-4" />} onClick={handleCopyAll} title="Copiar Tudo" />
+                    <button 
+                        className="btn-secondary" 
+                        onClick={handleCopyAll} 
+                        style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem' }} 
+                        title="Dúvidas sobre cópia livre? Leia o aviso de integridade"
+                    >
+                        <Copy className="w-4 h-4" /> Copiar Tudo
+                    </button>
                 </div>
 
                 {/* Editor Content */}
                 <div style={{ padding: '1.5rem', minHeight: '400px', fontSize: '0.95rem', lineHeight: 1.6 }} className="ProseMirror-wrapper">
+                    {editor && (
+                        <BubbleMenu 
+                            editor={editor} 
+                            tippyOptions={{ duration: 100, placement: 'top' }}
+                            shouldShow={({ state, editor, view }) => {
+                                const { from, to } = state.selection;
+                                return from !== to && !editor.isActive('userNote');
+                            }}
+                        >
+                            <button
+                                onClick={handleAddNote}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.5rem',
+                                    background: 'var(--panel-bg)',
+                                    color: 'var(--text-main)',
+                                    border: '1px solid var(--border-color)',
+                                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                    padding: '0.5rem 0.75rem',
+                                    borderRadius: '0.5rem',
+                                    fontSize: '0.85rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s'
+                                }}
+                            >
+                                <PlusCircle size={16} style={{ color: 'var(--primary-color)' }} />
+                                Adicionar Ressalva
+                            </button>
+                        </BubbleMenu>
+                    )}
+
                     <EditorContent editor={editor} />
                 </div>
             </div>
