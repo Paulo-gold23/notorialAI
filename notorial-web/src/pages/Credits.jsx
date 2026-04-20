@@ -106,7 +106,7 @@ export default function Credits() {
 
   return (
     <div className="page-enter container-centered pt-8 pb-16">
-      <BackButton to="/" label="Voltar ao Painel" />
+      <BackButton to="/dashboard" label="Voltar ao Painel" />
 
       {/* ─── Header + Balance ─── */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">

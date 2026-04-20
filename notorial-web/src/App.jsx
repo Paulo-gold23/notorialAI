@@ -47,9 +47,14 @@ function initializeTheme() {
 
 initializeTheme();
 
+import { useSessionTimeout } from './hooks/useSessionTimeout';
+
 function App() {
   const [session, setSession] = useState(undefined);
   const [isAdmin, setIsAdmin] = useState(false);
+
+  // Executa o hook que desloga após 30 minutos
+  useSessionTimeout(30);
 
   useEffect(() => {
     const checkApprovalStatus = async (currentSession) => {
@@ -128,20 +133,22 @@ function App() {
               </>
             ) : (
               <>
-                <Route path="/" element={<Dashboard isAdmin={isAdmin} />} />
+                <Route path="/" element={<LandingPage session={session} />} />
+                <Route path="/dashboard" element={<Dashboard isAdmin={isAdmin} />} />
                 <Route path="/upload" element={<Upload />} />
                 <Route path="/review/:id" element={<Review />} />
                 <Route path="/credits" element={<Credits />} />
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/terms" element={<TermsOfUse />} />
                 <Route path="/privacy" element={<PrivacyPolicy />} />
-                <Route path="/admin" element={isAdmin ? <AdminDashboard /> : <Navigate to="/" replace />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
+                <Route path="/admin" element={isAdmin ? <AdminDashboard /> : <Navigate to="/dashboard" replace />} />
+                <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </>
             )}
           </Routes>
         </HashRouter>
       </ToastProvider>
+
     </ErrorBoundary>
     </>
   );

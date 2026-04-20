@@ -160,7 +160,7 @@ const Icon = {
 };
 
 // ── Navbar ────────────────────────────────────────────────────
-function Navbar() {
+function Navbar({ session }) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -227,32 +227,53 @@ function Navbar() {
 
         {/* CTA */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }} className="lp-desktop-cta">
-          <a href="/#/login" style={{
-            color: 'rgba(255,255,255,0.8)',
-            textDecoration: 'none',
-            fontSize: '0.875rem',
-            fontFamily: FONT_BODY,
-            transition: 'color 0.2s',
-          }}
-            onMouseEnter={e => e.target.style.color = C.white}
-            onMouseLeave={e => e.target.style.color = 'rgba(255,255,255,0.8)'}
-          >Entrar</a>
-          <a href="/#/login" style={{
-            background: `linear-gradient(135deg, ${C.gold}, ${C.goldLt})`,
-            color: C.navy,
-            textDecoration: 'none',
-            padding: '0.5rem 1.25rem',
-            borderRadius: 6,
-            fontSize: '0.875rem',
-            fontFamily: FONT_BODY,
-            fontWeight: 700,
-            transition: 'opacity 0.2s, transform 0.2s',
-            cursor: 'pointer',
-            display: 'inline-block',
-          }}
-            onMouseEnter={e => { e.target.style.opacity = '0.9'; e.target.style.transform = 'translateY(-1px)'; }}
-            onMouseLeave={e => { e.target.style.opacity = '1'; e.target.style.transform = 'translateY(0)'; }}
-          >Iniciar Grátis</a>
+          {session ? (
+            <a href="/#/dashboard" style={{
+              background: `linear-gradient(135deg, ${C.gold}, ${C.goldLt})`,
+              color: C.navy,
+              textDecoration: 'none',
+              padding: '0.5rem 1.25rem',
+              borderRadius: 6,
+              fontSize: '0.875rem',
+              fontFamily: FONT_BODY,
+              fontWeight: 700,
+              transition: 'opacity 0.2s, transform 0.2s',
+              cursor: 'pointer',
+              display: 'inline-block',
+            }}
+              onMouseEnter={e => { e.target.style.opacity = '0.9'; e.target.style.transform = 'translateY(-1px)'; }}
+              onMouseLeave={e => { e.target.style.opacity = '1'; e.target.style.transform = 'translateY(0)'; }}
+            >Acessar Dashboard</a>
+          ) : (
+            <>
+              <a href="/#/login" style={{
+                color: 'rgba(255,255,255,0.8)',
+                textDecoration: 'none',
+                fontSize: '0.875rem',
+                fontFamily: FONT_BODY,
+                transition: 'color 0.2s',
+              }}
+                onMouseEnter={e => e.target.style.color = C.white}
+                onMouseLeave={e => e.target.style.color = 'rgba(255,255,255,0.8)'}
+              >Entrar</a>
+              <a href="/#/login" style={{
+                background: `linear-gradient(135deg, ${C.gold}, ${C.goldLt})`,
+                color: C.navy,
+                textDecoration: 'none',
+                padding: '0.5rem 1.25rem',
+                borderRadius: 6,
+                fontSize: '0.875rem',
+                fontFamily: FONT_BODY,
+                fontWeight: 700,
+                transition: 'opacity 0.2s, transform 0.2s',
+                cursor: 'pointer',
+                display: 'inline-block',
+              }}
+                onMouseEnter={e => { e.target.style.opacity = '0.9'; e.target.style.transform = 'translateY(-1px)'; }}
+                onMouseLeave={e => { e.target.style.opacity = '1'; e.target.style.transform = 'translateY(0)'; }}
+              >Iniciar Grátis</a>
+            </>
+          )}
         </div>
 
         {/* Mobile hamburger */}
@@ -294,17 +315,31 @@ function Navbar() {
               borderBottom: `1px solid rgba(255,255,255,0.06)`,
             }}>{l.label}</a>
           ))}
-          <a href="/#/login" style={{
-            background: `linear-gradient(135deg, ${C.gold}, ${C.goldLt})`,
-            color: C.navy,
-            textDecoration: 'none',
-            padding: '0.75rem 1.25rem',
-            borderRadius: 6,
-            textAlign: 'center',
-            fontFamily: FONT_BODY,
-            fontWeight: 700,
-            marginTop: '0.5rem',
-          }}>Iniciar Grátis</a>
+          {session ? (
+            <a href="/#/dashboard" style={{
+              background: `linear-gradient(135deg, ${C.gold}, ${C.goldLt})`,
+              color: C.navy,
+              textDecoration: 'none',
+              padding: '0.75rem 1.25rem',
+              borderRadius: 6,
+              textAlign: 'center',
+              fontFamily: FONT_BODY,
+              fontWeight: 700,
+              marginTop: '0.5rem',
+            }}>Acessar Dashboard</a>
+          ) : (
+            <a href="/#/login" style={{
+              background: `linear-gradient(135deg, ${C.gold}, ${C.goldLt})`,
+              color: C.navy,
+              textDecoration: 'none',
+              padding: '0.75rem 1.25rem',
+              borderRadius: 6,
+              textAlign: 'center',
+              fontFamily: FONT_BODY,
+              fontWeight: 700,
+              marginTop: '0.5rem',
+            }}>Iniciar Grátis</a>
+          )}
         </div>
       )}
 
@@ -319,7 +354,7 @@ function Navbar() {
 }
 
 // ── Hero Section ──────────────────────────────────────────────
-function Hero() {
+function Hero({ session }) {
   return (
     <section
       id="hero"
@@ -423,7 +458,7 @@ function Hero() {
           </p>
 
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            <a href="/#/login" id="hero-cta-primary" style={{
+            <a href={session ? "/#/dashboard" : "/#/login"} id="hero-cta-primary" style={{
               display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
               background: `linear-gradient(135deg, ${C.gold} 0%, ${C.goldLt} 100%)`,
               color: C.navy,
@@ -440,7 +475,7 @@ function Hero() {
               onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(196,150,58,0.4)'; }}
               onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 20px rgba(196,150,58,0.3)'; }}
             >
-              Começar Gratuitamente
+              {session ? 'Acessar Dashboard' : 'Começar Gratuitamente'}
               <Icon.ArrowRight />
             </a>
             <a href="#how" style={{
@@ -1445,7 +1480,7 @@ function Pricing() {
 
 
 // ── CTA Final ──────────────────────────────────────────────────
-function FinalCTA() {
+function FinalCTA({ session }) {
   return (
     <section style={{
       background: C.bg,
@@ -1515,7 +1550,7 @@ function FinalCTA() {
               </p>
 
               <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-                <a href="/#/login" id="final-cta-btn" style={{
+                <a href={session ? "/#/dashboard" : "/#/login"} id="final-cta-btn" style={{
                   display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
                   background: `linear-gradient(135deg, ${C.gold}, ${C.goldLt})`,
                   color: C.navy,
@@ -1532,7 +1567,7 @@ function FinalCTA() {
                   onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(196,150,58,0.4)'; }}
                   onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 20px rgba(196,150,58,0.3)'; }}
                 >
-                  Criar conta gratuitamente
+                  {session ? "Acessar Dashboard" : "Criar conta gratuitamente"}
                   <Icon.ArrowRight />
                 </a>
                 <a href="#how" style={{
@@ -1702,7 +1737,7 @@ function GoogleFonts() {
 }
 
 // ── Main Export ────────────────────────────────────────────────
-export default function LandingPage() {
+export default function LandingPage({ session }) {
   // Override body background for this page only
   useEffect(() => {
     const prev = document.body.style.backgroundColor;
@@ -1717,9 +1752,9 @@ export default function LandingPage() {
     <>
       <GoogleFonts />
       <div style={{ fontFamily: FONT_BODY, color: C.text, background: C.bg }}>
-        <Navbar />
+        <Navbar session={session} />
         <main>
-          <Hero />
+          <Hero session={session} />
           <StatsBar />
           <HowItWorks />
           <Features />
