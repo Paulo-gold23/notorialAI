@@ -10,16 +10,16 @@ import Image from '@tiptap/extension-image';
 import TextAlign from '@tiptap/extension-text-align';
 import { Mark, mergeAttributes } from '@tiptap/core';
 import { apiRequest } from '../services/api';
-import ConfirmModal from '../components/ConfirmModal';
+
 import BackButton from '../components/BackButton';
 import { Skeleton } from '../components/Skeleton';
 import { useToast } from '../components/ToastContext';
 import ErrorState from '../components/ErrorState';
 import LegalFooter from '../components/LegalFooter';
 import {
-    FileText, FileCheck, Plus, Save, Check, Bold, Italic, Strikethrough, ArrowDown, ArrowUp,
-    List, ListOrdered, Undo, Redo, Copy, Lightbulb, Users, MessageSquare, Mic, CalendarRange,
-    Coins, RefreshCw, Wallet, X, PlusCircle, AlertTriangle
+    FileText, Save, Check, ArrowDown, ArrowUp,
+    Users, MessageSquare, Mic, CalendarRange,
+    Coins, RefreshCw, X, PlusCircle, AlertTriangle, Phone
 } from 'lucide-react';
 import Logo from '../components/Logo';
 import { supabase } from '../services/supabase';
@@ -30,6 +30,15 @@ function normalizeEditorContent(value) {
     if (typeof value === 'object' && typeof value.conteudo === 'string') return value.conteudo;
     return '<p>Conteúdo recebido em formato não suportado para edição.</p>';
 }
+
+const formatPhone = (val) => {
+    let v = val.replace(/\D/g, '').substring(0, 11);
+    if (v.length === 0) return '';
+    if (v.length <= 2) return `(${v}`;
+    if (v.length <= 6) return `(${v.slice(0, 2)}) ${v.slice(2)}`;
+    if (v.length <= 10) return `(${v.slice(0, 2)}) ${v.slice(2, 6)}-${v.slice(6)}`;
+    return `(${v.slice(0, 2)}) ${v.slice(2, 7)}-${v.slice(7)}`;
+};
 
 export const UserNote = Mark.create({
     name: 'userNote',
@@ -81,8 +90,6 @@ export default function Review() {
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
     const [generating, setGenerating] = useState(false);
-    const [generatingFormal, setGeneratingFormal] = useState(false);
-    const [confirmModal, setConfirmModal] = useState({ isOpen: false });
     const [isAtBottom, setIsAtBottom] = useState(false);
     const [hasScroll, setHasScroll] = useState(false);
     // termsModal: null | 'save' | 'pdf_preparatorio' | 'pdf_formal'
@@ -92,6 +99,7 @@ export default function Review() {
     const [creditReport, setCreditReport] = useState(null);
     const [termsScrolledToBottom, setTermsScrolledToBottom] = useState(false);
     const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
+    const [missingNumbersModal, setMissingNumbersModal] = useState({ isOpen: false, matches: [] });
 
     const tabsRef = useRef(null);
 
@@ -122,7 +130,7 @@ export default function Review() {
         }
     };
 
-    const hasFormal = conteudo?.conteudo_formal && conteudo.conteudo_formal !== null;
+
 
     const editor = useEditor({
         editable: false,
@@ -184,6 +192,91 @@ export default function Review() {
             editor.setOptions({ editable: false });
             toast.success("Ressalva adicionada com sucesso!");
         }
+    };
+
+    const handleFillNumbers = () => {
+        if (!editor) return;
+        let html = editor.getHTML();
+        if (!html.includes('[INSIRA NUMERO AQUI]')) {
+            toast.info("Nenhum número faltante encontrado neste documento.");
+            return;
+        }
+
+        const matches = [];
+        const regex = /\[INSIRA NUMERO AQUI\]/g;
+        let match;
+        let indexCount = 0;
+        
+        while ((match = regex.exec(html)) !== null) {
+            indexCount++;
+            // Obtém um contexto maior antes da tag
+            let start = Math.max(0, match.index - 120);
+            let context = html.substring(start, match.index);
+            
+            // 1. Isola apenas o bloco de texto atual (corta parágrafos, cabeçalhos ou listas anteriores)
+            const blockRegex = /<(?:p|li|br|h[1-6]|div|tr|td|th|ul|ol)[^>]*>|<\/(?:p|li|h[1-6]|div|tr|td|th|ul|ol|table|tbody)>/gi;
+            let blocks = context.split(blockRegex);
+            let currentBlockText = blocks[blocks.length - 1] || "";
+            
+            // 2. Substitui tags HTML (como strong, span) e entities por espaços
+            let cleanContext = currentBlockText.replace(/<[^>]*>?/gm, ' ').replace(/&nbsp;/g, ' ');
+            
+            // 3. Remove prefixos ou rótulos comuns caso estejam na mesma linha
+            cleanContext = cleanContext.replace(/\b(participantes?|nomes?|locador(es)?|locatári[oa]s?|testemunhas?|outorgantes?|outorgados?|comprador(es)?|vendedor(es)?|cliente)\b/gi, ' ');
+            
+            // 4. Se pegou parte de um [INSIRA NUMERO AQUI] anterior, corta dali pra frente
+            let lastBracket = cleanContext.lastIndexOf(']');
+            if (lastBracket !== -1) {
+                cleanContext = cleanContext.substring(lastBracket + 1);
+            }
+            
+            // 5. Se houver dois pontos (ex: "Nome: "), pega só o que vem depois
+            let lastColon = cleanContext.lastIndexOf(':');
+            if (lastColon !== -1) {
+                cleanContext = cleanContext.substring(lastColon + 1);
+            }
+            
+            // 6. Divide em palavras limpas
+            let nameParts = cleanContext.trim().split(/\s+/).filter(p => p.length > 0);
+            
+            // 7. Pega no máximo as últimas 4 palavras para comportar nomes maiores
+            if (nameParts.length > 4) {
+                nameParts = nameParts.slice(-4);
+            }
+            
+            // 8. Remove pontuações indesejadas no começo e no fim
+            let extractedName = nameParts.join(' ').replace(/^[^a-zA-ZÀ-ÖØ-öø-ÿ0-9]+/, '').replace(/[^a-zA-ZÀ-ÖØ-öø-ÿ0-9]+$/, '').trim();
+            
+            matches.push({
+                name: extractedName || `Participante ${indexCount}`,
+                value: ''
+            });
+        }
+
+        setMissingNumbersModal({ isOpen: true, matches });
+    };
+
+    const handleConfirmFillNumbers = () => {
+        if (!editor) return;
+        let updatedHtml = editor.getHTML();
+        let count = 0;
+
+        const { matches } = missingNumbersModal;
+        for (const m of matches) {
+            if (m.value && m.value.trim() !== '') {
+                updatedHtml = updatedHtml.replace('[INSIRA NUMERO AQUI]', m.value.trim());
+                count++;
+            }
+        }
+
+        if (count > 0) {
+            editor.setOptions({ editable: true });
+            editor.commands.setContent(normalizeEditorContent(updatedHtml));
+            editor.setOptions({ editable: false });
+            toast.success(`${count} número(s) preenchido(s). Lembre-se de salvar o documento.`);
+        }
+        
+        setMissingNumbersModal({ isOpen: false, matches: [] });
     };
 
 
@@ -254,43 +347,9 @@ export default function Review() {
         }
     };
 
-    const handleCopyAll = async () => {
-        if (!editor) return;
-        
-        // Alerta de integridade
-        const confirms = window.confirm("Atenção: Ao copiar o texto livremente, o selo de integridade e a assinatura (hash do ZIP) que atestam a validade jurídica do documento através da plataforma LegisVox serão perdidos e não poderão ser comprovados por fora do sistema. Deseja continuar?");
-        
-        if (!confirms) return;
 
-        try {
-            const text = editor.getText();
-            await navigator.clipboard.writeText(text);
-            toast.success('Conteúdo copiado para a área de transferência!');
-        } catch (err) {
-            toast.error('Erro ao copiar: ' + err.message);
-        }
-    };
 
-    const handleGenerateFormalClick = () => {
-        setConfirmModal({ isOpen: true });
-    };
 
-    const confirmGenerateFormal = async () => {
-        setConfirmModal({ isOpen: false });
-        setGeneratingFormal(true);
-        try {
-            const result = await apiRequest(`/api/atas/${id}/generate-formal`, { method: 'POST' });
-            if (result.conteudo_formal) {
-                setConteudo(prev => ({ ...prev, conteudo_formal: result.conteudo_formal }));
-                setActiveTab('formal');
-                toast.success('Versão cartorária gerada com sucesso!');
-            }
-        } catch (err) {
-            toast.error('Erro ao gerar versão formal: ' + err.message);
-        } finally {
-            setGeneratingFormal(false);
-        }
-    };
 
     const handleGeneratePdf = (tipo) => {
         if (hasAcceptedTerms) {
@@ -356,6 +415,7 @@ export default function Review() {
                         refunded: data.refunded_credits || 0,
                         balanceAfter: data.balance_after,
                         pdfTipo: tipo,
+                        pdfHash: data.pdf_hash || null,
                     });
                 } else {
                     // Fallback: download PDF directly if no credit data
@@ -495,63 +555,29 @@ export default function Review() {
                     <FileText className="w-4 h-4" />
                     Material Preparatório
                 </button>
-
-                {hasFormal ? (
-                    <button
-                        onClick={() => setActiveTab('formal')}
-                        className="btn-secondary"
-                        style={{
-                            borderColor: activeTab === 'formal' ? 'var(--success)' : undefined,
-                            background: activeTab === 'formal' ? 'rgba(74, 222, 128, 0.1)' : undefined,
-                            color: activeTab === 'formal' ? 'var(--success)' : undefined,
-                            boxShadow: activeTab === 'formal' ? '0 0 0 1px var(--success)' : undefined,
-                        }}
-                    >
-                        <FileCheck className="w-4 h-4" />
-                        Versão Cartorária
-                    </button>
-                ) : (
-                    <button
-                        onClick={handleGenerateFormalClick}
-                        disabled={generatingFormal}
-                        className="btn-secondary"
-                        style={{
-                            borderStyle: 'dashed',
-                            color: generatingFormal ? 'var(--accent-color)' : 'var(--text-muted)',
-                            background: generatingFormal ? 'rgba(167, 139, 250, 0.1)' : undefined,
-                            cursor: generatingFormal ? 'wait' : 'pointer',
-                        }}
-                    >
-                        {generatingFormal ? (
-                            <><div className="sp-wave" style={{ width: 14, height: 14 }} /> Gerando versão cartorária...</>
-                        ) : (
-                            <><Plus className="w-4 h-4" /> Gerar Versão Cartorária</>
-                        )}
-                    </button>
-                )}
             </div>
 
             {/* Editor */}
             <div className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                 {/* Minimal Toolbar since it's read-only */}
                 <div className="sticky-toolbar" style={{
-                    display: 'flex', gap: '0.25rem', padding: '0.75rem 1rem', flexWrap: 'wrap',
-                    alignItems: 'center', background: 'var(--surface-color)', borderBottom: '1px solid var(--border-color)'
+                    display: 'flex', gap: '0.75rem', padding: '0.75rem 1rem', flexWrap: 'wrap',
+                    alignItems: 'center', background: 'var(--surface-color)', borderBottom: '1px solid var(--border-color)',
+                    justifyContent: 'space-between'
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                         <AlertTriangle className="w-4 h-4" style={{ color: 'var(--accent-color)' }} />
-                        <span>A edição livre está desativada para manter a integridade e compliance do documento. Selecione qualquer parte do texto para adicionar <strong>Ressalvas</strong>.</span>
+                        <span>A edição livre está desativada para compliance.</span>
                     </div>
-
-                    <div style={{ flexGrow: 1 }} />
-
-                    <button 
-                        className="btn-secondary" 
-                        onClick={handleCopyAll} 
-                        style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem' }} 
-                        title="Dúvidas sobre cópia livre? Leia o aviso de integridade"
+                    
+                    <button
+                        className="btn-secondary"
+                        onClick={handleFillNumbers}
+                        style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem', color: 'var(--primary-color)' }}
+                        title="Localiza as marcações '[INSIRA NUMERO AQUI]' e permite preenchê-las."
                     >
-                        <Copy className="w-4 h-4" /> Copiar Tudo
+                        <Phone className="w-4 h-4" />
+                        Preencher Números Faltantes
                     </button>
                 </div>
 
@@ -633,52 +659,110 @@ export default function Review() {
                         {generating ? (
                             <><div className="sp-wave" style={{ width: 14, height: 14 }} /> Gerando...</>
                         ) : (
-                            <><FileText className="w-4 h-4" /> PDF Preparatório</>
+                            <><FileText className="w-4 h-4" /> Gerar PDF</>
                         )}
-                    </span>
-                </button>
-                {hasFormal && (
-                    <button
-                        className="btn-secondary"
-                        onClick={() => handleGeneratePdf('formal')}
-                        disabled={generating}
-                    >
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            {generating ? (
-                                <><div className="sp-wave" style={{ width: 14, height: 14 }} /> Gerando...</>
-                            ) : (
-                                <><FileCheck className="w-4 h-4" /> PDF Cartorário</>
-                            )}
-                        </span>
-                    </button>
-                )}
-                <button className="btn-secondary" onClick={handleCopyAll}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <Copy className="w-4 h-4" /> Copiar
                     </span>
                 </button>
             </div>
 
-            {/* Info box */}
-            {!hasFormal && activeTab === 'preparatorio' && (
+
+
+            {/* Missing Numbers Modal */}
+            {missingNumbersModal.isOpen && (
                 <div style={{
-                    marginTop: '1.5rem',
-                    padding: '1rem 1.25rem',
-                    borderRadius: '0.75rem',
-                    border: '1px solid rgba(59,130,246,0.2)',
-                    background: 'var(--primary-glow)',
-                    fontSize: '0.875rem',
-                    color: 'var(--text-muted)',
-                    lineHeight: 1.6,
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '0.75rem',
+                    position: 'fixed', inset: 0, zIndex: 9999,
+                    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: '1rem',
+                    animation: 'fadeIn 0.2s ease-out',
                 }}>
-                    <Lightbulb className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--primary-color)' }} />
-                    <div>
-                        <strong style={{ color: 'var(--primary-color)' }}>Dica:</strong> Revise e aprove o material preparatório primeiro.
-                        Quando estiver satisfeito, clique em <strong>Gerar Versão Cartorária</strong> acima para criar
-                        a versão formal do documento com linguagem apropriada de cartório.
+                    <div style={{
+                        background: 'var(--panel-bg)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '1rem',
+                        padding: '2rem',
+                        maxWidth: '500px',
+                        width: '100%',
+                        boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
+                        animation: 'slideUp 0.25s ease-out',
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                            <div style={{
+                                width: 40, height: 40, borderRadius: '0.6rem',
+                                background: 'var(--primary-glow)',
+                                border: '1px solid rgba(59,130,246,0.3)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                color: 'var(--primary-color)', flexShrink: 0,
+                            }}>
+                                <Phone size={20} />
+                            </div>
+                            <div>
+                                <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                                    Preencher Números Faltantes
+                                </h2>
+                                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                                    Insira os dados dos participantes pendentes
+                                </p>
+                            </div>
+                        </div>
+
+                        <div style={{ 
+                            maxHeight: '350px', overflowY: 'auto', 
+                            paddingRight: '0.5rem', marginBottom: '1.5rem',
+                            display: 'flex', flexDirection: 'column', gap: '1rem'
+                        }}>
+                            {missingNumbersModal.matches.map((match, index) => (
+                                <div key={index} style={{
+                                    background: 'var(--surface-color)',
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: '0.6rem',
+                                    padding: '1rem',
+                                }}>
+                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-main)' }}>
+                                        {match.name}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder="(00) 00000-0000"
+                                        maxLength="15"
+                                        value={match.value}
+                                        onChange={(e) => {
+                                            const newMatches = [...missingNumbersModal.matches];
+                                            newMatches[index].value = formatPhone(e.target.value);
+                                            setMissingNumbersModal({ ...missingNumbersModal, matches: newMatches });
+                                        }}
+                                        style={{
+                                            width: '100%',
+                                            padding: '0.6rem 0.8rem',
+                                            background: 'var(--panel-bg)',
+                                            border: '1px solid var(--border-color)',
+                                            borderRadius: '0.4rem',
+                                            color: 'var(--text-main)',
+                                            fontSize: '0.9rem',
+                                            outline: 'none',
+                                            transition: 'border-color 0.2s',
+                                        }}
+                                        onFocus={e => e.target.style.borderColor = 'var(--primary-color)'}
+                                        onBlur={e => e.target.style.borderColor = 'var(--border-color)'}
+                                    />
+                                </div>
+                            ))}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                            <button
+                                className="btn-secondary"
+                                onClick={() => setMissingNumbersModal({ isOpen: false, matches: [] })}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                className="btn-gradient"
+                                onClick={handleConfirmFillNumbers}
+                            >
+                                <Check size={16} /> Confirmar Substituição
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -970,6 +1054,30 @@ export default function Review() {
                                 <span style={{ color: 'var(--text-muted)' }}>Meu Saldo:</span>
                                 <span style={{ fontWeight: 600, color: 'var(--primary-color)' }}>{Math.floor(creditReport.balanceAfter)} créditos</span>
                             </div>
+                            {creditReport.pdfHash && (
+                                <div style={{
+                                    marginTop: '0.75rem',
+                                    paddingTop: '0.75rem',
+                                    borderTop: '1px dashed var(--border-color)',
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                                        <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>SHA-256 do PDF:</span>
+                                        <span
+                                            title={creditReport.pdfHash}
+                                            style={{
+                                                fontFamily: 'monospace',
+                                                fontSize: '0.7rem',
+                                                color: 'var(--text-muted)',
+                                                wordBreak: 'break-all',
+                                                textAlign: 'right',
+                                                cursor: 'help',
+                                            }}
+                                        >
+                                            {creditReport.pdfHash.slice(0, 16)}…{creditReport.pdfHash.slice(-8)}
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Note about precision adjustment */}
@@ -1010,15 +1118,7 @@ export default function Review() {
                 </div>
             )}
 
-            <ConfirmModal
-                isOpen={confirmModal.isOpen}
-                onClose={() => setConfirmModal({ isOpen: false })}
-                onConfirm={confirmGenerateFormal}
-                title="Gerar Versão Cartorária"
-                message="Deseja gerar a versão cartorária (formal) do documento? Este processo utiliza IA avançada e pode levar alguns minutos."
-                confirmText="Gerar Versão"
-                variant="primary"
-            />
+
 
             {/* PDF Generation Overlay */}
             {generating && (
@@ -1048,33 +1148,7 @@ export default function Review() {
                 </div>
             )}
 
-            {/* Formal Version Generation Overlay */}
-            {generatingFormal && (
-                <div style={{
-                    position: 'fixed', inset: 0, zIndex: 9998,
-                    background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    flexDirection: 'column', gap: '1.5rem',
-                    animation: 'fadeIn 0.3s ease-out',
-                }}>
-                    <div style={{
-                        width: 60, height: 60, borderRadius: '50%',
-                        background: 'rgba(167, 139, 250, 0.15)',
-                        border: '1px solid rgba(167, 139, 250, 0.3)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}>
-                        <div className="sp-wave" style={{ width: 24, height: 24 }} />
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                        <p style={{ color: '#fff', fontSize: '1.1rem', fontWeight: 600, margin: '0 0 0.5rem' }}>
-                            Gerando Versão Cartorária...
-                        </p>
-                        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem', margin: 0, maxWidth: '380px' }}>
-                            A IA está convertendo o material preparatório em linguagem jurídica formal. Isso pode levar 1-3 minutos.
-                        </p>
-                    </div>
-                </div>
-            )}
+
 
             {/* Scroll button — only visible when page has scrollable content */}
             {hasScroll && (

@@ -1,4 +1,5 @@
 import httpx
+import hashlib
 import logging
 import re
 import io
@@ -169,10 +170,11 @@ class PdfGenerationError(Exception):
     pass
 
 
-async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_hash: str = "") -> bytes | None:
+async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_hash: str = "") -> tuple[bytes, str] | tuple[None, None]:
     """
     Consome a API do Gotenberg via URL do Env.
     Inclui retry automático com backoff para lidar com instabilidades do Gotenberg.
+    Retorna uma tuple (pdf_bytes, pdf_sha256_hash) onde o hash é do PDF final protegido.
     """
     url = getattr(settings, 'PDF_CONVERTER_URL', getattr(settings, 'GOTENBERG_URL', "http://localhost:3000/forms/chromium/convert/html"))
 
@@ -193,22 +195,30 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_has
 <html><head><style>
   body {{
     font-family: "Times New Roman", Times, serif;
-    font-size: 8pt;
+    font-size: 7pt;
     color: #666;
     margin: 0;
     padding: 0;
   }}
   .footer-bar {{
     width: 100%;
-    text-align: center;
+    text-align: right;
     padding-top: 4px;
     line-height: 1.4;
+  }}
+  .footer-text {{
+    text-align: justify;
+    display: block;
+  }}
+  .footer-page {{
+    text-align: right;
+    display: block;
   }}
 </style></head>
 <body>
 <div class="footer-bar">
-  Conteúdo organizado por Inteligência Artificial {conferido_por}.{disclaimer}<br>
-  P&#225;gina <span class="pageNumber"></span> de <span class="totalPages"></span>
+  <span class="footer-text">Conteúdo organizado por Inteligência Artificial {conferido_por}.{disclaimer}</span>
+  <span class="footer-page">P&#225;gina <span class="pageNumber"></span> de <span class="totalPages"></span></span>
 </div>
 </body></html>"""
 
@@ -246,7 +256,6 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_has
                     for page in reader.pages:
                         writer.add_page(page)
                     owner_pass = secrets.token_hex(16)
-                    # allow_printing allows high and low res printing. Modifying, copying prohibited.
                     writer.encrypt(
                         user_password="", 
                         owner_password=owner_pass, 
@@ -257,8 +266,11 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_has
                     pdf_content = out.getvalue()
                 except Exception as e:
                     logger.warning(f"Erro ao proteger PDF com pypdf, continuando: {e}")
-                
-                return pdf_content
+
+                # Compute SHA-256 of the final protected PDF
+                pdf_hash = hashlib.sha256(pdf_content).hexdigest()
+                logger.info(f"PDF gerado — SHA-256: {pdf_hash[:16]}...")
+                return pdf_content, pdf_hash
 
             # Server error — worth retrying
             if response.status_code >= 500:

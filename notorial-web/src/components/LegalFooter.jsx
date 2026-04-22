@@ -21,7 +21,7 @@ export default function LegalFooter({ style }) {
                 <a href="#/privacy" className="hover:text-amber-500 transition-colors">Políticas de Privacidade</a>
             </div>
             <div style={{ marginTop: '0.25rem', opacity: 0.8 }}>
-                Software registrado no INPI sob o nº BR512026002376-9
+                Software registrado no INPI
             </div>
             <div style={{ opacity: 0.6, fontSize: '0.7rem' }}>
                 &copy; {new Date().getFullYear()} LegisVox. Todos os direitos reservados.

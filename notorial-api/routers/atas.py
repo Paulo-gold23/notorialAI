@@ -838,9 +838,20 @@ async def generate_pdf(
         except Exception as e:
             logger.warning(f"[{ata_id}] Falha ao buscar zip_hash para o PDF: {e}")
 
-    pdf_bytes = await generate_pdf_from_html(req_data.conteudo, reviewer_name=reviewer, zip_hash=zip_hash)
+    pdf_bytes, pdf_hash = await generate_pdf_from_html(req_data.conteudo, reviewer_name=reviewer, zip_hash=zip_hash)
     if not pdf_bytes:
         raise HTTPException(status_code=500, detail="Erro ao gerar PDF")
+
+    # ── Persistir hash do PDF no banco para auditoria ──
+    if auth_ctx.client and pdf_hash:
+        try:
+            auth_ctx.client.table("atas").update({
+                "pdf_hash": pdf_hash,
+                "pdf_gerado_em": "now()"
+            }).eq("id", ata_id).execute()
+            logger.info(f"[PDF] Hash salvo no banco para ata {ata_id}: {pdf_hash[:16]}...")
+        except Exception as e:
+            logger.warning(f"[PDF] Falha ao salvar pdf_hash no banco (PDF não afetado): {e}")
 
     # ── Contagem real de páginas e reembolso automático ──
     actual_pages = None
@@ -883,6 +894,7 @@ async def generate_pdf(
     api_url = str(request.base_url).rstrip('/')
     return {
         "pdf_url": f"{api_url}/api/atas/download/{pdf_id}",
+        "pdf_hash": pdf_hash,
         "actual_pages": actual_pages,
         "estimated_pages": estimated_pages,
         "credits_used": actual_pages or estimated_pages,

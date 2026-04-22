@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, FileText, LogOut, Trash2, Plus, Settings, Upload, Sparkles, FileCheck, Shield, Edit2, Check, X, User } from 'lucide-react';
+import { Search, FileText, LogOut, Trash2, Plus, Settings, Upload, Sparkles, FileCheck, Shield, Edit2, Check, X, User, Clock } from 'lucide-react';
 import { listAtas, deleteAta, updateAtaTitle } from '../services/api';
 import { creditsApi } from '../services/creditsApi';
 import { supabase } from '../services/supabase';
@@ -362,10 +362,16 @@ export default function Dashboard({ isAdmin = false }) {
                                                     </button>
                                                 </div>
                                             )}
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', fontSize: '0.75rem', color: 'var(--text-muted)', alignItems: 'center' }}>
                                                 {ata.total_mensagens && <span>{ata.total_mensagens} msgs</span>}
                                                 {ata.total_audios > 0 && <span>{ata.total_audios} áudios</span>}
-                                                <span>{new Date(ata.created_at).toLocaleDateString('pt-BR')}</span>
+                                                <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                                    <Clock size={11} />
+                                                    {new Date(ata.created_at).toLocaleDateString('pt-BR')} às {new Date(ata.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                            </div>
+                                            <div style={{ marginTop: '0.35rem', fontSize: '0.7rem', color: 'var(--text-muted)', opacity: 0.7, fontStyle: 'italic', letterSpacing: '0.01em' }}>
+                                                ⚠ Este documento será excluído automaticamente 24 horas após sua criação, em conformidade com a política de retenção de dados da plataforma.
                                             </div>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>

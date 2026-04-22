@@ -133,7 +133,7 @@ function App() {
               </>
             ) : (
               <>
-                <Route path="/" element={<LandingPage session={session} />} />
+                <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/dashboard" element={<Dashboard isAdmin={isAdmin} />} />
                 <Route path="/upload" element={<Upload />} />
                 <Route path="/review/:id" element={<Review />} />
