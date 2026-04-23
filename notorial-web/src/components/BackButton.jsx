@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 
-export default function BackButton({ to = '/dashboard', label = 'Voltar ao Dashboard' }) {
+export default function BackButton({ to = '/dashboard', label = 'Voltar ao Menu Principal' }) {
   const navigate = useNavigate();
 
   return (

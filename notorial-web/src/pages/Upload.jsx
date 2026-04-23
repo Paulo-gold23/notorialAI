@@ -543,7 +543,7 @@ export default function Upload() {
                             textAlign: 'center'
                         }}>
                             <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
-                                Reserva Estimada
+                                Estimativa de Uso
                             </div>
                             <div style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-main)' }}>
                                 {estimationData.estimated_pages}
@@ -734,7 +734,7 @@ export default function Upload() {
                                 style={{ width: '100%', padding: '0.875rem', fontSize: '1rem' }}
                             >
                                 <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                                    Revisar Ata <ArrowRight className="w-4 h-4" />
+                                    Revisar Documento <ArrowRight className="w-4 h-4" />
                                 </span>
                             </button>
                         </div>

@@ -8,6 +8,7 @@ export default function Login() {
     const [isRegister, setIsRegister] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
     const [nome, setNome] = useState('');
     const [oab, setOab] = useState('');
     const [cpfCnpj, setCpfCnpj] = useState('');
@@ -15,6 +16,7 @@ export default function Login() {
     const [error, setError] = useState('');
     const [successMsg, setSuccessMsg] = useState('');
     const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
     const formatCpfCnpj = (value) => {
         const digits = value.replace(/\D/g, '').slice(0, 14);
@@ -70,6 +72,9 @@ export default function Login() {
         setSuccessMsg('');
         try {
             if (isRegister) {
+                if (password !== confirmPassword) {
+                    throw new Error('As senhas não coincidem. Por favor, verifique.');
+                }
                 const rawCpf = getRawCpfCnpj();
                 if (rawCpf.length === 11 && !isValidCpf(rawCpf)) throw new Error('CPF inválido. Por favor, verifique os dígitos.');
                 else if (rawCpf.length === 14 && !isValidCnpj(rawCpf)) throw new Error('CNPJ inválido. Por favor, verifique os dígitos.');
@@ -321,7 +326,7 @@ export default function Login() {
                                     required placeholder="seu@email.com" className="input-login" />
                             </div>
 
-                            <div style={{ marginBottom: '1.25rem' }}>
+                            <div style={{ marginBottom: isRegister ? '0.75rem' : '1.25rem' }}>
                                 <label style={labelStyle}>Senha <Required /></label>
                                 <div style={{ position: 'relative' }}>
                                     <input
@@ -345,6 +350,45 @@ export default function Login() {
                                     </button>
                                 </div>
                             </div>
+
+                            {/* Confirm Password — register only */}
+                            {isRegister && (
+                                <div style={{ marginBottom: '1.25rem' }}>
+                                    <label style={labelStyle}>Confirmar Senha <Required /></label>
+                                    <div style={{ position: 'relative' }}>
+                                        <input
+                                            type={showConfirmPassword ? 'text' : 'password'}
+                                            value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
+                                            required placeholder="Repita a senha"
+                                            className="input-login"
+                                            style={{
+                                                paddingRight: '3rem',
+                                                borderColor: confirmPassword && password !== confirmPassword
+                                                    ? 'rgba(239,68,68,0.6)' : undefined,
+                                            }}
+                                            minLength={6}
+                                        />
+                                        <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                            style={{
+                                                position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)',
+                                                background: 'none', border: 'none', cursor: 'pointer',
+                                                color: 'var(--text-muted)', padding: '0.2rem',
+                                                display: 'flex', alignItems: 'center', transition: 'color 0.2s',
+                                            }}
+                                            onMouseOver={(e) => e.currentTarget.style.color = 'var(--text-main)'}
+                                            onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
+                                            tabIndex={-1}
+                                        >
+                                            {showConfirmPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                                        </button>
+                                    </div>
+                                    {confirmPassword && password !== confirmPassword && (
+                                        <p style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                            <Shield size={11} /> As senhas não coincidem.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
 
                             {/* Forgot password link */}
                             {!isRegister && (
