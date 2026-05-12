@@ -1,27 +1,42 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 from config import settings
 import logging
+import logging.handlers
+import os
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(name)s %(levelname)s %(message)s"
+# ── Logging ──────────────────────────────────────────────────────────────────
+_LOG_FILE = os.path.join(os.path.dirname(__file__), "app.log")
+_formatter = logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
+
+_file_handler = logging.handlers.TimedRotatingFileHandler(
+    _LOG_FILE, when="midnight", backupCount=7, encoding="utf-8"
 )
+_file_handler.setFormatter(_formatter)
+
+_console_handler = logging.StreamHandler()
+_console_handler.setFormatter(_formatter)
+
+logging.basicConfig(level=logging.INFO, handlers=[_file_handler, _console_handler])
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Initializing LegisVox API...")
+    yield
+    # cleanup on shutdown (add resource teardown here if needed in the future)
+
 
 app = FastAPI(
     title="LegisVox API",
     description="Automação de Atas Notariais a partir de WhatsApp",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
-# Import and include routers
-from routers import atas, credits, webhooks
-app.include_router(atas.router)
-app.include_router(credits.router)
-app.include_router(webhooks.router)
-
-# CORS configuration
+# CORS must be registered BEFORE routers — FastAPI applies middleware in reverse order
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -39,9 +54,11 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "advogado_id", "asaas_access_token", "asaas-access-token"],
 )
 
-@app.on_event("startup")
-async def startup_event():
-    logger.info("Initializing LegisVox API...")
+# Import and include routers AFTER middleware
+from routers import atas, credits, webhooks
+app.include_router(atas.router)
+app.include_router(credits.router)
+app.include_router(webhooks.router)
 
 @app.get("/")
 def read_root():

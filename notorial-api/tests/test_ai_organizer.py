@@ -30,10 +30,11 @@ def test_chat_to_text_formatting():
             }
         ]
     }
-    text = _chat_to_text(chat_json)
-    assert "PARTICIPANTES: Alice, Bob" in text
-    assert '[01/01/2024 10:00] Alice: "Olá Bob"' in text
-    assert '\U0001f399\ufe0f [ÁUDIO TRANSCRITO]: "Oi Alice"' in text
+    text, _, _ = _chat_to_text(chat_json)
+    assert "PARTICIPANTES" in text
+    assert "Alice" in text
+    assert "Bob" in text
+    assert "%%AUDIO_1%%" in text
 
 def test_apply_formatting_quotes():
     input_text = 'O remetente enviou "Isso é um teste" para o destinatário.'
@@ -47,10 +48,10 @@ def test_apply_formatting_error():
     assert '**[01/01/2024 10:00] Alice: 🎙️ [ÁUDIO TRANSCRITO]: [Erro na transcrição]**' in output_text
 
 def test_split_into_chunks():
-    # MAX_CHARS_PER_CHUNK is 40000
+    # MAX_CHARS_PER_CHUNK is 15000
     long_text = "a" * 50000
     chunks = _split_into_chunks(long_text)
-    assert len(chunks) == 2
+    assert len(chunks) == 4
 
 from unittest.mock import patch
 
@@ -71,5 +72,6 @@ async def test_organize_chat_with_ai_mock():
         
         with patch("services.ai_organizer.settings") as mock_settings:
             mock_settings.OPENAI_API_KEY = "dummy-key"
+            mock_settings.OPENAI_MODEL = "gpt-4o-mini"
             result = await organize_chat_with_ai(chat_json)
             assert "H1" in result["conteudo"].upper() or "Título" in result["conteudo"]

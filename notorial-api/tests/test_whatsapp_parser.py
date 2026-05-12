@@ -68,7 +68,8 @@ def test_media_omitted():
     
     result = parse_whatsapp_zip(zip_data)
     
-    assert result["mensagens"][0]["tipo"] == "midia_omitida"
+    assert result["mensagens"][0]["tipo"] == "imagem"
+    assert result["mensagens"][0]["arquivo"] is None
 
 def test_date_filter():
     content = (

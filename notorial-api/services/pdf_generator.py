@@ -83,7 +83,12 @@ def _wrap_html_for_pdf(html_str: str) -> str:
       font-size: 12pt;
       line-height: 1.35;
       color: #111;
+      text-align: justify;
       counter-reset: page-number;
+    }
+    p, li {
+      orphans: 4;
+      widows: 4;
     }
     /* Marca d’água LegisVox */
     .watermark {
@@ -103,6 +108,7 @@ def _wrap_html_for_pdf(html_str: str) -> str:
     h1, h2, h3, h4, h5, h6 {
       margin: 0.6em 0 0.35em;
       page-break-after: avoid;
+      text-align: left;
     }
     ul, ol {
       margin: 0.25em 0 0.75em;
@@ -132,17 +138,22 @@ def _wrap_html_for_pdf(html_str: str) -> str:
       display: none;
     }
     .ata-imagem-anexada {
-      max-width: 60%;
-      max-height: 400px;
+      display: block;
+      max-width: 70%;
+      max-height: 260px;
       width: auto;
       height: auto;
-      display: block;
-      margin: 20px auto;
-      border: 1px solid #eaeaea;
-      border-radius: 6px;
-      page-break-inside: avoid;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      margin: 6px auto;
+      border: 1px solid #d0d0d0;
+      border-radius: 4px;
     }
+
+    /* Parágrafo container de imagem */
+    p:has(> .ata-imagem-anexada) {
+      display: block;
+      margin: 4px 0;
+    }
+
 """
 
     return f"""<!doctype html>
@@ -182,7 +193,21 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_has
         url = f"{url.rstrip('/')}/forms/chromium/convert/html"
 
     html_for_pdf = _wrap_html_for_pdf(html_str)
-    
+
+    # ── DIAGNÓSTICO TEMPORÁRIO: salva HTML que vai para o Gotenberg ──
+    # Abra o arquivo gerado em qualquer browser para ver como o PDF deveria parecer.
+    # Se o browser mostrar todas as imagens → problema é no Gotenberg.
+    # Se o browser mostrar só 1 → problema é CSS/dados no HTML.
+    try:
+        import pathlib
+        _diag_path = pathlib.Path(__file__).parent.parent / "debug_pdf_preview.html"
+        _diag_path.write_text(html_for_pdf, encoding='utf-8')
+        logger.info(f"[PDF_DIAG] HTML salvo em: {_diag_path} ({len(html_str):,} chars, {html_str.count('<img '):} imgs)")
+    except Exception as _e:
+        logger.warning(f"[PDF_DIAG] Falha ao salvar HTML de diagnóstico: {_e}")
+    # ── FIM DIAGNÓSTICO ──
+
+
     conferido_por = f"e conferido por <strong>{reviewer_name}</strong>" if reviewer_name else "e conferido por usuário"
     
     disclaimer = ""
@@ -198,21 +223,26 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_has
     font-size: 7pt;
     color: #666;
     margin: 0;
-    padding: 0;
+    padding: 0 18mm 6mm 18mm;
+    box-sizing: border-box;
+    width: 100%;
   }}
   .footer-bar {{
     width: 100%;
     text-align: right;
-    padding-top: 4px;
+    padding-top: 6px;
     line-height: 1.4;
+    border-top: 1px solid #ccc;
   }}
   .footer-text {{
     text-align: justify;
     display: block;
+    margin-bottom: 3px;
   }}
   .footer-page {{
     text-align: right;
     display: block;
+    font-weight: bold;
   }}
 </style></head>
 <body>
@@ -249,16 +279,19 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_has
                 
                 pdf_content = response.content
                 # Protect PDF (Immutable restrictions)
+                # NOTE: pypdf writer.add_page() does NOT copy /Annots (link annotations).
+                # We must clone the document to preserve internal hyperlinks from the index.
                 try:
                     from pypdf import PdfReader, PdfWriter
                     reader = PdfReader(io.BytesIO(pdf_content))
                     writer = PdfWriter()
-                    for page in reader.pages:
-                        writer.add_page(page)
+                    # clone_reader_document_root preserves all annotations including
+                    # internal anchor links (Link annotations used by the index)
+                    writer.clone_reader_document_root(reader)
                     owner_pass = secrets.token_hex(16)
                     writer.encrypt(
-                        user_password="", 
-                        owner_password=owner_pass, 
+                        user_password="",
+                        owner_password=owner_pass,
                         permissions_flag=0b0000000000100
                     )
                     out = io.BytesIO()

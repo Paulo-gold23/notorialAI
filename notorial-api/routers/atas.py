@@ -3,8 +3,7 @@ from pydantic import BaseModel
 from middleware.auth import get_current_user_id
 from database import get_supabase_client
 from services.whatsapp_parser import parse_whatsapp_zip
-from services.transcription import transcribe_all
-from services.ai_organizer import organize_chat_with_ai
+from services.pipeline_orchestrator import local_results, _process_pipeline
 from services.pdf_generator import generate_pdf_from_html
 from services.credits import credits_service
 import logging
@@ -14,6 +13,8 @@ import os
 import io
 import asyncio
 import hashlib
+import tempfile
+import json
 from fastapi.responses import Response
 
 logger = logging.getLogger(__name__)
@@ -23,10 +24,14 @@ MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500 MB max upload
 PDF_CACHE_TTL = 3600  # 1 hour TTL for cached PDFs
 _ALLOW_BYPASS = os.getenv("ALLOW_TEST_BYPASS", "false").lower() == "true"
 
-# In-memory PDF cache with TTL: {pdf_id: (bytes, timestamp)}
+# In-memory PDF cache — stores metadata only when Supabase Storage is available.
+# Fallback: stores full bytes when Storage is unavailable (bypass/local mode).
+# Format: {pdf_id: {"ts": float, "owner": str, "bytes": Optional[bytes]}}
 pdf_cache = {}
+_PDF_STORAGE_BUCKET = "pdfs-temp"
 
-# Estimation cache for credit gate: {ata_id: {..., zip_bytes, timestamp}}
+# Estimate fallback cache — only used when Supabase is unavailable (bypass/local mode)
+# In production with Supabase, estimate metadata is persisted in the atas table.
 estimate_cache = {}
 ESTIMATE_CACHE_TTL = 600  # 10 minutes
 
@@ -49,8 +54,6 @@ class AiActionRequest(BaseModel):
 
 router = APIRouter(prefix="/api/atas", tags=["Atas"])
 
-# In-memory cache for locally-processed results (when no Supabase)
-local_results = {}
 
 class AuthContext:
     def __init__(self, client, advogado_id, token):
@@ -65,291 +68,6 @@ def get_auth_context(request: Request, advogado_id: str = Depends(get_current_us
     if client and token and not is_bypass:
         client.postgrest.auth(token)
     return AuthContext(client, advogado_id, token)
-
-
-# ── Status helpers ──────────────────────────────────────────────
-def _update_status(ata_id: str, is_local: bool, supabase, status_name: str, progress: int = 0, message: str = ""):
-    """Atualiza o status da ata (local ou Supabase)."""
-    if ata_id not in local_results:
-        local_results[ata_id] = {}
-
-    # Sempre atualiza cache local para refletir progresso imediato na UI.
-    local_results[ata_id].update({
-        'status': status_name,
-        'progress': progress,
-        'status_message': message
-    })
-
-    # Em modo com Supabase, persiste também no banco.
-    if not is_local and supabase:
-        try:
-            supabase.table('atas').update({
-                'status': status_name,
-                'status_message': message
-            }).eq('id', ata_id).execute()
-        except Exception as e:
-            logger.warning(f"Erro ao atualizar status no Supabase: {e}")
-
-
-# ── Pipeline de processamento (async, roda via asyncio.create_task) ──
-async def _process_pipeline(ata_id: str, zip_bytes: bytes, is_local: bool, start_date: str = None, end_date: str = None, token: str = None, advogado_id: str = None):
-    # IMPORTANT: Use the global Supabase client (anon key) for the pipeline.
-    # Do NOT use the user's JWT token here — it expires during long processing
-    # (transcription + AI can take 5-15 mins) causing "JWT expired" errors.
-    # RLS policies already allow anon access via "Service can manage" policies.
-    supabase = get_supabase_client()
-    is_bypass = _ALLOW_BYPASS and token == "bypass_admin"
-
-    def update(status_name, message="", progress=0):
-        _update_status(ata_id, is_local, supabase, status_name, progress=progress, message=message)
-
-    try:
-        t_total = time.time()
-
-        # ── ETAPA 1: Parse do ZIP (síncrono, roda em thread para não bloquear) ──
-        t0 = time.time()
-        update('parsing', "Extraindo e validando mensagens...", progress=10)
-        logger.info(f"[{ata_id}] Parsing ZIP com filtro: {start_date} → {end_date}")
-
-        loop = asyncio.get_running_loop()
-        parsed_data = await loop.run_in_executor(
-            None,
-            lambda: parse_whatsapp_zip(zip_bytes, start_date=start_date, end_date=end_date)
-        )
-        all_audio_bytes = parsed_data.pop("arquivos_extraidos", {})
-        all_image_bytes = parsed_data.pop("imagens_extraidas", {})
-
-        logger.info(f"[{ata_id}] Parse OK em {time.time()-t0:.2f}s - "
-                     f"{parsed_data['total_mensagens']} msgs, {len(all_audio_bytes)} áudios no ZIP")
-        logger.info(f"[{ata_id}] Imagens extraídas do ZIP: {len(all_image_bytes)} | keys: {list(all_image_bytes.keys())[:5]}")
-
-        # Log image-type messages to compare filenames
-        img_msgs = [m for m in parsed_data.get("mensagens", []) if m.get("tipo") == "imagem"]
-        logger.info(f"[{ata_id}] Mensagens tipo imagem: {len(img_msgs)} | arquivos: {[m.get('arquivo') for m in img_msgs[:5]]}")
-
-        update('parsing', "Arquivos extraídos com sucesso.", progress=25)
-
-        # ── ETAPA 2: Filtrar áudios — só transcrever os referenciados nas mensagens ──
-        # IMPORTANTE: parser retorna bytes com path completo do ZIP (ex: "Media/PTT-xxx.opus")
-        # mas msg["arquivo"] pode conter só o basename ("PTT-xxx.opus").
-        # Construímos um índice por basename para garantir o match.
-        audio_by_basename_bytes = {
-            os.path.basename(fname): (fname, data)
-            for fname, data in all_audio_bytes.items()
-        }
-
-        needed_audio_files = {
-            msg["arquivo"]
-            for msg in parsed_data["mensagens"]
-            if msg["tipo"] == "audio" and msg.get("arquivo")
-        }
-        needed_basenames = {os.path.basename(f) for f in needed_audio_files}
-
-        # Monta dict para transcrição — chave = basename (estável), valor = bytes
-        audios_to_transcribe = {}
-        for needed in needed_audio_files:
-            needed_base = os.path.basename(needed)
-            if needed in all_audio_bytes:
-                # Match exato pelo path completo
-                audios_to_transcribe[needed_base] = all_audio_bytes[needed]
-            elif needed_base in audio_by_basename_bytes:
-                # Match por basename (cobre ZIP com subpastas)
-                _, bdata = audio_by_basename_bytes[needed_base]
-                audios_to_transcribe[needed_base] = bdata
-
-        # Normaliza também a referência nas mensagens para basename (resolve mismatch no merge)
-        for msg in parsed_data["mensagens"]:
-            if msg.get("tipo") == "audio" and msg.get("arquivo"):
-                msg["arquivo"] = os.path.basename(msg["arquivo"])
-
-        skipped = len(all_audio_bytes) - len(audios_to_transcribe)
-        logger.info(
-            f"[{ata_id}] Áudios no ZIP: {len(all_audio_bytes)} | "
-            f"Referenciados nas msgs: {len(needed_audio_files)} | "
-            f"Para transcrever: {len(audios_to_transcribe)} | "
-            f"Pulados/fora do período: {skipped}"
-        )
-
-        # ── ETAPA 3: Transcrição paralela (Groq Whisper) ──
-        t1 = time.time()
-        update('transcribing', f"Transcrevendo {len(audios_to_transcribe)} áudios...", progress=35)
-
-        async def trans_progress(msg, prog):
-            update("transcribing", msg, progress=max(35, min(65, prog)))
-
-        transcriptions = await transcribe_all(audios_to_transcribe, on_progress=trans_progress)
-        logger.info(f"[{ata_id}] Transcrição concluída em {time.time()-t1:.2f}s - {len(transcriptions)} resultados")
-
-        # ── ETAPA 4: Merge cronológico — injetar transcrições ──
-        # Neste ponto msg["arquivo"] já está normalizado para basename (etapa 2 acima)
-        merged_count = 0
-        miss_count = 0
-        for msg in parsed_data["mensagens"]:
-            if msg["tipo"] != "audio" or not msg.get("arquivo"):
-                continue
-
-            arquivo = msg["arquivo"]  # já é basename
-
-            if arquivo in transcriptions:
-                msg["transcricao"] = transcriptions[arquivo]
-                merged_count += 1
-            else:
-                miss_count += 1
-                logger.debug(f"[{ata_id}] Sem transcrição para: {arquivo}")
-
-        logger.info(f"[{ata_id}] Merge: {merged_count} injetados, {miss_count} sem transcrição")
-
-        # ── ETAPA 5: Organização com IA (Preparatório) ──
-        t2 = time.time()
-        update('organizing', "Estruturando documento preparatório com IA...", progress=70)
-
-        async def org_progress(msg, prog):
-            update("organizing", msg, progress=max(70, min(95, prog)))
-
-        try:
-            preparatorio_data = await organize_chat_with_ai(
-                parsed_data, is_formal=False, on_progress=org_progress, image_bytes=all_image_bytes
-            )
-            logger.info(f"[{ata_id}] IA Preparatória concluída em {time.time()-t2:.2f}s")
-        except Exception as e:
-            logger.error(f"[{ata_id}] Erro na IA Preparatória: {e}")
-            preparatorio_data = {"conteudo": f"[Erro no processamento preparatório: {str(e)}]"}
-
-        # ── ETAPA 6: Salvar resultado ──
-        elapsed = time.time() - t_total
-        done_msg = f"Processamento concluído em {elapsed:.0f}s!"
-        logger.info(f"[{ata_id}] ✅ {done_msg}")
-
-        if supabase and not is_local:
-            try:
-                supabase.table('atas_conteudo').insert({
-                    'ata_id': ata_id,
-                    'chat_parseado': parsed_data,
-                    'conteudo_formal': None,
-                    'conteudo_preparatorio': preparatorio_data.get('conteudo'),
-                    'advogado_id': advogado_id
-                }).execute()
-            except Exception as db_err:
-                logger.error(f"[{ata_id}] Aviso: Falha ao inserir atas_conteudo (talvez advogado_id não exista na tabela): {db_err}")
-                # Fallback caso a tabela não tenha a coluna
-                supabase.table('atas_conteudo').insert({
-                    'ata_id': ata_id,
-                    'chat_parseado': parsed_data,
-                    'conteudo_formal': None,
-                    'conteudo_preparatorio': preparatorio_data.get('conteudo')
-                }).execute()
-
-            # Gerar título descritivo a partir dos participantes + período
-            participantes_list = parsed_data.get('participantes', [])
-            periodo = parsed_data.get('periodo', {})
-            p_inicio = periodo.get('inicio', '')
-            p_fim = periodo.get('fim', '')
-            
-            # Formatar: "João, Maria - Jan/2025 a Mar/2025"
-            nomes = ', '.join(participantes_list[:3])
-            if len(participantes_list) > 3:
-                nomes += f' +{len(participantes_list) - 3}'
-            
-            periodo_fmt = ''
-            if p_inicio and p_fim:
-                try:
-                    from datetime import datetime as dt_fmt
-                    d1 = dt_fmt.fromisoformat(p_inicio)
-                    d2 = dt_fmt.fromisoformat(p_fim)
-                    meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
-                    periodo_fmt = f"{meses[d1.month-1]}/{d1.year} a {meses[d2.month-1]}/{d2.year}"
-                except Exception:
-                    periodo_fmt = f"{p_inicio} a {p_fim}"
-            elif p_inicio:
-                periodo_fmt = p_inicio
-            
-            titulo_smart = nomes
-            if periodo_fmt:
-                titulo_smart += f" - {periodo_fmt}"
-            
-            supabase.table('atas').update({
-                'status': 'ready',
-                'status_message': done_msg,
-                'titulo': titulo_smart,
-                'participantes': parsed_data.get('participantes'),
-                'periodo_inicio': p_inicio,
-                'periodo_fim': p_fim,
-                'total_mensagens': parsed_data.get('total_mensagens'),
-                'total_audios': parsed_data.get('total_audios')
-            }).eq('id', ata_id).execute()
-
-            # Mantém cache local sincronizado para status/preview imediato.
-            local_results[ata_id] = {
-                'parsed_data': parsed_data,
-                'conteudo_formal': None,
-                'conteudo_preparatorio': preparatorio_data.get('conteudo'),
-                'image_bytes': all_image_bytes,
-                'status': 'ready',
-                'progress': 100,
-                'status_message': done_msg,
-                'user_id': advogado_id,
-                'is_local': False
-            }
-        else:
-            local_results[ata_id] = {
-                'parsed_data': parsed_data,
-                'conteudo_formal': None,
-                'conteudo_preparatorio': preparatorio_data.get('conteudo'),
-                'image_bytes': all_image_bytes,
-                'status': 'ready',
-                'progress': 100,
-                'status_message': done_msg
-            }
-
-    except Exception as e:
-        raw_msg = str(e)
-        logger.error(f"[{ata_id}] Error processing ZIP: {raw_msg}", exc_info=True)
-
-        # Categorize error for user-friendly display on frontend
-        err_lower = raw_msg.lower()
-        if 'badzip' in err_lower or 'zip inválido' in err_lower or 'corrompido' in err_lower:
-            err_category = 'ZIP_INVALID'
-            err_msg = 'O arquivo ZIP está corrompido ou não é válido. Por favor, exporte novamente a conversa do WhatsApp.'
-        elif 'nenhum arquivo de conversa' in err_lower or 'nenhuma mensagem' in err_lower or '_chat.txt' in err_lower:
-            err_category = 'ZIP_NO_CHAT'
-            err_msg = 'O ZIP enviado não contém uma conversa do WhatsApp. Certifique-se de exportar a conversa pelo WhatsApp usando a opção "Exportar conversa".'
-        elif 'nenhuma mensagem encontrada no período' in err_lower:
-            err_category = 'DATE_FILTER_EMPTY'
-            err_msg = raw_msg  # já é amigável
-        elif 'timeout' in err_lower or 'timed out' in err_lower:
-            err_category = 'API_TIMEOUT'
-            err_msg = 'O processamento demorou mais do que o esperado. Isso pode acontecer com conversas muito longas. Tente novamente.'
-        elif 'rate limit' in err_lower or '429' in err_lower:
-            err_category = 'API_RATE_LIMIT'
-            err_msg = 'Os serviços de IA estão temporariamente sobrecarregados. Aguarde alguns minutos e tente novamente.'
-        elif 'openai' in err_lower or 'groq' in err_lower or 'falha ao comunicar' in err_lower:
-            err_category = 'AI_ERROR'
-            err_msg = 'Houve uma falha na comunicação com o serviço de inteligência artificial. Tente novamente em instantes.'
-        elif 'gotenberg' in err_lower or 'pdf' in err_lower:
-            err_category = 'PDF_ERROR'
-            err_msg = 'Erro ao gerar o documento PDF. O conteúdo foi preservado — você pode tentar gerar o PDF novamente na tela de revisão.'
-        else:
-            err_category = 'INTERNAL'
-            err_msg = 'Ocorreu um erro inesperado no processamento. Nossa equipe foi notificada. Tente novamente.'
-
-        if ata_id not in local_results:
-            local_results[ata_id] = {}
-        local_results[ata_id].update({
-            'status': 'error',
-            'progress': 0,
-            'status_message': err_msg,
-            'error_message': err_msg,
-            'error_category': err_category
-        })
-        if supabase:
-            try:
-                supabase.table('atas').update({
-                    'status': 'error',
-                    'status_message': err_msg,
-                    'error_message': err_msg
-                }).eq('id', ata_id).execute()
-            except Exception:
-                pass
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -415,14 +133,24 @@ async def upload_whatsapp_zip(
     if not file.filename.endswith('.zip'):
         raise HTTPException(status_code=400, detail="Apenas arquivos .zip são aceitos")
 
-    # ── Security: File size limit ──
-    zip_bytes = await file.read()
-    if len(zip_bytes) > MAX_UPLOAD_SIZE:
-        size_mb = len(zip_bytes) / (1024 * 1024)
-        raise HTTPException(
-            status_code=413,
-            detail=f"Arquivo muito grande ({size_mb:.0f}MB). Limite máximo: {MAX_UPLOAD_SIZE // (1024*1024)}MB"
+    # ── Security: File size limit and streaming to disk ──
+    fd, temp_path = tempfile.mkstemp(suffix=".zip")
+    os.close(fd)
+    
+    try:
+        loop = asyncio.get_running_loop()
+        size, zip_hash = await loop.run_in_executor(
+            None,
+            lambda: save_upload_file_with_limit_and_hash(file, temp_path, MAX_UPLOAD_SIZE)
         )
+    except ValueError as ve:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise HTTPException(status_code=413, detail=str(ve))
+    except Exception as e:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise HTTPException(status_code=500, detail="Erro ao salvar o arquivo")
 
     ata_record = None
     supabase = auth_ctx.client
@@ -430,9 +158,8 @@ async def upload_whatsapp_zip(
     token = auth_ctx.token
     is_bypass_user = _ALLOW_BYPASS and advogado_id == "bypass-admin-id"
     
-    if supabase and not is_bypass_user:
+    if supabase and not is_bypass:
         try:
-            zip_hash = hashlib.sha256(zip_bytes).hexdigest()
             response = supabase.table('atas').insert({
                 'advogado_id': advogado_id,
                 'titulo': f"Conversa - {file.filename}",
@@ -444,6 +171,8 @@ async def upload_whatsapp_zip(
                 raise HTTPException(status_code=500, detail="Falha ao criar registro no banco de dados.")
             ata_record = response.data[0]
         except HTTPException:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
             raise
         except Exception as e:
             logger.warning(f"Supabase insert failed (using local mode): {e}")
@@ -461,7 +190,15 @@ async def upload_whatsapp_zip(
     }
 
     asyncio.create_task(
-        _process_pipeline(ata_id, zip_bytes, is_local, start_date, end_date, token, advogado_id)
+        _process_pipeline(
+            ata_id=ata_id,
+            is_local=is_local,
+            start_date=start_date,
+            end_date=end_date,
+            token=token,
+            advogado_id=advogado_id,
+            temp_path=temp_path
+        )
     )
     
     return {"status": "processing", "ata_id": ata_id}
@@ -474,13 +211,33 @@ async def upload_whatsapp_zip(
 class ConfirmUploadRequest(BaseModel):
     ata_id: str
 
+def save_upload_file_with_limit_and_hash(upload_file, destination_path, max_size):
+    """Save upload file to disk chunk by chunk, returning size and hash."""
+    size = 0
+    sha256_hash = hashlib.sha256()
+    with open(destination_path, "wb") as buffer:
+        while chunk := upload_file.file.read(1024 * 1024):
+            size += len(chunk)
+            if size > max_size:
+                raise ValueError(f"Arquivo muito grande ({size / (1024 * 1024):.0f}MB). Limite máximo: {max_size // (1024*1024)}MB")
+            sha256_hash.update(chunk)
+            buffer.write(chunk)
+    return size, sha256_hash.hexdigest()
 
 def _cleanup_estimate_cache():
-    """Remove expired estimates."""
+    """Remove expired estimates and their temp files."""
     now = time.time()
-    expired = [eid for eid, data in estimate_cache.items() if now - data["timestamp"] > ESTIMATE_CACHE_TTL]
+    expired = []
+    for eid, data in estimate_cache.items():
+        if now - data["timestamp"] > ESTIMATE_CACHE_TTL:
+            expired.append(eid)
     for eid in expired:
-        del estimate_cache[eid]
+        data = estimate_cache.pop(eid)
+        if "temp_path" in data and os.path.exists(data["temp_path"]):
+            try:
+                os.remove(data["temp_path"])
+            except Exception as e:
+                logger.error(f"Erro ao remover arquivo temporario {data['temp_path']}: {e}")
     if expired:
         logger.info(f"Cleaned up {len(expired)} expired estimates from cache")
 
@@ -499,10 +256,23 @@ async def estimate_upload(
     if not file.filename.endswith('.zip'):
         raise HTTPException(status_code=400, detail="Apenas arquivos .zip são aceitos")
 
-    zip_bytes = await file.read()
-    if len(zip_bytes) > MAX_UPLOAD_SIZE:
-        size_mb = len(zip_bytes) / (1024 * 1024)
-        raise HTTPException(status_code=413, detail=f"Arquivo muito grande ({size_mb:.0f}MB). Limite: {MAX_UPLOAD_SIZE // (1024*1024)}MB")
+    fd, temp_path = tempfile.mkstemp(suffix=".zip")
+    os.close(fd)
+    
+    try:
+        loop = asyncio.get_running_loop()
+        size, _ = await loop.run_in_executor(
+            None,
+            lambda: save_upload_file_with_limit_and_hash(file, temp_path, MAX_UPLOAD_SIZE)
+        )
+    except ValueError as ve:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise HTTPException(status_code=413, detail=str(ve))
+    except Exception as e:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise HTTPException(status_code=500, detail="Erro ao salvar o arquivo")
 
     advogado_id = auth_ctx.advogado_id
 
@@ -511,19 +281,22 @@ async def estimate_upload(
         loop = asyncio.get_running_loop()
         parsed_data = await loop.run_in_executor(
             None,
-            lambda: parse_whatsapp_zip(zip_bytes, start_date=start_date, end_date=end_date)
+            lambda: parse_whatsapp_zip(temp_path, start_date=start_date, end_date=end_date, estimate_only=True)
         )
     except Exception as e:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
         logger.error(f"[ESTIMATE] Erro ao analisar ZIP: {e}")
         raise HTTPException(status_code=400, detail=f"Erro ao analisar arquivo: {str(e)}")
 
     all_audio_bytes = parsed_data.get("arquivos_extraidos", {})
 
     # Build audio file sizes dict (both full path and basename for safety)
-    audio_file_sizes = {}
-    for fname, data in all_audio_bytes.items():
-        audio_file_sizes[fname] = len(data)
-        audio_file_sizes[os.path.basename(fname)] = len(data)
+    audio_file_sizes = parsed_data.get("audio_file_sizes_estimate", {})
+    if not audio_file_sizes:
+        for fname, data in all_audio_bytes.items():
+            audio_file_sizes[fname] = len(data)
+            audio_file_sizes[os.path.basename(fname)] = len(data)
 
     # Always estimate pages from parsed data
     estimated_pages = credits_service.estimate_pages(parsed_data, audio_file_sizes)
@@ -537,20 +310,48 @@ async def estimate_upload(
         balance = credits_service.get_balance(advogado_id)
         has_credits = balance >= estimated_pages
 
-    # Generate temporary ID and cache ZIP for confirm phase
+    # Generate temporary ID and store estimate metadata
     ata_id = str(uuid.uuid4())
     _cleanup_estimate_cache()
-    estimate_cache[ata_id] = {
-        "zip_bytes": zip_bytes,
-        "start_date": start_date,
-        "end_date": end_date,
-        "advogado_id": advogado_id,
-        "token": auth_ctx.token,
-        "estimated_pages": estimated_pages,
-        "confirmed": False,
-        "timestamp": time.time(),
-        "zip_filename": file.filename
-    }
+
+    supabase = auth_ctx.client
+    is_bypass = _ALLOW_BYPASS and advogado_id == "bypass-admin-id"
+
+    if supabase and not is_bypass:
+        # Persist to DB so any worker can pick up the confirm
+        try:
+            supabase.table('atas').insert({
+                'id': ata_id,
+                'advogado_id': advogado_id,
+                'titulo': f"Estimativa - {file.filename}",
+                'status': 'estimating',
+                'zip_filename': file.filename,
+                'estimated_pages': estimated_pages,
+                'status_message': json.dumps({
+                    'temp_path': temp_path,
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'token': auth_ctx.token,
+                    'timestamp': time.time(),
+                })
+            }).execute()
+            logger.info(f"[ESTIMATE] {ata_id}: metadados persistidos no banco")
+        except Exception as e:
+            logger.warning(f"[ESTIMATE] Falha ao persistir no banco, usando cache local: {e}")
+            estimate_cache[ata_id] = {
+                'temp_path': temp_path, 'start_date': start_date, 'end_date': end_date,
+                'advogado_id': advogado_id, 'token': auth_ctx.token,
+                'estimated_pages': estimated_pages, 'confirmed': False,
+                'timestamp': time.time(), 'zip_filename': file.filename
+            }
+    else:
+        # Bypass / no Supabase: use local cache
+        estimate_cache[ata_id] = {
+            'temp_path': temp_path, 'start_date': start_date, 'end_date': end_date,
+            'advogado_id': advogado_id, 'token': auth_ctx.token,
+            'estimated_pages': estimated_pages, 'confirmed': False,
+            'timestamp': time.time(), 'zip_filename': file.filename
+        }
 
     logger.info(f"[ESTIMATE] {ata_id}: {estimated_pages} páginas estimadas, saldo={balance}, suficiente={has_credits}")
 
@@ -573,33 +374,55 @@ async def confirm_upload(
     ata_id = req.ata_id
     advogado_id = auth_ctx.advogado_id
 
-    # Verify cache
+    supabase = auth_ctx.client
+    is_bypass = _ALLOW_BYPASS and advogado_id == "bypass-admin-id"
+    
+    # Load from DB or fallback to local memory cache
     cached = estimate_cache.get(ata_id)
+
+    if not cached and supabase and not is_bypass:
+        try:
+            res = supabase.table('atas').select('status, status_message, advogado_id, zip_filename, estimated_pages').eq('id', ata_id).execute()
+            if res.data:
+                row = res.data[0]
+                if row.get('status') != 'estimating':
+                    raise HTTPException(status_code=409, detail="Esta estimativa já foi confirmada ou não existe.")
+                meta = json.loads(row.get('status_message') or '{}')
+                cached = {
+                    'temp_path': meta.get('temp_path'),
+                    'start_date': meta.get('start_date'),
+                    'end_date': meta.get('end_date'),
+                    'advogado_id': row['advogado_id'],
+                    'token': meta.get('token', auth_ctx.token),
+                    'estimated_pages': row.get('estimated_pages', 0),
+                    'confirmed': False,
+                    'timestamp': meta.get('timestamp', time.time()),
+                    'zip_filename': row.get('zip_filename', 'upload.zip'),
+                }
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"[CONFIRM] Falha ao ler estimativa do banco: {e}")
+
+    # Verify cache validity
     if not cached:
         raise HTTPException(status_code=404, detail="Estimativa expirada ou não encontrada. Envie o arquivo novamente.")
 
-    # Verify ownership
-    if cached["advogado_id"] != advogado_id:
+    if cached['advogado_id'] != advogado_id:
         raise HTTPException(status_code=403, detail="Acesso não autorizado.")
 
-    # Verify TTL
-    if time.time() - cached["timestamp"] > ESTIMATE_CACHE_TTL:
-        del estimate_cache[ata_id]
+    if time.time() - cached['timestamp'] > ESTIMATE_CACHE_TTL:
         raise HTTPException(status_code=410, detail="Estimativa expirou (10 minutos). Envie o arquivo novamente.")
 
-    # Prevent double-confirm
-    if cached["confirmed"]:
+    if cached.get('confirmed'):
         raise HTTPException(status_code=409, detail="Este processamento já foi confirmado.")
 
-    # Prepare data
-    estimated_pages = cached["estimated_pages"]
-    is_bypass = _ALLOW_BYPASS and advogado_id == "bypass-admin-id"
-    supabase = auth_ctx.client
-    zip_bytes = cached["zip_bytes"]
-    start_date = cached["start_date"]
-    end_date = cached["end_date"]
-    token = cached["token"]
-    is_bypass_user = _ALLOW_BYPASS and advogado_id == "bypass-admin-id"
+    estimated_pages = cached['estimated_pages']
+    temp_path = cached.get('temp_path')
+    start_date = cached['start_date']
+    end_date = cached['end_date']
+    token = cached['token']
+    zip_bytes = None  # no longer stored in memory
 
     # Check credits first (without debiting yet)
     if not is_bypass and supabase:
@@ -608,17 +431,28 @@ async def confirm_upload(
 
     cached["confirmed"] = True
 
+    # Compute hash
+    zip_hash = ""
+    if temp_path and os.path.exists(temp_path):
+        sha256_hash = hashlib.sha256()
+        with open(temp_path, "rb") as f:
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+        zip_hash = sha256_hash.hexdigest()
+    elif zip_bytes:
+        zip_hash = hashlib.sha256(zip_bytes).hexdigest()
+
     # Step 1: Create ata record FIRST (FK on credit_transactions.ata_id requires this)
     ata_record = None
-    zip_hash = hashlib.sha256(zip_bytes).hexdigest()
-    if supabase and not is_bypass_user:
+    if supabase and not is_bypass:
         try:
             zip_filename = cached.get("zip_filename", "upload.zip")
-            response = supabase.table('atas').insert({
+            response = supabase.table('atas').upsert({
                 'id': ata_id,
                 'advogado_id': advogado_id,
                 'titulo': f"Conversa - {zip_filename}",
                 'status': 'uploading',
+                'status_message': 'Iniciando processamento...',
                 'zip_filename': zip_filename,
                 'estimated_pages': estimated_pages,
                 'zip_hash': zip_hash
@@ -643,13 +477,23 @@ async def confirm_upload(
         "is_local": is_local
     }
 
-    # Dispatch existing pipeline (untouched)
+    # Dispatch existing pipeline (untouched but now uses temp_path instead of zip_bytes)
     asyncio.create_task(
-        _process_pipeline(ata_id, zip_bytes, is_local, start_date, end_date, token, advogado_id)
+        _process_pipeline(
+            ata_id=ata_id,
+            is_local=is_local,
+            start_date=start_date,
+            end_date=end_date,
+            token=token,
+            advogado_id=advogado_id,
+            temp_path=temp_path,
+            zip_bytes=zip_bytes
+        )
     )
 
-    # Free ZIP from cache memory
+    # Free ZIP from cache memory (and clear temp_path from cache to avoid duplicate cleanup by _cleanup_estimate_cache)
     cached["zip_bytes"] = None
+    cached["temp_path"] = None
 
     logger.info(f"[CONFIRM] {ata_id}: {estimated_pages} créditos debitados, pipeline iniciada.")
     return {"status": "processing", "ata_id": ata_id, "debited_credits": estimated_pages}
@@ -659,35 +503,50 @@ async def confirm_upload(
 async def get_ata_status(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_context)):
     try:
         supabase = auth_ctx.client
-        if ata_id in local_results:
-            cached = local_results.get(ata_id)
-            if cached:
-                return {
-                    "status": cached.get('status', 'ready'), 
-                    "progress": cached.get('progress', 0),
-                    "status_message": cached.get('status_message', ""),
-                    "error_message": cached.get('error_message'),
-                    "error_category": cached.get('error_category')
-                }
-            return {"status": "uploading", "progress": 0, "status_message": "Aguardando início..."}
-        
-        if not supabase:
-            return {"status": "ready", "progress": 100}
-            
-        res = supabase.table("atas").select("status, status_message, error_message").eq("id", ata_id).execute()
-        if not res.data:
-            raise HTTPException(status_code=404, detail="Ata não encontrada")
-            
-        data = res.data[0]
-        
-        if data.get("status") == "ready":
-            data["progress"] = 100
-        elif data.get("status") == "error":
-            data["progress"] = 0
-        else:
-            data["progress"] = 50
-            
-        return data
+
+        # Supabase é sempre a fonte de verdade (multi-worker safe).
+        if supabase:
+            res = supabase.table("atas").select("status, status_message, error_message").eq("id", ata_id).execute()
+            if not res.data:
+                # Pode estar ainda no mesmo worker (pipeline recém iniciada): checar local.
+                cached = local_results.get(ata_id)
+                if cached:
+                    return {
+                        "status": cached.get('status', 'uploading'),
+                        "progress": cached.get('progress', 0),
+                        "status_message": cached.get('status_message', ''),
+                    }
+                raise HTTPException(status_code=404, detail="Ata não encontrada")
+
+            data = res.data[0]
+            db_status = data.get("status", "")
+
+            # Enriquecer com progress numérico.
+            if db_status == "ready":
+                data["progress"] = 100
+            elif db_status == "error":
+                data["progress"] = 0
+            else:
+                # Em processamento: progress granular só existe no worker dono.
+                cached = local_results.get(ata_id)
+                data["progress"] = cached.get('progress', 50) if cached else 50
+
+            return data
+
+        # Fallback: sem Supabase (modo local).
+        cached = local_results.get(ata_id)
+        if cached:
+            return {
+                "status": cached.get('status', 'ready'),
+                "progress": cached.get('progress', 0),
+                "status_message": cached.get('status_message', ''),
+                "error_message": cached.get('error_message'),
+                "error_category": cached.get('error_category'),
+            }
+        return {"status": "ready", "progress": 100}
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Erro interno no get_ata_status na requisição ({ata_id}): {e}", exc_info=True)
         return {"status": "error", "progress": 0, "status_message": "Erro fatal ao buscar status da ata.", "error_message": str(e)}
@@ -695,36 +554,32 @@ async def get_ata_status(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_c
 @router.get("/{ata_id}/preview")
 async def get_ata_preview(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_context)):
     supabase = auth_ctx.client
-    if ata_id in local_results or not supabase:
-        cached = local_results.get(ata_id, {})
-        parsed = cached.get('parsed_data', {})
-        return {
-            "ata": {
-                "id": ata_id,
-                "titulo": "Conversa Transcrita",
-                "status": cached.get('status', 'ready'),
-                "participantes": parsed.get('participantes', []),
-                "total_mensagens": parsed.get('total_mensagens', 0),
-                "total_audios": parsed.get('total_audios', 0),
-                "periodo_inicio": parsed.get('periodo', {}).get('inicio', ''),
-                "periodo_fim": parsed.get('periodo', {}).get('fim', '')
-            },
-            "conteudo": {
-                "conteudo_formal": cached.get('conteudo_formal', '<p>Conteúdo ainda não processado.</p>'),
-                "conteudo_preparatorio": cached.get('conteudo_preparatorio', '<p>Conteúdo ainda não processado.</p>')
-            }
-        }
-        
-    ata_res = supabase.table("atas").select("*").eq("id", ata_id).execute()
-    if not ata_res.data:
-        raise HTTPException(status_code=404, detail="Ata não encontrada")
-        
-    conteudo_res = supabase.table("atas_conteudo").select("*").eq("ata_id", ata_id).execute()
-    conteudo = conteudo_res.data[0] if conteudo_res.data else {}
-    
+
+    if supabase:
+        ata_res = supabase.table("atas").select("*").eq("id", ata_id).execute()
+        if not ata_res.data:
+            raise HTTPException(status_code=404, detail="Ata não encontrada")
+        conteudo_res = supabase.table("atas_conteudo").select("*").eq("ata_id", ata_id).execute()
+        conteudo = conteudo_res.data[0] if conteudo_res.data else {}
+        return {"ata": ata_res.data[0], "conteudo": conteudo}
+
+    # Modo local (sem Supabase): usa local_results.
+    cached = local_results.get(ata_id, {})
+    parsed = cached.get('parsed_data', {})
     return {
-        "ata": ata_res.data[0],
-        "conteudo": conteudo
+        "ata": {
+            "id": ata_id, "titulo": "Conversa Transcrita",
+            "status": cached.get('status', 'ready'),
+            "participantes": parsed.get('participantes', []),
+            "total_mensagens": parsed.get('total_mensagens', 0),
+            "total_audios": parsed.get('total_audios', 0),
+            "periodo_inicio": parsed.get('periodo', {}).get('inicio', ''),
+            "periodo_fim": parsed.get('periodo', {}).get('fim', '')
+        },
+        "conteudo": {
+            "conteudo_formal": cached.get('conteudo_formal', '<p>Conteúdo ainda não processado.</p>'),
+            "conteudo_preparatorio": cached.get('conteudo_preparatorio', '<p>Conteúdo ainda não processado.</p>')
+        }
     }
     
 @router.put("/{ata_id}/content")
@@ -736,9 +591,34 @@ async def update_ata_content(
     supabase = auth_ctx.client
     if not supabase or ata_id in local_results:
         return {"status": "success", "message": "Mocked update"}
-        
+
     column = "conteudo_formal" if update_data.tipo == "formal" else "conteudo_preparatorio"
-    supabase.table("atas_conteudo").update({column: update_data.conteudo}).eq("ata_id", ata_id).execute()
+    incoming_html = update_data.conteudo
+    incoming_img_count = incoming_html.count('<img ')
+
+    # ── Proteger imagens base64 contra perda no save ──
+    # O Tiptap pode descartar <img src="data:..."> durante a serialização.
+    # Se o HTML novo tem MENOS imagens que o salvo no banco, mantemos o HTML
+    # do banco como base e apenas aceitamos as edições textuais do usuário.
+    # Isso garante que o "Salvar Edições" nunca apague as imagens do documento.
+    html_to_save = incoming_html
+    try:
+        current_res = supabase.table("atas_conteudo").select(column).eq("ata_id", ata_id).execute()
+        if current_res.data:
+            current_html = current_res.data[0].get(column) or ''
+            current_img_count = current_html.count('<img ')
+            if current_img_count > incoming_img_count:
+                # Tiptap descartou imagens — usar HTML do banco para preservar as imagens
+                logger.info(
+                    f"[{ata_id}] Save bloqueou perda de imagens: "
+                    f"banco={current_img_count} imgs, frontend={incoming_img_count} imgs. "
+                    f"Preservando HTML original."
+                )
+                html_to_save = current_html
+    except Exception as e:
+        logger.warning(f"[{ata_id}] Não foi possível verificar imagens antes do save: {e}")
+
+    supabase.table("atas_conteudo").update({column: html_to_save}).eq("ata_id", ata_id).execute()
     return {"status": "success"}
 
 @router.patch("/{ata_id}/titulo")
@@ -838,7 +718,36 @@ async def generate_pdf(
         except Exception as e:
             logger.warning(f"[{ata_id}] Falha ao buscar zip_hash para o PDF: {e}")
 
-    pdf_bytes, pdf_hash = await generate_pdf_from_html(req_data.conteudo, reviewer_name=reviewer, zip_hash=zip_hash)
+    # ── Garantir que imagens base64 não se percam no round-trip pelo Tiptap ──
+    # O frontend envia editor.getHTML() — o ProseMirror pode truncar/remover
+    # <img src="data:..."> durante a serialização, especialmente com payloads grandes.
+    # Fonte de verdade: HTML salvo no banco (atas_conteudo), que contém todas as imagens.
+    html_for_pdf = req_data.conteudo
+    frontend_img_count = html_for_pdf.count('<img ')
+
+    if auth_ctx.client:
+        try:
+            col = 'conteudo_formal' if req_data.tipo == 'formal' else 'conteudo_preparatorio'
+            conteudo_res = auth_ctx.client.table('atas_conteudo') \
+                .select(col) \
+                .eq('ata_id', ata_id) \
+                .execute()
+            if conteudo_res.data:
+                db_html = conteudo_res.data[0].get(col) or ''
+                db_img_count = db_html.count('<img ')
+                logger.info(
+                    f"[{ata_id}] PDF img count — frontend: {frontend_img_count}, banco: {db_img_count}"
+                )
+                if db_img_count > frontend_img_count:
+                    logger.info(
+                        f"[{ata_id}] Usando HTML do banco para PDF "
+                        f"({db_img_count} imgs vs {frontend_img_count} do frontend)"
+                    )
+                    html_for_pdf = db_html
+        except Exception as e:
+            logger.warning(f"[{ata_id}] Falha ao buscar HTML do banco para PDF (usando frontend): {e}")
+
+    pdf_bytes, pdf_hash = await generate_pdf_from_html(html_for_pdf, reviewer_name=reviewer, zip_hash=zip_hash)
     if not pdf_bytes:
         raise HTTPException(status_code=500, detail="Erro ao gerar PDF")
 
@@ -885,12 +794,36 @@ async def generate_pdf(
         except Exception as e:
             logger.warning(f"[REFUND] Falha ao processar reembolso: {e}")
 
-    # Cleanup expired PDFs before adding new one
+    # Cleanup expired PDFs before adding new one.
     _cleanup_pdf_cache()
 
     pdf_id = str(uuid.uuid4())
-    pdf_cache[pdf_id] = (pdf_bytes, time.time(), auth_ctx.advogado_id)
-    
+    owner_id = auth_ctx.advogado_id
+    supabase = auth_ctx.client
+
+    stored_in_storage = False
+    if supabase:
+        try:
+            storage_path = f"{owner_id}/{pdf_id}.pdf"
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: supabase.storage.from_(_PDF_STORAGE_BUCKET).upload(
+                    storage_path, pdf_bytes,
+                    {"content-type": "application/pdf", "upsert": "true"}
+                )
+            )
+            # Metadata only — without bytes (multi-worker safe).
+            pdf_cache[pdf_id] = {"ts": time.time(), "owner": owner_id}
+            stored_in_storage = True
+            logger.info(f"[PDF] {pdf_id}: armazenado no Storage ({storage_path})")
+        except Exception as e:
+            logger.warning(f"[PDF] Falha ao salvar no Storage, usando cache local: {e}")
+
+    if not stored_in_storage:
+        # Fallback: guardar bytes em memória (bypass / Storage indisponível).
+        pdf_cache[pdf_id] = {"ts": time.time(), "owner": owner_id, "bytes": pdf_bytes}
+
     api_url = str(request.base_url).rstrip('/')
     return {
         "pdf_url": f"{api_url}/api/atas/download/{pdf_id}",
@@ -904,32 +837,57 @@ async def generate_pdf(
 
 
 def _cleanup_pdf_cache():
-    """Remove PDFs that have exceeded their TTL."""
+    """Remove PDFs que excederam o TTL (e seus arquivos no Storage)."""
     now = time.time()
-    expired = [pid for pid, (_, ts, _) in pdf_cache.items() if now - ts > PDF_CACHE_TTL]
+    expired = [pid for pid, meta in pdf_cache.items() if now - meta["ts"] > PDF_CACHE_TTL]
     for pid in expired:
-        del pdf_cache[pid]
+        meta = pdf_cache.pop(pid)
+        # Se estava no Storage, tenta remover (best-effort).
+        supabase = get_supabase_client()
+        if supabase and not meta.get("bytes"):
+            try:
+                path = f"{meta['owner']}/{pid}.pdf"
+                supabase.storage.from_(_PDF_STORAGE_BUCKET).remove([path])
+            except Exception:
+                pass
     if expired:
         logger.info(f"Cleaned up {len(expired)} expired PDFs from cache")
 
 
 @router.get("/download/{pdf_id}")
 async def download_pdf(pdf_id: str, auth_ctx: AuthContext = Depends(get_auth_context)):
-    entry = pdf_cache.get(pdf_id)
-    if not entry:
+    meta = pdf_cache.get(pdf_id)
+    if not meta:
         raise HTTPException(status_code=404, detail="PDF não encontrado ou expirou")
-    
-    pdf_bytes, created_at, owner_id = entry
-    
-    # Check TTL
-    if time.time() - created_at > PDF_CACHE_TTL:
-        del pdf_cache[pdf_id]
+
+    # TTL check.
+    if time.time() - meta["ts"] > PDF_CACHE_TTL:
+        pdf_cache.pop(pdf_id, None)
         raise HTTPException(status_code=410, detail="PDF expirado. Gere novamente.")
-    
-    # Verify ownership (bypass user can access any)
+
+    owner_id = meta["owner"]
+
+    # Ownership check (bypass user can access any).
     if owner_id != auth_ctx.advogado_id and not (_ALLOW_BYPASS and auth_ctx.advogado_id == "bypass-admin-id"):
         raise HTTPException(status_code=403, detail="Acesso não autorizado a este PDF")
-    
+
+    # Try to get bytes: from Storage first, then in-memory fallback.
+    pdf_bytes = meta.get("bytes")  # set only in local/bypass mode
+    if not pdf_bytes:
+        supabase = auth_ctx.client
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Storage indisponível para recuperar o PDF.")
+        try:
+            storage_path = f"{owner_id}/{pdf_id}.pdf"
+            loop = asyncio.get_running_loop()
+            pdf_bytes = await loop.run_in_executor(
+                None,
+                lambda: supabase.storage.from_(_PDF_STORAGE_BUCKET).download(storage_path)
+            )
+        except Exception as e:
+            logger.error(f"[PDF] Falha ao baixar {pdf_id} do Storage: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao recuperar PDF. Gere novamente.")
+
     return Response(content=pdf_bytes, media_type="application/pdf")
 
 @router.post("/{ata_id}/ai-action")

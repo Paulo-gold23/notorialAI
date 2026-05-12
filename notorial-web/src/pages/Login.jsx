@@ -79,17 +79,34 @@ export default function Login() {
                 if (rawCpf.length === 11 && !isValidCpf(rawCpf)) throw new Error('CPF inválido. Por favor, verifique os dígitos.');
                 else if (rawCpf.length === 14 && !isValidCnpj(rawCpf)) throw new Error('CNPJ inválido. Por favor, verifique os dígitos.');
                 else if (rawCpf.length !== 11 && rawCpf.length !== 14) throw new Error('O documento deve ter 11 dígitos (CPF) ou 14 dígitos (CNPJ).');
+
                 const encodedCpfCnpj = btoa(rawCpf);
-                const { data, error: signUpError } = await supabase.auth.signUp({ email, password, options: { data: { nome, oab } } });
-                if (signUpError) throw signUpError;
-                if (data.user) {
-                    await supabase.from('advogados').insert({ id: data.user.id, nome, oab, email, cpf_cnpj: encodedCpfCnpj, status: 'aprovado' });
-                    setIsRegister(false);
-                    setSuccessMsg('Conta criada com sucesso! Seus 50 créditos gratuitos já estão disponíveis. Redirecionando...');
-                    setLoading(false);
-                    setTimeout(() => window.location.reload(), 1500);
-                    return;
+
+                // Profile + credits are created server-side by the DB trigger on auth.users.
+                // Pass all data in options.data so the trigger can read raw_user_meta_data.
+                const { data, error: signUpError } = await supabase.auth.signUp({
+                    email,
+                    password,
+                    options: {
+                        data: { nome, oab, cpf_cnpj: encodedCpfCnpj },
+                    },
+                });
+
+                if (signUpError) {
+                    if (signUpError.message?.toLowerCase().includes('already registered') ||
+                        signUpError.message?.toLowerCase().includes('user already registered')) {
+                        throw new Error('Este e-mail já está cadastrado. Faça login ou recupere sua senha.');
+                    }
+                    throw signUpError;
                 }
+
+                // data.user is present whether or not email confirmation is required.
+                // The DB trigger fires on INSERT to auth.users, so the profile already exists.
+                setIsRegister(false);
+                setSuccessMsg('Conta criada com sucesso! Seus 50 créditos gratuitos já estão disponíveis. Redirecionando...');
+                setLoading(false);
+                setTimeout(() => window.location.reload(), 1500);
+                return;
             } else {
                 const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
                 if (signInError) throw signInError;

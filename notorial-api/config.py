@@ -6,6 +6,7 @@ load_dotenv(override=True)
 class Settings:
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")  # trocar via .env sem redeploy
     SUPABASE_URL: str = os.getenv("SUPABASE_URL")
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY")         # anon key (public)
     SUPABASE_SERVICE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")  # service role (backend only)

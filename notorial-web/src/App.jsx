@@ -17,6 +17,8 @@ import TermsOfUse from './pages/TermsOfUse';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import LandingPage from './pages/LandingPage';
 
+import { useSessionTimeout } from './hooks/useSessionTimeout';
+
 // Apply saved theme on app load
 function initializeTheme() {
   const saved = localStorage.getItem('theme') || 'dark';
@@ -47,14 +49,12 @@ function initializeTheme() {
 
 initializeTheme();
 
-import { useSessionTimeout } from './hooks/useSessionTimeout';
-
 function App() {
   const [session, setSession] = useState(undefined);
   const [isAdmin, setIsAdmin] = useState(false);
 
-  // Executa o hook que desloga após 30 minutos
-  useSessionTimeout(30);
+  // Executa o hook que desloga após 120 minutos (2 horas)
+  useSessionTimeout(120);
 
   useEffect(() => {
     const checkApprovalStatus = async (currentSession) => {

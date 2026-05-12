@@ -19,7 +19,8 @@ import LegalFooter from '../components/LegalFooter';
 import {
     FileText, Save, Check, ArrowDown, ArrowUp,
     Users, MessageSquare, Mic, CalendarRange,
-    Coins, RefreshCw, X, PlusCircle, AlertTriangle, Phone
+    Coins, RefreshCw, X, PlusCircle, AlertTriangle, Phone,
+    AlignLeft, AlignCenter, AlignRight, AlignJustify
 } from 'lucide-react';
 import Logo from '../components/Logo';
 import { supabase } from '../services/supabase';
@@ -30,6 +31,7 @@ function normalizeEditorContent(value) {
     if (typeof value === 'object' && typeof value.conteudo === 'string') return value.conteudo;
     return '<p>Conteúdo recebido em formato não suportado para edição.</p>';
 }
+
 
 const formatPhone = (val) => {
     let v = val.replace(/\D/g, '').substring(0, 11);
@@ -102,25 +104,81 @@ export default function Review() {
     const [missingNumbersModal, setMissingNumbersModal] = useState({ isOpen: false, matches: [] });
 
     const tabsRef = useRef(null);
+    // Callback ref that attaches copy-protection listeners as soon as the DOM node mounts.
+    // A plain ref + useEffect won't work here because editorWrapperRef.current is not
+    // a reactive value — changing it never triggers a re-render / effect re-run.
+    const editorWrapperRef = useCallback((node) => {
+        if (!node) return;
+
+        const blockCopyAndCut = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        };
+
+        const blockContext = (e) => e.preventDefault();
+
+        const blockKeys = (e) => {
+            const ctrl = e.ctrlKey || e.metaKey;
+            // Block Ctrl+C (copy), Ctrl+X (cut), Ctrl+A (select-all), Ctrl+U (view-source)
+            if (ctrl && ['c', 'x', 'a', 'u'].includes(e.key.toLowerCase())) {
+                // Allow Ctrl+A inside modal inputs/textareas
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        };
+
+        // Prevent drag-to-clipboard bypass
+        const blockDrag = (e) => e.preventDefault();
+        // Prevent selection API bypass (selection via triple-click, etc.)
+        const blockSelect = (e) => e.preventDefault();
+
+        node.addEventListener('copy',        blockCopyAndCut);
+        node.addEventListener('cut',         blockCopyAndCut);
+        node.addEventListener('contextmenu', blockContext);
+        node.addEventListener('keydown',     blockKeys);
+        node.addEventListener('dragstart',   blockDrag);
+        node.addEventListener('selectstart', blockSelect);
+
+        // Cleanup when the node unmounts (callback ref receives null)
+        return () => {
+            node.removeEventListener('copy',        blockCopyAndCut);
+            node.removeEventListener('cut',         blockCopyAndCut);
+            node.removeEventListener('contextmenu', blockContext);
+            node.removeEventListener('keydown',     blockKeys);
+            node.removeEventListener('dragstart',   blockDrag);
+            node.removeEventListener('selectstart', blockSelect);
+        };
+    }, []);
 
     useEffect(() => {
-        const handleScroll = () => {
+        const checkScrollable = () => {
             const scrollable = document.documentElement.scrollHeight > window.innerHeight + 100;
             setHasScroll(scrollable);
-            const bottom = Math.ceil(window.innerHeight + window.scrollY) >= document.documentElement.scrollHeight - 100;
-            setIsAtBottom(bottom);
         };
-        window.addEventListener('scroll', handleScroll);
-        window.addEventListener('resize', handleScroll);
-        // Re-check after content loads
-        const timer = setTimeout(handleScroll, 500);
-        handleScroll();
+        
+        const resizeObserver = new ResizeObserver(() => checkScrollable());
+        resizeObserver.observe(document.body);
+        checkScrollable();
+        
+        const bottomObserver = new IntersectionObserver(
+            ([entry]) => setIsAtBottom(entry.isIntersecting),
+            { rootMargin: '0px', threshold: 0.1 }
+        );
+        
+        const sentinel = document.getElementById('bottom-sentinel');
+        if (sentinel) bottomObserver.observe(sentinel);
+        
+        const timer = setTimeout(checkScrollable, 500);
+        
         return () => {
-            window.removeEventListener('scroll', handleScroll);
-            window.removeEventListener('resize', handleScroll);
+            resizeObserver.disconnect();
+            bottomObserver.disconnect();
             clearTimeout(timer);
         };
     }, [loading, conteudo]);
+
+
 
     const toggleScroll = () => {
         if (isAtBottom) {
@@ -152,7 +210,7 @@ export default function Review() {
                 },
             }),
             Link.configure({
-                openOnClick: true,
+                openOnClick: false,
                 autolink: true,
                 defaultProtocol: 'https',
                 HTMLAttributes: {
@@ -163,6 +221,7 @@ export default function Review() {
                 placeholder: 'O conteúdo organizado aparecerá aqui...',
             }),
             Image.configure({
+                inline: true,
                 allowBase64: true,
                 HTMLAttributes: {
                     class: 'ata-imagem-anexada',
@@ -277,6 +336,14 @@ export default function Review() {
         }
         
         setMissingNumbersModal({ isOpen: false, matches: [] });
+    };
+
+    const handleAlign = (alignment) => {
+        if (!editor) return;
+        editor.setOptions({ editable: true });
+        editor.commands.focus();
+        editor.chain().setTextAlign(alignment).run();
+        editor.setOptions({ editable: false });
     };
 
 
@@ -570,19 +637,86 @@ export default function Review() {
                         <span>A edição livre está desativada para compliance.</span>
                     </div>
                     
-                    <button
-                        className="btn-secondary"
-                        onClick={handleFillNumbers}
-                        style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem', color: 'var(--primary-color)' }}
-                        title="Localiza as marcações '[INSIRA NUMERO AQUI]' e permite preenchê-las."
-                    >
-                        <Phone className="w-4 h-4" />
-                        Preencher Números Faltantes
-                    </button>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', border: '1px solid var(--border-color)', borderRadius: '0.5rem', overflow: 'hidden' }}>
+                            <button
+                                className="btn-secondary"
+                                onClick={() => handleAlign('left')}
+                                style={{ padding: '0.4rem', border: 'none', borderRadius: 0, borderRight: '1px solid var(--border-color)', background: editor?.isActive({ textAlign: 'left' }) ? 'var(--bg-color)' : 'transparent' }}
+                                title="Alinhar à Esquerda"
+                            >
+                                <AlignLeft className="w-4 h-4" />
+                            </button>
+                            <button
+                                className="btn-secondary"
+                                onClick={() => handleAlign('center')}
+                                style={{ padding: '0.4rem', border: 'none', borderRadius: 0, borderRight: '1px solid var(--border-color)', background: editor?.isActive({ textAlign: 'center' }) ? 'var(--bg-color)' : 'transparent' }}
+                                title="Centralizar"
+                            >
+                                <AlignCenter className="w-4 h-4" />
+                            </button>
+                            <button
+                                className="btn-secondary"
+                                onClick={() => handleAlign('right')}
+                                style={{ padding: '0.4rem', border: 'none', borderRadius: 0, borderRight: '1px solid var(--border-color)', background: editor?.isActive({ textAlign: 'right' }) ? 'var(--bg-color)' : 'transparent' }}
+                                title="Alinhar à Direita"
+                            >
+                                <AlignRight className="w-4 h-4" />
+                            </button>
+                            <button
+                                className="btn-secondary"
+                                onClick={() => handleAlign('justify')}
+                                style={{ padding: '0.4rem', border: 'none', borderRadius: 0, background: editor?.isActive({ textAlign: 'justify' }) ? 'var(--bg-color)' : 'transparent' }}
+                                title="Justificar"
+                            >
+                                <AlignJustify className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <button
+                            className="btn-secondary"
+                            onClick={handleFillNumbers}
+                            style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem', color: 'var(--primary-color)' }}
+                            title="Localiza as marcações '[INSIRA NUMERO AQUI]' e permite preenchê-las."
+                        >
+                            <Phone className="w-4 h-4" />
+                            Preencher Números Faltantes
+                        </button>
+                    </div>
                 </div>
 
                 {/* Editor Content */}
-                <div style={{ padding: '1.5rem', minHeight: '400px', fontSize: '0.95rem', lineHeight: 1.6 }} className="ProseMirror-wrapper">
+                <div
+                    ref={editorWrapperRef}
+                    style={{
+                        padding: '1.5rem',
+                        minHeight: '400px',
+                        fontSize: '0.95rem',
+                        lineHeight: 1.6,
+                        userSelect: 'none',
+                        WebkitUserSelect: 'none',
+                    }}
+                    className="ProseMirror-wrapper"
+                    onClick={(e) => {
+                        // Intercept anchor clicks to handle internal (#) navigation
+                        const anchor = e.target.closest('a[href]');
+                        if (!anchor) return;
+                        const href = anchor.getAttribute('href');
+                        if (href && href.startsWith('#')) {
+                            e.preventDefault();
+                            // Find the target element by ID inside the editor wrapper
+                            const targetId = href.slice(1);
+                            const target = document.getElementById(targetId);
+                            if (target) {
+                                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
+                        } else if (href) {
+                            // External link — open in new tab safely
+                            e.preventDefault();
+                            window.open(href, '_blank', 'noopener,noreferrer');
+                        }
+                    }}
+                >
                     {editor && (
                         <BubbleMenu 
                             editor={editor} 
@@ -616,7 +750,19 @@ export default function Review() {
                         </BubbleMenu>
                     )}
 
-                    <EditorContent editor={editor} />
+                    <div
+                        onCopy={(e) => {
+                            e.preventDefault();
+                            toast.error("Cópia de texto desativada por razões de segurança.");
+                        }}
+                        onCut={(e) => {
+                            e.preventDefault();
+                            toast.error("Corte de texto desativado por razões de segurança.");
+                        }}
+                        onContextMenu={(e) => e.preventDefault()}
+                    >
+                        <EditorContent editor={editor} />
+                    </div>
                 </div>
             </div>
 
@@ -1180,6 +1326,7 @@ export default function Review() {
                     {isAtBottom ? <ArrowUp size={20} /> : <ArrowDown size={20} />}
                 </button>
             )}
+            <div id="bottom-sentinel" style={{ height: '1px', width: '100%' }} />
             <LegalFooter style={{ marginTop: '2rem' }} />
         </div>
     );

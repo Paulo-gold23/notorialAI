@@ -2,189 +2,256 @@ import httpx
 import logging
 import json
 import re
+import unicodedata
 import asyncio
 import base64
 import io
 import os
 import markdown
+from collections import defaultdict
 from config import settings
 
 logger = logging.getLogger(__name__)
 
 # Prompts - equivalentes aos que rodavam no n8n
 # ===========================================================================
-PROMPT_FORMAL = """Você é um especialista jurídico encarregado de elaborar Atas Notariais.
+
+# Regras partilhadas por ambos os prompts.
+# Modificar aqui aplica automaticamente ao formal E ao preparatório.
+_SHARED_RULES = """\
+-----------------------
+REGRAS ABSOLUTAS (CRÍTICO)
+-----------------------
+1. PROIBIDO interpretar, resumir ou corrigir qualquer conteúdo.
+2. PROIBIDO alterar nomes de remetentes. O remetente é SEMPRE o texto antes dos dois pontos ":". Nunca altere, substitua ou tente "corrigir".
+3. PROIBIDO inferir contexto.
+4. PROIBIDO agrupar mensagens.
+5. PROIBIDO omitir qualquer linha. A quantidade de linhas de saída DEVE ser igual à quantidade de mensagens relevantes do input.
+6. PROIBIDO reorganizar por data ou lógica. A ordem correta é EXATAMENTE a ordem das linhas do texto fornecido. Ignore timestamps como critério de ordenação.
+
+-----------------------
+MÍDIAS (CRÍTICO)
+-----------------------
+Toda linha que contém marcadores de mídia (como "%%IMG_N%%", "%%AUDIO_N%%", "[Documento: ...]") DEVE obrigatoriamente aparecer no resultado na exata mesma ordem.
+NUNCA reduza múltiplas linhas de mídia em uma só. Se existirem 7 imagens no texto original, devem existir 7 marcadores distintos na saída, preservando-os.
+
+-----------------------
+FORMATO DE SAÍDA OBRIGATÓRIO
+-----------------------
+Agrupe por dia usando: `### DD/MM/AAAA`
+
+Para cada linha, use o formato:
+`[DD/MM/AAAA HH:MM] REMETENTE: **"CONTEÚDO"**`
+(O conteúdo textual deve estar SEMPRE entre aspas e em **negrito**)
+
+Se for mídia, mantenha EXATAMENTE o marcador fornecido (NÃO use negrito nos marcadores):
+`[DD/MM/AAAA HH:MM] REMETENTE: %%IMG_N%%`
+ou
+`[DD/MM/AAAA HH:MM] REMETENTE: %%AUDIO_N%% "transcrição se existir"`
+ou
+`[DD/MM/AAAA HH:MM] REMETENTE: [Documento: nome_do_arquivo]`"""
+
+PROMPT_FORMAL = f"""Você é um especialista jurídico encarregado de elaborar Atas Notariais.
 Sua tarefa é organizar conversas de WhatsApp para fins judiciais, garantindo absoluta fidelidade e clareza.
 
-REGRAS DE OURO:
-1. Agrupe as mensagens por DIA usando títulos formatados como: `### DD/MM/AAAA`.
-2. Mantenha a ORDEM CRONOLÓGICA rigorosa.
-3. Formato das mensagens: `[DD/MM/AAAA HH:MM] Nome_do_Participante: **"Conteúdo da mensagem"**`
-   - O conteúdo deve estar SEMPRE entre aspas duplas e em **negrito**.
-   - IMPORTANTE: Substitua "Nome_do_Participante" pelo nome real da pessoa que enviou a mensagem (ex: João, Maria, etc). NÃO use a palavra genérica "Remetente".
-4. Áudios transcritos: `[DD/MM/AAAA HH:MM] Nome_do_Participante: 🎙️ [ÁUDIO TRANSCRITO]: **"Conteúdo do áudio..."**`
-   - CRÍTICO: Mensagens marcadas com 🎙️ [ÁUDIO TRANSCRITO] DEVEM manter esse prefixo EXATAMENTE como está.
-   - NUNCA remova o marcador 🎙️ [ÁUDIO TRANSCRITO] das mensagens de áudio. Ele é essencial para a validade jurídica.
-5. Mídias: `[DD/MM/AAAA HH:MM] Nome_do_Participante: [TIPO DE MÍDIA ANEXADA]`
-6. Imagens anexadas: `[DD/MM/AAAA HH:MM] Nome_do_Participante: 📷 [IMAGEM ANEXADA: nome_arquivo.jpg]`
-   - CRÍTICO: NUNCA remova ou altere tags no formato `[IMAGEM ANEXADA: ...]`. Elas serão substituídas pela imagem real no pós-processamento.
-   - Mantenha a tag EXATAMENTE como aparece no input, incluindo o nome do arquivo.
-7. NÃO resuma, não interprete e não pule mensagens. Transcreva tudo o que for fornecido.
-8. NÃO gere sequ00eancies de "Conclusão", "Análise" ou qualquer texto interpretativo. O documento termina após a última mensagem transcrita.
+{_SHARED_RULES}
 
-ESTRUTURA DO DOCUMENTO:
+-----------------------
+ESTRUTURA DO DOCUMENTO
+-----------------------
 1. TÍTULO: # ATA NOTARIAL DE CONSTATAÇÃO DE CONTEÚDO DIGITAL
 2. IDENTIFICAÇÃO (Participantes e Período)
 3. CONTEÚDO CONSTATADO (Transcrição organizada por dia)
 
-CRÍTICO: NÃO gere seção de Conclusão, Análise, Considerações Finais ou qualquer texto interpretativo. O documento TERMINA imediatamente após a transcrição da última mensagem. Qualquer texto após as mensagens será considerado violação das regras.
+CRÍTICO: NÃO gere seção de Conclusão, Análise, Considerações Finais ou qualquer texto interpretativo. O documento TERMINA imediatamente após a transcrição da última mensagem.
 
-OBSERVAÇÃO SOBRE PARTES:
-Se o texto for enviado em partes (chunks), siga as instruções específicas de cada parte para que o documento final possa ser unido sem duplicidade de títulos.
+PARTICIPANTES OBRIGATÓRIO: Na seção IDENTIFICAÇÃO, liste EXATAMENTE os participantes listados no cabeçalho.
+REGRA DE SIGILO: É ABSOLUTAMENTE OBRIGATÓRIO manter os números de telefone completos. NUNCA anonimize, censure, abrevie ou omita os números.
 
-PARTICIPANTES OBRIGATÓRIO: Na seção IDENTIFICAÇÃO, liste EXATAMENTE os participantes do cabeçalho PARTICIPANTES abaixo.
-Se um participante aparecer como número de telefone (ex: +55 41 99999-9999) ou contiver um telefone, mantenha-o EXATAMENTE e INTEGRALMENTE como está.
-REGRA DE SIGILO (CRÍTICO): Este é um documento estritamente legal para advogados. É ABSOLUTAMENTE OBRIGATÓRIO listar os números de telefone completos de todos os participantes. NUNCA anonimize, censure, abrevie ou omita os números de telefone."""
+-----------------------
+VERIFICAÇÃO FINAL (OBRIGATÓRIA)
+-----------------------
+Antes de finalizar sua resposta, valide internamente:
+- A quantidade de linhas de saída é igual à do input?
+- Nenhum remetente foi alterado?
+- Nenhuma mídia foi omitida ou agrupada?
+- A ordem é idêntica ao input?
+Se qualquer uma falhar, corrija antes de responder."""
 
-PROMPT_PREPARATORIO = """Você é um assistente jurídico especializado.
-
+PROMPT_PREPARATORIO = f"""Você é um assistente jurídico especializado.
 Sua tarefa: organizar a conversa de WhatsApp abaixo de forma ESTRUTURADA para um advogado ler e preparar a ata notarial.
 
-REGRAS:
-1. Identificar TODOS os participantes.
-2. Agrupar as mensagens por DIA usando títulos `### DD/MM/AAAA`.
-3. Manter a ordem cronológica estrita.
-4. Formato das mensagens (Estilo Limpo): `[DD/MM/AAAA HH:MM] Nome_do_Participante: **"Conteúdo da mensagem"**`.
-   - SUBSTITUA "Nome_do_Participante" pelo nome real de quem enviou a mensagem. NÃO escreva literalmente a palavra "Autor".
-   - O timestamp [DD/MM/AAAA HH:MM] e o Nome devem estar SEM negrito.
-   - O conteúdo textual deve estar sempre entre aspas e em **negrito**.
-5. Incluir índice navegável no início (apenas na primeira parte).
-   - O índice deve conter links internos para cada dia no formato: [DD/MM/AAAA](#data-ddmmaaaa)
-   - Exemplo: [02/08/2021](#data-02082021)
-6. Áudios transcritos DEVEM ser indicados exatamente como: `[DD/MM/AAAA HH:MM] Nome_do_Participante: 🎙️ [ÁUDIO TRANSCRITO]: **"Conteúdo transcrito..."**`
-   - CRÍTICO: O prefixo 🎙️ [ÁUDIO TRANSCRITO]: NUNCA deve ser removido ou alterado.
-   - Este marcador indica que a mensagem original era um áudio e foi transcrita automaticamente.
-   - Mesmo que o conteúdo pareça texto normal, MANTENHA o marcador se ele estiver presente no input.
-7. Imagens anexadas: `[DD/MM/AAAA HH:MM] Nome_do_Participante: 📷 [IMAGEM ANEXADA: nome_arquivo.jpg]`
-   - CRÍTICO: NUNCA remova ou altere tags `[IMAGEM ANEXADA: ...]`. Mantenha EXATAMENTE como no input.
-8. Remover mensagens de sistema irrelevantes.
-9. CRÍTICO: NÃO gere seção de Conclusão, Análise, Observações Finais ou qualquer texto interpretativo. O documento encerra após a última mensagem do último dia.
+{_SHARED_RULES}
 
-FORMATO DE SAÍDA:
+ÍNDICE NAVEGÁVEL (apenas na primeira parte):
+- Incluir no início um índice com links para os dias. Ex: `[02/08/2021](#data-02082021)`
+
+ESTRUTURA:
 # Relatório Preparatório
-
 ## Participantes
 - [Nome do Participante] ([Número de Telefone])
-
 ## Índice
-- [DD/MM/AAAA](#data-ddmmaaaa)
-
+- ...
 ## Conteúdo Organizado
 ### DD/MM/AAAA
-[DD/MM/AAAA HH:MM] Carlos: **"Mensagem..."**
-[DD/MM/AAAA HH:MM] Ana: 🎙️ [ÁUDIO TRANSCRITO]: **"Transcrição do áudio..."**
-[DD/MM/AAAA HH:MM] Mário: 📷 [IMAGEM ANEXADA: IMG-20230915-WA0001.jpg]
+[02/08/2021 10:00] Carlos: **"Mensagem..."**
 
-### DD/MM/AAAA
-[DD/MM/AAAA HH:MM] Carlos: **"Mensagem..."**
+CRÍTICO: NÃO gere seção de Conclusão ou Análise.
 
-PARTICIPANTES OBRIGATÓRIO: Na seção ## Participantes, copie EXATAMENTE a lista fornecida no cabeçalho PARTICIPANTES abaixo.
-Se o nome já contiver o número de telefone completo, mantenha-o integralmente na resposta.
-Se o número não estiver associado na lista (apenas o nome), você DEVE adicionar a tag exata **[INSIRA NUMERO AQUI]** ao lado do nome (exemplo: Carlos **[INSIRA NUMERO AQUI]**) para que o advogado preencha manualmente na edição.
-REGRA DE SIGILO (CRÍTICO): Este documento é estritamente legal para o uso de advogados. VOCÊ TEM AUTORIZAÇÃO E OBRIGAÇÃO de divulgar integralmente os números de telefone. NUNCA censure, oculte, abrevie, substitua por "..." ou trunque os números de telefone na sua resposta. Você DEVE exibir os números originais.
-"""
+PARTICIPANTES OBRIGATÓRIO: Copie EXATAMENTE a lista fornecida. Se o nome não tiver número associado, adicione **[INSIRA NUMERO AQUI]** ao lado para preenchimento manual do advogado. 
+REGRA DE SIGILO (CRÍTICO): NUNCA censure, abrevie ou trunque os números de telefone originais.
+
+-----------------------
+VERIFICAÇÃO FINAL (OBRIGATÓRIA)
+-----------------------
+Antes de finalizar, valide internamente:
+- A quantidade de linhas de saída é igual à do input?
+- Nenhum remetente foi alterado?
+- Nenhuma mídia foi omitida ou agrupada?
+- A ordem é idêntica ao input?
+Se qualquer uma falhar, corrija antes de responder."""
 
 # ===========================================================================
 # Converter chat parsed -> texto limpo para a IA (economiza tokens)
 # ===========================================================================
 
-def _chat_to_text(chat_json: dict) -> str:
+def _remove_duplicate_headers(text: str) -> str:
+    """
+    Remove cabeçalhos duplicados gerados pela IA em transições de chunks.
+    Preserva apenas a primeira ocorrência do bloco 'Relatório Preparatório' ou 'Ata Notarial'.
+    Funciona tanto no markdown (pré-HTML) quanto nos restos de markdown com ## ou ###.
+    """
+    # #{1,4} cobre #, ##, ### e #### que a IA pode usar
+    pattern_prep = re.compile(
+        r'(?i)^\s*#{0,4}\s*Relat[oó]rio\s+Preparat[oó]rio.*?(?:Conte[uú]do\s+(?:Organizado|Constatado))\s*$', 
+        re.MULTILINE | re.DOTALL
+    )
+    pattern_formal = re.compile(
+        r'(?i)^\s*#{0,4}\s*ATA\s+NOTARIAL\s+DE\s+CONSTATA[CÇ][AÃ]O.*?(?:CONTE[UÚ]DO\s+CONSTATADO|Conte[uú]do\s+Constatado|Conte[uú]do\s+Organizado)\s*$', 
+        re.MULTILINE | re.DOTALL
+    )
+
+    for pattern in [pattern_prep, pattern_formal]:
+        matches = list(pattern.finditer(text))
+        if len(matches) > 1:
+            logger.info(f"[DEDUP] Encontrados {len(matches)} headers duplicados — removendo {len(matches)-1} cópias")
+            first_end = matches[0].end()
+            rest = text[first_end:]
+            rest_cleaned = pattern.sub('', rest)
+            text = text[:first_end] + rest_cleaned
+            
+    return text
+
+# ===========================================================================
+
+def _chat_to_text(chat_json: dict) -> tuple[str, list[dict], list[dict]]:
     """
     Converte o chat parseado em texto limpo para enviar à OpenAI.
-    Adiciona aspas ao conteúdo para garantir que a IA identifique o início e fim.
+
+    Estratégia AI-bypass para imagens:
+    - Imagens  -> placeholder opaco  %%IMG_N%%  (a IA nao reconhece como algo a editar/remover)
+    - Audios   -> marcador com remetente embutido [AUDIO TRANSCRITO de {remetente}]
+
+    Retorna: (chat_text, img_schedule, audio_schedule)
+      img_schedule   - lista [{pos, ts, remetente}] indexada por N (1-based)
+      audio_schedule - lista [{ts, remetente, transcricao}] em ordem de aparicao
     """
     lines = []
-    
-    # Header com contexto (metadata)
+    img_schedule: list[dict] = []
+    audio_schedule: list[dict] = []
+    img_counter = 1
+    audio_counter = 1
+
     participantes = chat_json.get("participantes", [])
     phone_map = chat_json.get("phone_map", {})
     periodo = chat_json.get("periodo", {})
-    # Nota: identificadores dos participantes correspondem ao nome salvo no contato
-    # ou ao número de telefone caso o contato não esteja salvo.
 
-    # Formata cada participante com número se disponível: "Nome (+55 41 99999-9999)"
     participantes_fmt = []
     for p in participantes:
         num = phone_map.get(p, "")
-        if num and num != p:
-            participantes_fmt.append(f"{p} ({num})")
-        else:
-            participantes_fmt.append(p)
+        participantes_fmt.append(f"{p} ({num})" if num and num != p else p)
 
-    # Envia os participantes de forma explícita para a IA não renomear
-    lines.append("PARTICIPANTES (copie EXATAMENTE na seção de participantes do documento):")
+    lines.append("PARTICIPANTES (copie EXATAMENTE na secao de participantes do documento):")
     for pf in participantes_fmt:
         lines.append(f"  - {pf}")
-    lines.append(f"PERÍODO: {periodo.get('inicio', '?')} a {periodo.get('fim', '?')}")
+    lines.append(f"PERIODO: {periodo.get('inicio', '?')} a {periodo.get('fim', '?')}")
     lines.append(f"TOTAL DE MENSAGENS: {chat_json.get('total_mensagens', 0)}")
-    lines.append(f"TOTAL DE ÁUDIOS: {chat_json.get('total_audios', 0)}")
+    lines.append(f"TOTAL DE AUDIOS: {chat_json.get('total_audios', 0)}")
     lines.append("---")
     lines.append("")
-    
-    for msg in chat_json.get("mensagens", []):
+
+    mensagens = chat_json.get("mensagens", [])
+    i = 0
+    while i < len(mensagens):
+        msg = mensagens[i]
         data = msg.get("data", "")
         hora = msg.get("hora", "")
         remetente = msg.get("remetente", "")
         tipo = msg.get("tipo", "texto")
         conteudo = msg.get("conteudo", "")
         transcricao = msg.get("transcricao")
-        
+
         timestamp = f"[{data} {hora}]"
-        
-        # Escapa aspas duplas no conteúdo para não quebrar a formatação da IA
+        ts_raw = f"{data} {hora}"
         clean_content = str(conteudo).replace('"', '\\"')
-        
+
         if tipo == "audio" and transcricao:
             clean_trans = str(transcricao).replace('"', '\\"')
-            lines.append(f'{timestamp} {remetente}: \U0001f399\ufe0f [ÁUDIO TRANSCRITO]: "{clean_trans}"')
+            arquivo_str = os.path.basename(msg.get("arquivo", "")) if msg.get("arquivo") else "audio.opus"
+            lines.append(f'{timestamp} {remetente}: %%AUDIO_{audio_counter}%% "{clean_trans}"')
+            audio_schedule.append({"pos": audio_counter, "ts": ts_raw, "remetente": remetente, "transcricao": transcricao, "arquivo": arquivo_str})
+            audio_counter += 1
+            i += 1
         elif tipo == "audio":
-            lines.append(f"{timestamp} {remetente}: \U0001f399\ufe0f [ÁUDIO - sem transcrição]")
+            arquivo_str = os.path.basename(msg.get("arquivo", "")) if msg.get("arquivo") else "audio.opus"
+            lines.append(f"{timestamp} {remetente}: %%AUDIO_{audio_counter}%%")
+            audio_schedule.append({"pos": audio_counter, "ts": ts_raw, "remetente": remetente, "transcricao": None, "arquivo": arquivo_str})
+            audio_counter += 1
+            i += 1
         elif tipo == "imagem":
-            arquivo = msg.get("arquivo")
-            if arquivo:
-                img_name = os.path.basename(arquivo)
-                lines.append(f"{timestamp} {remetente}: \U0001f4f7 [IMAGEM ANEXADA: {img_name}]")
-            else:
-                lines.append(f"{timestamp} {remetente}: \U0001f4f7 [IMAGEM ANEXADA]")
+            arquivo_str = os.path.basename(msg.get("arquivo", "")) if msg.get("arquivo") else f"imagem_{img_counter}.jpg"
+            img_schedule.append({"pos": img_counter, "ts": ts_raw, "remetente": remetente, "arquivo": arquivo_str})
+            lines.append(f"{timestamp} {remetente}: %%IMG_{img_counter}%%")
+            img_counter += 1
+            i += 1
         elif tipo == "video":
             arquivo = msg.get("arquivo")
-            if arquivo:
-                vid_name = os.path.basename(arquivo)
-                lines.append(f"{timestamp} {remetente}: \U0001f3a5 [VÍDEO ANEXADO: {vid_name}]")
-            else:
-                lines.append(f"{timestamp} {remetente}: \U0001f3a5 [VÍDEO ANEXADO]")
+            vid_name = os.path.basename(arquivo) if arquivo else "video.mp4"
+            lines.append(f"{timestamp} {remetente}: [Vídeo: {vid_name}]")
+            i += 1
         elif tipo == "midia_omitida":
-            lines.append(f"{timestamp} {remetente}: \U0001f4ce [MÍDIA OMITIDA]")
+            # Trata mídia oculta como imagem potencial — gera marcador %%IMG_N%%
+            # para que o schedule possa mapear bytes reais do ZIP via FIFO
+            arquivo_str = f"midia_oculta_{img_counter}.jpg"
+            img_schedule.append({"pos": img_counter, "ts": ts_raw, "remetente": remetente, "arquivo": arquivo_str})
+            lines.append(f"{timestamp} {remetente}: %%IMG_{img_counter}%%")
+            img_counter += 1
+            i += 1
         elif tipo == "figurinha":
-            continue  # Figurinhas/stickers são irrelevantes — não incluir no documento
+            i += 1
+            continue
         elif tipo == "arquivo":
             arquivo_str = msg.get("arquivo")
-            if arquivo_str:
-                file_basename = os.path.basename(arquivo_str)
-                lines.append(f"{timestamp} {remetente}: \U0001f4c4 [DOCUMENTO ANEXADO: {file_basename}]")
-            else:
-                lines.append(f"{timestamp} {remetente}: \U0001f4c4 [DOCUMENTO ANEXADO]")
+            file_basename = os.path.basename(arquivo_str) if arquivo_str else "documento.pdf"
+            lines.append(f"{timestamp} {remetente}: [Documento: {file_basename}]")
+            i += 1
         else:
+            # Descarta mensagens de texto com conteúdo vazio ou apenas whitespace
+            # (artefato comum em exports iOS — stickers/mídia removida)
+            if not clean_content.strip():
+                i += 1
+                continue
             lines.append(f'{timestamp} {remetente}: "{clean_content}"')
-    
-    return "\n".join(lines)
+            i += 1
+
+    return "\n".join(lines), img_schedule, audio_schedule
 
 
 # ===========================================================================
 # Chunking: dividir texto em pedaços se for muito grande
 # ===========================================================================
 
-MAX_CHARS_PER_CHUNK = 40000  # ~10k tokens por chunk (4 chars = 1 token em PT-BR)
+MAX_CHARS_PER_CHUNK = 15000  # ~3.7k tokens por chunk (mais rápido e evita timeouts)
 
 
 def _split_into_chunks(text: str) -> list[str]:
@@ -261,13 +328,13 @@ async def _call_openai(
     }
     
     payload = {
-        "model": "gpt-4o-mini",
+        "model": settings.OPENAI_MODEL,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content}
         ],
         "temperature": temperature,
-        "max_completion_tokens": 16000
+        "max_completion_tokens": 8000
     }
     
     max_retries = 3
@@ -276,9 +343,9 @@ async def _call_openai(
             if client is None:
                 # Fallback se não providenciado cliente persistente
                 async with httpx.AsyncClient() as temp_client:
-                    response = await temp_client.post(url, json=payload, headers=headers, timeout=600.0)
+                    response = await temp_client.post(url, json=payload, headers=headers, timeout=180.0)
             else:
-                response = await client.post(url, json=payload, headers=headers, timeout=600.0)
+                response = await client.post(url, json=payload, headers=headers, timeout=180.0)
             
             if response.status_code == 200:
                 result = response.json()
@@ -343,77 +410,222 @@ def _apply_formatting(text: str) -> str:
     return '\n'.join(result)
 
 
-def _restore_audio_markers(ai_output: str, original_input: str) -> str:
+_IMG_MARKER_RE = re.compile(r'%%IMG_(\d+)%%')
+# Pre-compiled regex — matches %%AUDIO_N%%
+_AUDIO_MARKER_RE = re.compile(r'%%AUDIO_(\d+)%%')
+
+
+def _restore_missing_image_markers(md_text: str, expected: int | set[int]) -> str:
     """
-    Garante que marcadores de áudio transcrito (🎙️ [ÁUDIO TRANSCRITO]) não sejam
-    removidos pela IA. Se a IA omitir o marcador mas o conteúdo da transcrição
-    estiver presente, re-injeta o marcador.
+    Re-insere marcadores %%IMG_N%% que a IA removeu, ANTES da conversão para HTML.
+
+    Estratégia:
+    - Se a IA preservou pelo menos UM marcador: insere os ausentes adjacentes ao
+      vizinho mais próximo, mantendo grupos de álbum (mesmo timestamp) juntos.
+    - Se a IA removeu TODOS: appenda um bloco sequencial no final do markdown para
+      que Phase 1 de _inject_images_by_timestamp_schedule os capture corretamente.
     """
-    # Extrai todas as transcrições do input original
-    audio_pattern = re.compile(
-        r'\[(\d{2}/\d{2}/\d{4} \d{2}:\d{2})\]\s+([^:]+):\s+\U0001f399\ufe0f\s*\[ÁUDIO TRANSCRITO\]:\s*"([^"]+)"'
-    )
-    transcriptions = {}
-    for match in audio_pattern.finditer(original_input):
-        timestamp = match.group(1)
-        author = match.group(2).strip()
-        trans_text = match.group(3).strip()
-        # Usa primeiros 40 chars como chave de busca
-        key = trans_text[:40].lower()
-        transcriptions[key] = {
-            'timestamp': timestamp,
-            'author': author,
-            'full_text': trans_text
-        }
-    
-    if not transcriptions:
-        return ai_output
-    
-    # Verifica se existem transcrições no output SEM o marcador
-    output_lines = ai_output.split('\n')
-    result_lines = []
-    audio_marker_re = re.compile(r'\U0001f399\ufe0f?\s*\[ÁUDIO(?:\s+TRANSCRITO)?\]')
-    
-    for line in output_lines:
-        # Se a linha já tem marcador de áudio, manter como está
-        if audio_marker_re.search(line):
-            result_lines.append(line)
+    if isinstance(expected, int):
+        if expected == 0:
+            return md_text
+        all_expected = set(range(1, expected + 1))
+    else:
+        if not expected:
+            return md_text
+        all_expected = expected
+
+    present = {int(m) for m in _IMG_MARKER_RE.findall(md_text)}
+    missing = sorted(all_expected - present)
+
+    if not missing:
+        return md_text
+
+    logger.info(f"[IMG_RESTORE] IA removeu {len(missing)}/{len(all_expected)} marcadores — re-inserindo: {missing[:10]}")
+
+    if not present:
+        # IA removeu TUDO — appenda bloco sequencial ao final.
+        block = '\n'.join(f'%%IMG_{n}%%' for n in sorted(all_expected))
+        return md_text + f'\n\n{block}\n'
+
+    # Mapeia cada marcador ausente ao seu vizinho presente mais próximo.
+    present_sorted = sorted(present)
+    insertions: dict[int, dict] = {p: {'before': [], 'after': []} for p in present_sorted}
+    for m in missing:
+        nearest = min(present_sorted, key=lambda p: abs(p - m))
+        side = 'before' if m < nearest else 'after'
+        insertions[nearest][side].append(m)
+
+    def _insert_around(match: re.Match) -> str:
+        n = int(match.group(1))
+        info = insertions.get(n, {})
+        parts = []
+        if info.get('before'):
+            before = '\n'.join(f'%%IMG_{x}%%' for x in info['before']) + '\n'
+            parts.append(before)
+        parts.append(match.group(0))
+        if info.get('after'):
+            after = '\n' + '\n'.join(f'%%IMG_{x}%%' for x in info['after'])
+            parts.append(after)
+        return '\n'.join(parts)
+
+    return _IMG_MARKER_RE.sub(_insert_around, md_text)
+
+
+def _restore_missing_audio_markers(md_text: str, expected: int | set[int]) -> str:
+    """
+    Re-insere marcadores %%AUDIO_N%% que a IA removeu, ANTES da conversão para HTML.
+    Mantém a ordem seqüencial baseando-se no vizinho mais próximo.
+    """
+    if isinstance(expected, int):
+        if expected == 0:
+            return md_text
+        all_expected = set(range(1, expected + 1))
+    else:
+        if not expected:
+            return md_text
+        all_expected = expected
+
+    present = {int(m) for m in _AUDIO_MARKER_RE.findall(md_text)}
+    missing = sorted(all_expected - present)
+
+    if not missing:
+        return md_text
+
+    logger.info(f"[AUDIO_RESTORE] IA removeu {len(missing)}/{len(all_expected)} marcadores — re-inserindo: {missing[:10]}")
+
+    if not present:
+        block = '\n'.join(f'%%AUDIO_{n}%%' for n in sorted(all_expected))
+        return md_text + f'\n\n{block}\n'
+
+    present_sorted = sorted(present)
+    insertions: dict[int, dict] = {p: {'before': [], 'after': []} for p in present_sorted}
+    for m in missing:
+        nearest = min(present_sorted, key=lambda p: abs(p - m))
+        side = 'before' if m < nearest else 'after'
+        insertions[nearest][side].append(m)
+
+    def _insert_around(match: re.Match) -> str:
+        n = int(match.group(1))
+        info = insertions.get(n, {})
+        parts = []
+        if info.get('before'):
+            before = '\n'.join(f'%%AUDIO_{x}%%' for x in info['before']) + '\n'
+            parts.append(before)
+        parts.append(match.group(0))
+        if info.get('after'):
+            after = '\n' + '\n'.join(f'%%AUDIO_{x}%%' for x in info['after'])
+            parts.append(after)
+        return '\n'.join(parts)
+
+    return _AUDIO_MARKER_RE.sub(_insert_around, md_text)
+
+
+def _restore_audio_markers(html_text: str, audio_schedule: list[dict]) -> str:
+    """
+    Converte marcadores %%AUDIO_N%% em linhas HTML inline em negrito.
+
+    Estratégia de matching (em ordem de prioridade):
+    1. Marcador %%AUDIO_N%% → lookup DIRETO em pos_lookup[N] sem validação de contexto.
+       O audio_schedule é a fonte de verdade para o remetente — nunca o contexto HTML.
+    2. Fragmento de transcrição → fallback quando a IA removeu o marcador.
+    3. FIFO → último recurso.
+
+    Formato de saída: [timestamp] remetente: "transcricao em negrito"
+    """
+    if not audio_schedule:
+        return html_text
+
+    pos_lookup: dict[int, dict] = {entry["pos"]: entry for entry in audio_schedule}
+    frag_lookup: list[tuple[str, dict]] = []
+    for entry in audio_schedule:
+        if entry.get("transcricao"):
+            frag = entry["transcricao"].strip()[:60].lower()
+            if frag:
+                frag_lookup.append((frag, entry))
+
+    consumed_ids: set = set()
+    lines = html_text.split("\n")
+    out_lines = []
+
+    def _render_block(entry: dict) -> str:
+        remetente   = entry["remetente"]
+        transcricao = entry.get("transcricao") or ""
+        ts          = entry.get("ts", "")
+        ts_display  = f"[{ts}] " if ts else ""
+        if transcricao:
+            return (
+                f'<p><strong>\U0001f399\ufe0f {ts_display}{remetente}: '
+                f'&ldquo;{transcricao}&rdquo;</strong></p>'
+            )
+        return (
+            f'<p><strong>\U0001f399\ufe0f {ts_display}{remetente}: '
+            f'(\u00e1udio sem transcri\u00e7\u00e3o)</strong></p>'
+        )
+
+    for line in lines:
+        marker_match = _AUDIO_MARKER_RE.search(line)
+        is_audio_line = bool(marker_match) or ("<p>" in line and "\U0001f399" in line)
+
+        if not is_audio_line:
+            out_lines.append(line)
             continue
-        
-        # Verifica se a linha contém conteúdo de alguma transcrição conhecida
-        # mas sem o marcador de áudio
-        for key, info in transcriptions.items():
-            if key in line.lower() and info['author'].lower().split()[0] in line.lower():
-                # A IA incluiu o conteúdo da transcrição mas removeu o marcador
-                fix_pattern = re.compile(
-                    r'(\[' + re.escape(info['timestamp']) + r'\]\s+' + re.escape(info['author']) + r':\s*)'
-                )
-                fix_match = fix_pattern.search(line)
-                if fix_match:
-                    prefix = fix_match.group(1)
-                    rest = line[fix_match.end():]
-                    line = f"{prefix}\U0001f399\ufe0f [ÁUDIO TRANSCRITO]: {rest}"
+
+        matched_entry = None
+
+        # 1. Marcador presente → lookup direto (sem validação de contexto).
+        #    O schedule é a única fonte de verdade para o remetente.
+        if marker_match:
+            try:
+                pos = int(marker_match.group(1))
+                entry = pos_lookup.get(pos)
+                if entry and id(entry) not in consumed_ids:
+                    matched_entry = entry
+                    consumed_ids.add(id(matched_entry))
+            except ValueError:
+                pass
+
+        # 2. Sem marcador → tenta fragmento da transcrição.
+        if not matched_entry:
+            line_lower = line.lower()
+            for frag, entry in frag_lookup:
+                eid = id(entry)
+                if eid not in consumed_ids and frag in line_lower:
+                    matched_entry = entry
+                    consumed_ids.add(eid)
                     break
-        
-        result_lines.append(line)
-    
-    return '\n'.join(result_lines)
+
+        # 3. FIFO → próximo áudio não consumido.
+        if not matched_entry:
+            for entry in audio_schedule:
+                if id(entry) not in consumed_ids:
+                    matched_entry = entry
+                    consumed_ids.add(id(matched_entry))
+                    break
+
+        if not matched_entry:
+            out_lines.append(line)
+            continue
+
+        out_lines.append(_render_block(matched_entry))
+
+    return "\n".join(out_lines)
+
 
 
 def _unify_index_section(md_text: str) -> str:
     """
-    Unifica todas as seções de índice em uma única seção:
-    - Mantém apenas um cabeçalho "## Índice"
-    - Junta todos os links do índice em uma única linha
-    - Remove cabeçalhos de índice duplicados e seus blocos
+    Remove todos os índices gerados pela IA e constrói um índice limpo, 
+    preciso e consolidado baseado nos cabeçalhos de data reais (### DD/MM/YYYY).
+    Isso previne instabilidades e garante que o índice nunca desapareça.
     """
     lines = md_text.split('\n')
     output = []
-    collected_links = []
-
+    
     heading_pattern = re.compile(r'^\s{0,3}#{1,6}\s+')
     index_heading_pattern = re.compile(r'^\s{0,3}##\s+(?:[Íí]ndice|[Ii]ndice)\b')
-    md_link_pattern = re.compile(r'\[([^\]]+)\]\((#[^)]+)\)')
+    date_heading_pattern = re.compile(r'^###\s+(\d{2}/\d{2}/\d{4})')
+    
+    dates_found = []
 
     i = 0
     while i < len(lines):
@@ -421,29 +633,37 @@ def _unify_index_section(md_text: str) -> str:
 
         if index_heading_pattern.match(line):
             i += 1
+            # Pula até o próximo cabeçalho principal
             while i < len(lines):
-                current = lines[i]
-                if heading_pattern.match(current):
+                if heading_pattern.match(lines[i]):
                     break
-
-                for label, anchor in md_link_pattern.findall(current):
-                    link = f"[{label}]({anchor})"
-                    if link not in collected_links:
-                        collected_links.append(link)
                 i += 1
             continue
 
         output.append(line)
+        
+        # Aproveita para coletar datas se for um cabeçalho de data
+        date_match = date_heading_pattern.match(line)
+        if date_match:
+            date_str = date_match.group(1)
+            if date_str not in dates_found:
+                dates_found.append(date_str)
+                
         i += 1
 
-    if collected_links:
+    if dates_found:
+        index_links = []
+        for d in dates_found:
+            clean_id = d.replace('/', '')
+            index_links.append(f"[{d}](#data-{clean_id})")
+            
         insert_at = None
         for idx, line in enumerate(output):
             if line.strip().startswith('# '):
                 insert_at = idx + 1
                 break
 
-        unified_block = ['', '## Índice', ' | '.join(collected_links), '']
+        unified_block = ['', '## Índice', ' | '.join(index_links), '']
         if insert_at is None:
             output = unified_block + output
         else:
@@ -503,72 +723,432 @@ def _compress_image_to_base64(img_bytes: bytes, max_width: int = 800, quality: i
         img.save(buffer, format='JPEG', quality=quality, optimize=True)
         return base64.b64encode(buffer.getvalue()).decode('utf-8')
     except Exception as e:
-        logger.warning(f"Falha ao comprimir imagem: {e}")
-        return base64.b64encode(img_bytes).decode('utf-8')
+        logger.warning(f"Falha ao comprimir imagem (formato possivelmente não suportado nativamente, ex: HEIC): {e}")
+        return None
 
 
-def _find_image_bytes(filename: str, image_bytes_dict: dict) -> bytes | None:
-    """Busca bytes da imagem por caminho exato, basename, ou correspondência parcial."""
-    # 1. Exact path match
-    if filename in image_bytes_dict:
-        return image_bytes_dict[filename]
-
-    basename = os.path.basename(filename).lower()
-
-    # 2. Case-insensitive basename match
-    for key, data in image_bytes_dict.items():
-        if os.path.basename(key).lower().replace('\u200e', '').replace('\u200f', '') == basename:
-            return data
-
-    # 3. Stem match (ignore extension differences e.g. .jpg vs .jpeg)
-    stem = os.path.splitext(basename)[0]
-    for key, data in image_bytes_dict.items():
-        if os.path.splitext(os.path.basename(key).lower().replace('\u200e', '').replace('\u200f', ''))[0] == stem:
-            return data
-
-    # 4. Partial match (filename in key or key ends with filename)
-    for key, data in image_bytes_dict.items():
-        key_lower = key.lower().replace('\u200e', '').replace('\u200f', '')
-        if key_lower.endswith(basename) or basename in key_lower:
-            return data
-
-    logger.debug(f"Imagem nao encontrada: {filename!r} | disponiveis: {list(image_bytes_dict.keys())[:5]}")
-    return None
 
 
-def _inject_images_base64(html_str: str, image_bytes_dict: dict) -> str:
-    """Substitui marcadores [IMAGEM ANEXADA: filename] por tags <img> base64."""
-    IMAGE_MARKER_RE = re.compile(r'\[IMAGEM ANEXADA:\s*([^\]]+?)\]')
-    markers_found = IMAGE_MARKER_RE.findall(html_str)
 
-    if not markers_found:
-        logger.info("inject_images: nenhum marcador [IMAGEM ANEXADA:] encontrado no HTML")
-        return html_str
 
-    logger.info(f"inject_images: {len(markers_found)} marcadores encontrados: {markers_found[:5]}")
-    logger.info(f"inject_images: {len(image_bytes_dict)} imagens disponíveis: {list(image_bytes_dict.keys())[:5]}")
+def _build_positional_image_schedule(image_bytes_dict: dict, chat_json: dict) -> list[dict]:
+    """
+    Constrói schedule posicional de imagens alinhado com os marcadores %%IMG_N%%
+    emitidos por _chat_to_text. Cada mensagem tipo 'imagem' ou 'midia_omitida'
+    (em ordem cronológica) produz UMA entrada no schedule.
 
+    Estratégia em 2 passes para evitar que midia_oculta "roube" bytes de imagens reais:
+
+    Pass 1 — Resolve TODAS as mensagens na ordem cronológica:
+      - tipo 'imagem' com filename → match exato ou basename (consome key)
+      - tipo 'imagem' sem filename → FIFO fallback (consome key)
+      - tipo 'midia_omitida' → reserva slot vazio (NÃO consome key)
+
+    Pass 2 — Preenche slots vazios (midia_omitida) com bytes restantes via FIFO.
+    """
     if not image_bytes_dict:
-        logger.warning("inject_images: image_bytes_dict VAZIO — imagens não foram extraídas do ZIP")
+        return []
+
+    mensagens = chat_json.get('mensagens', [])
+    used_keys: set = set()
+
+    # Pre-build basename index for fast lookup (case-insensitive, strip invisible chars)
+    basename_index: dict = {}
+    for key in image_bytes_dict:
+        bn = os.path.basename(key).lower().replace('\u200e', '').replace('\u200f', '')
+        basename_index.setdefault(bn, key)
+
+    # ── Pass 1: Resolve imagens com filename; reserva slots para midia_omitida ──
+    schedule: list[dict | None] = []  # None = slot vazio (midia_omitida pendente)
+
+    for msg in mensagens:
+        msg_tipo = msg.get('tipo', '')
+        if msg_tipo not in ('imagem', 'midia_omitida'):
+            continue
+
+        arquivo = msg.get('arquivo') or ''
+        data = msg.get('data', '')
+        hora = msg.get('hora', '')
+        ts = f"[{data} {hora}]"
+        remetente = msg.get('remetente', '')
+
+        if msg_tipo == 'imagem':
+            # Tenta match por filename (exato ou basename)
+            matched_key = None
+            if arquivo:
+                if arquivo in image_bytes_dict and arquivo not in used_keys:
+                    matched_key = arquivo
+                else:
+                    bn = os.path.basename(arquivo).lower().replace('\u200e', '').replace('\u200f', '')
+                    candidate = basename_index.get(bn)
+                    if candidate and candidate not in used_keys:
+                        matched_key = candidate
+
+            if matched_key is None:
+                # FIFO fallback para imagens sem filename resolvido
+                for key in image_bytes_dict:
+                    if key not in used_keys:
+                        matched_key = key
+                        break
+
+            if matched_key:
+                used_keys.add(matched_key)
+                schedule.append({
+                    'filename': os.path.basename(matched_key),
+                    'bytes': image_bytes_dict[matched_key],
+                    'ts': ts,
+                    'data': data,
+                    'hora': hora,
+                    'remetente': remetente,
+                })
+            else:
+                # Sem bytes disponíveis para esta imagem referenciada
+                logger.warning(f"[IMG_SCHEDULE] Pass 1: sem imagem para {ts} {remetente!r} (arquivo={arquivo!r})")
+                schedule.append({
+                    '_placeholder': 'missing_image',
+                    'filename': arquivo,
+                    'ts': ts,
+                    'data': data,
+                    'hora': hora,
+                    'remetente': remetente,
+                })
+        else:
+            # midia_omitida: reserva slot vazio, será preenchido no Pass 2
+            schedule.append({
+                '_pending': True,
+                'ts': ts,
+                'data': data,
+                'hora': hora,
+                'remetente': remetente,
+            })
+
+    # ── Pass 2: Preenche slots de midia_omitida com bytes restantes (FIFO) ──
+    fifo_keys = [k for k in image_bytes_dict if k not in used_keys]
+    fifo_iter = iter(fifo_keys)
+    pass2_filled = 0
+    pass2_empty = 0
+
+    final_schedule: list[dict] = []
+    for entry in schedule:
+        if entry is None:
+            # Não deve acontecer com a nova lógica, mas mantém segurança
+            final_schedule.append({'_placeholder': 'missing_image'})
+            continue
+
+        if entry.get('_pending'):
+            # midia_omitida — tenta FIFO
+            next_key = next(fifo_iter, None)
+            if next_key:
+                used_keys.add(next_key)
+                final_schedule.append({
+                    'filename': os.path.basename(next_key),
+                    'bytes': image_bytes_dict[next_key],
+                    'ts': entry['ts'],
+                    'data': entry['data'],
+                    'hora': entry['hora'],
+                    'remetente': entry['remetente'],
+                })
+                pass2_filled += 1
+            else:
+                # Sem bytes restantes — slot de mídia oculta sem imagem física
+                final_schedule.append({
+                    '_placeholder': 'midia_omitida',
+                    'ts': entry['ts'],
+                    'data': entry['data'],
+                    'hora': entry['hora'],
+                    'remetente': entry['remetente'],
+                })
+                pass2_empty += 1
+        else:
+            # Imagem já resolvida no Pass 1
+            final_schedule.append(entry)
+
+    # Remove Nones do final (marcadores sem bytes serão ignorados pela injeção)
+    # Mas mantém Nones intermediários para preservar alinhamento posicional com %%IMG_N%%
+
+    image_msgs = [m for m in mensagens if m.get('tipo') == 'imagem']
+    omitida_msgs = [m for m in mensagens if m.get('tipo') == 'midia_omitida']
+    resolved = sum(1 for e in final_schedule if e is not None)
+
+    logger.info(f"[IMG_SCHEDULE] ZIP={len(image_bytes_dict)} imgs | imagem={len(image_msgs)} | midia_omitida={len(omitida_msgs)}")
+    logger.info(f"[IMG_SCHEDULE] Pass 1: {len(image_msgs)} imagens resolvidas por filename/FIFO")
+    logger.info(f"[IMG_SCHEDULE] Pass 2: {pass2_filled} midia_omitida preenchidas, {pass2_empty} sem bytes")
+    logger.info(f"[IMG_SCHEDULE] FINAL: {resolved}/{len(final_schedule)} entradas com bytes")
+
+    return final_schedule
+
+async def _compress_images_in_schedule(schedule: list[dict]) -> None:
+    """Comprime imagens do schedule em paralelo em threads para não bloquear o event loop."""
+    if not schedule:
+        return
+        
+    loop = asyncio.get_running_loop()
+    
+    def compress_task(img_data):
+        if 'bytes' not in img_data:
+            return None
+        return _compress_image_to_base64(img_data['bytes'])
+        
+    valid_items = [(i, item) for i, item in enumerate(schedule) if item is not None and not item.get('_placeholder')]
+    tasks = [
+        loop.run_in_executor(None, compress_task, item) 
+        for _, item in valid_items
+    ]
+    results = await asyncio.gather(*tasks)
+    
+    for (_, item), b64 in zip(valid_items, results):
+        item['b64'] = b64
+
+def _inject_images_by_timestamp_schedule(html_str: str, schedule: list[dict]) -> str:
+    """
+    Injeta imagens no HTML gerado pela IA.
+    
+    Estratégia em 4 fases:
+    1. Substitui marcadores %%IMG_N%% por tags <img>.
+    2. Órfãs de álbum: Se a imagem N-1 foi injetada, injeta as demais do mesmo timestamp imediatamente após.
+       Também tenta match relaxado por data+remetente (sem exigir hora exata).
+    3. Inserção por proximidade: Imagens órfãs são inseridas próximo ao vizinho mais próximo
+       já injetado, preservando a ordem cronológica no corpo do documento.
+    4. Fallback final: Bloco ao final apenas para imagens que não tinham vizinhos.
+    """
+    if not schedule:
         return html_str
+        
+    injected_positions = set()
+    # Mapeia posição no schedule → índice da linha em out_lines onde foi injetada
+    injected_line_index: dict[int, int] = {}
+    
+    def render_img(pos):
+        if pos < len(schedule) and schedule[pos] is not None:
+            img_data = schedule[pos]
+            # Verifica se é um placeholder (sem bytes reais)
+            placeholder_type = img_data.get('_placeholder')
+            if placeholder_type == 'midia_omitida':
+                remetente_info = img_data.get('remetente', '')
+                ts_info = img_data.get('ts', '')
+                return (
+                    f'<div class="ata-midia-ausente" style="border:1px dashed #b0b0b0;padding:8px 14px;'
+                    f'color:#777;font-size:0.85em;font-style:italic;text-align:center;'
+                    f'margin:8px 0;border-radius:4px;background:#fafafa;">'
+                    f'📎 Mídia oculta {ts_info} ({remetente_info}) — conteúdo não disponível no export</div>'
+                )
+            if placeholder_type == 'missing_image':
+                filename_info = img_data.get('filename', '')
+                return (
+                    f'<div class="ata-midia-ausente" style="border:1px dashed #e0b0b0;padding:8px 14px;'
+                    f'color:#a55;font-size:0.85em;font-style:italic;text-align:center;'
+                    f'margin:8px 0;border-radius:4px;background:#fff8f8;">'
+                    f'⚠️ Imagem referenciada não encontrada no ZIP: {filename_info}</div>'
+                )
+            # Imagem real com bytes
+            b64 = img_data.get('b64')
+            if not b64:
+                return (
+                    f'<div class="ata-midia-ausente" style="border:1px dashed #ccc;padding:8px 14px;'
+                    f'color:#888;font-size:0.85em;font-style:italic;text-align:center;'
+                    f'margin:8px 0;border-radius:4px;">'
+                    f'[Formato de imagem não suportado: {img_data.get("filename", "")}]</div>'
+                )
+            filename = img_data['filename']
+            return f'<img class="ata-imagem-anexada" src="data:image/jpeg;base64,{b64}" alt="{filename}" />'
+        return ''
 
-    injected = 0
-    missed = []
+    def remove_accents(input_str):
+        nfkd_form = unicodedata.normalize('NFKD', input_str)
+        return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
 
-    def replace_marker(match):
-        nonlocal injected
-        filename = match.group(1).strip().replace('\u200e', '').replace('\u200f', '')
-        img_data = _find_image_bytes(filename, image_bytes_dict)
-        if not img_data:
-            missed.append(filename)
-            return f'<em>[Imagem não encontrada: {filename}]</em>'
-        injected += 1
-        b64 = _compress_image_to_base64(img_data)
-        return f'<img class="ata-imagem-anexada" src="data:image/jpeg;base64,{b64}" alt="{filename}" />'
+    def strip_html(s):
+        """Remove tags HTML para comparação de texto puro."""
+        return re.sub(r'<[^>]+>', '', s)
 
-    result = IMAGE_MARKER_RE.sub(replace_marker, html_str)
-    logger.info(f"inject_images: {injected} injetadas, {len(missed)} não encontradas: {missed}")
-    return result
+    # Pre-group schedule by (data, hora, remetente) to handle albums together
+    # Only group entries with real bytes (not placeholders)
+    album_groups = {}
+    for i, item in enumerate(schedule):
+        if item is None or item.get('_placeholder'):
+            continue
+        key = (item.get('data'), item.get('hora'), item.get('remetente'))
+        album_groups.setdefault(key, []).append(i)
+
+    lines = html_str.split('\n')
+    out_lines = []
+    
+    phase2_injected = set()
+    current_date = ""
+
+    # Padrão para extrair a data atual dos headers no HTML (ex: <h3 id="data-12032024">12/03/2024</h3>)
+    date_pattern = re.compile(r'<h3[^>]*>([0-9]{2}/[0-9]{2}/[0-9]{4})</h3>')
+    # Padrão mais amplo para detectar datas inline no texto (ex: dentro de <p>)
+    inline_date_pattern = re.compile(r'(\d{2}/\d{2}/\d{4})')
+
+    for line in lines:
+        # Tenta atualizar a data atual baseada no header
+        date_match = date_pattern.search(line)
+        if date_match:
+            current_date = date_match.group(1)
+
+        injected_before = set(injected_positions)
+        
+        def replace_single(match):
+            try:
+                pos_1based = int(match.group(1))
+                idx = pos_1based - 1
+                if 0 <= idx < len(schedule):
+                    if idx not in injected_positions:
+                        injected_positions.add(idx)
+                        injected_line_index[idx] = len(out_lines)
+                        return render_img(idx)
+                    else:
+                        return 'ALREADY_INJECTED_IMG_MARKER'
+                # Marker fora do range do schedule — remove silenciosamente
+                logger.debug(f"[IMG_INJECT] %%IMG_{pos_1based}%% fora do range do schedule ({len(schedule)}) — removendo")
+                return ''
+            except ValueError:
+                pass
+            return ''
+
+        new_line = re.sub(r'%%IMG_(\d+)%%', replace_single, line)
+        
+        # Se a imagem já foi injetada (ex: em um bloco de álbum anterior), removemos o marcador
+        if 'ALREADY_INJECTED_IMG_MARKER' in new_line:
+            clean_text = re.sub(r'<[^>]+>', '', new_line).replace('ALREADY_INJECTED_IMG_MARKER', '').strip()
+            # Se a linha ficou apenas com um formato de remetente (ex: "[Data] Nome:") ou vazia, removemos a linha inteira
+            if not clean_text or re.match(r'^(?:\[.*?\])?\s*[^:]+:\s*$', clean_text):
+                continue
+            new_line = new_line.replace('ALREADY_INJECTED_IMG_MARKER', '')
+            
+        out_lines.append(new_line)
+        
+        injected_now = injected_positions - injected_before
+        # Texto limpo da linha para comparações (sem tags HTML, sem acentos, lowercase)
+        clean_line = remove_accents(strip_html(new_line).lower())
+
+        # Phase 2: Inject orphans for albums or matching lines
+        for key in list(album_groups.keys()):
+            album_indices = album_groups[key]
+            orphans = [idx for idx in album_indices if idx not in injected_positions]
+            
+            if not orphans:
+                del album_groups[key]
+                continue
+                
+            data_val, hora_val, remetente = key
+            sibling_injected = any(idx in injected_now for idx in album_indices)
+            
+            match_found = False
+            if sibling_injected:
+                match_found = True
+            else:
+                clean_ts = remove_accents((schedule[orphans[0]].get('ts') or '').lower())
+                clean_hora = remove_accents((hora_val or '').lower())
+                
+                # Match se: a) A linha contém o TS completo, ou 
+                #            b) A data atual do loop bate com a imagem e a linha contém a hora, ou
+                #            c) A linha contém a data da imagem (match relaxado por data + remetente)
+                has_time_match = (
+                    (clean_ts and clean_ts in clean_line) or 
+                    (current_date == data_val and clean_hora and clean_hora in clean_line) or
+                    (data_val and data_val.lower() in clean_line and clean_hora and clean_hora in clean_line)
+                )
+                
+                if has_time_match and ('<p' in new_line.lower() or '<li' in new_line.lower()):
+                    clean_rem = remove_accents((remetente or '').lower())
+                    rem_words = [w for w in clean_rem.split() if len(w) > 2]
+                    # Accept if any word of the sender name matches, or if no words to match
+                    has_rem_match = not rem_words or any(w in clean_line for w in rem_words)
+                    if has_rem_match:
+                        match_found = True
+
+            if match_found:
+                for p in orphans:
+                    out_lines.append(f'<p>{render_img(p)}</p>')
+                    injected_positions.add(p)
+                    injected_line_index[p] = len(out_lines) - 1
+                    phase2_injected.add(p)
+                del album_groups[key]
+
+    logger.info(f"[IMG_INJECT] Phase 1 tokens replaced: {len(injected_positions) - len(phase2_injected)}")
+    logger.info(f"[IMG_INJECT] Phase 2 (albums/matching) injected: {len(phase2_injected)}")
+    
+    # Phase 3: Inserção por proximidade — imagens órfãs são inseridas perto do vizinho 
+    # mais próximo já injetado, preservando ordem cronológica no corpo do documento
+    # Só considera índices com bytes reais (não placeholders)
+    remaining_indices = sorted([
+        i for i in range(len(schedule))
+        if i not in injected_positions
+        and schedule[i] is not None
+        and not schedule[i].get('_placeholder')
+    ])
+
+    if remaining_indices and injected_line_index:
+        phase3_count = 0
+        # Processa do final para o início para não invalidar os índices de inserção
+        insertions: list[tuple[int, int]] = []  # (line_index, schedule_idx)
+        
+        for orphan_idx in remaining_indices:
+            # Encontra o vizinho injetado mais próximo no schedule (por posição sequencial)
+            best_neighbor_line = None
+            best_distance = float('inf')
+            
+            for inj_idx, inj_line in injected_line_index.items():
+                dist = abs(orphan_idx - inj_idx)
+                if dist < best_distance:
+                    best_distance = dist
+                    best_neighbor_line = inj_line
+            
+            if best_neighbor_line is not None:
+                # Insere logo após o vizinho mais próximo
+                insertions.append((best_neighbor_line, orphan_idx))
+        
+        # Agrupa inserções por linha-alvo e ordena por schedule_idx
+        line_insertions = defaultdict(list)
+        for target_line, sched_idx in insertions:
+            line_insertions[target_line].append(sched_idx)
+        
+        # Insere do final para o início (evita shift de índices)
+        for target_line in sorted(line_insertions.keys(), reverse=True):
+            sched_indices = sorted(line_insertions[target_line])
+            insert_html = []
+            for si in sched_indices:
+                insert_html.append(f'<p>{render_img(si)}</p>')
+                injected_positions.add(si)
+                injected_line_index[si] = target_line + 1
+                phase3_count += 1
+            # Insere logo após a linha-alvo
+            for offset, h in enumerate(insert_html):
+                out_lines.insert(target_line + 1 + offset, h)
+        
+        if phase3_count:
+            logger.info(f"[IMG_INJECT] Phase 3 (proximity): {phase3_count} imagens inseridas próximo aos vizinhos")
+    
+    # Phase 4: Fallback final — apenas para imagens reais com bytes que sobraram
+    final_remaining = [
+        i for i in range(len(schedule))
+        if i not in injected_positions
+        and schedule[i] is not None
+        and not schedule[i].get('_placeholder')
+    ]
+
+    if final_remaining:
+        logger.info(f"[IMG_INJECT] Phase 4 (appendix): {len(final_remaining)} imagens → bloco final sequencial")
+        out_lines.append(
+            '<div class="ata-imagens-secao" style="margin-top:2em;padding-top:1em;'
+            'border-top:2px solid #e0e0e0;">'
+        )
+        out_lines.append(
+            f'<p style="color:#888;font-size:0.85em;font-style:italic;">'
+            f'({len(final_remaining)} imagem(ns) adicionais anexadas)</p>'
+        )
+        for idx in final_remaining:
+            out_lines.append(f'<p>{render_img(idx)}</p>')
+            injected_positions.add(idx)
+        out_lines.append('</div>')
+    
+    total_injected = len(injected_positions)
+    logger.info(f"[IMG_INJECT] Final: {total_injected}/{len(schedule)} images injected into document")
+    
+    return '\n'.join(out_lines)
+
 
 
 def _inject_document_thumbnails(html_str: str) -> str:
@@ -611,40 +1191,57 @@ async def organize_chat_with_ai(chat_json: dict, is_formal: bool = True, on_prog
     async with httpx.AsyncClient() as client:
         try:
             # Converter para texto limpo
-            chat_text = _chat_to_text(chat_json)
-            logger.info(f"[{tipo}] Texto para IA gerado: {len(chat_text)} chars")
-            
+            chat_text, img_schedule, audio_schedule = _chat_to_text(chat_json)
+            logger.info(
+                f"[{tipo}] Texto para IA: {len(chat_text)} chars | "
+                f"{len(img_schedule)} imgs | {len(audio_schedule)} audios"
+            )
+
             # Dividir em chunks se necessário
             chunks = _split_into_chunks(chat_text)
-            
+
             if len(chunks) == 1:
-                # Caso simples - tudo em uma chamada
                 if on_progress:
                     await on_progress(f"Enviando para IA ({tipo})...", 10)
                 result = await _call_openai(system_prompt, chat_text, client)
                 if on_progress:
                     await on_progress(f"IA ({tipo}) concluída.", 100)
-                content = _restore_audio_markers(result, chat_text)
-                content = _unify_index_section(_apply_formatting(content))
+                # Restaura marcadores %%IMG_N%% que a IA removeu ANTES da conversão HTML.
+                result = _restore_missing_image_markers(result, len(img_schedule))
+                content = _unify_index_section(_apply_formatting(result))
                 html = _markdown_to_html(content)
+                html = _restore_audio_markers(html, audio_schedule)
                 html = _inject_document_thumbnails(html)
                 if image_bytes:
-                    html = _inject_images_base64(html, image_bytes)
+                    schedule = _build_positional_image_schedule(image_bytes, chat_json)
+                    logger.info(f"[{tipo}] Schedule de imagens: {len(schedule)} entradas")
+                    await _compress_images_in_schedule(schedule)
+                    html = _inject_images_by_timestamp_schedule(html, schedule)
                 return {"conteudo": html}
             
-            # Caso com chunks - processa cada parte e depois unifica
+            # Caso com chunks - processa em paralelo e restaura marcadores por chunk
             logger.info(f"[{tipo}] Chat dividido em {len(chunks)} chunks (concorrência máxima: 3)")
-            
-            sem = asyncio.Semaphore(3) # Reduzido de 10 para 3 para maior estabilidade
+
+            # Pré-indexa quais marcadores %%IMG_N%% existem em cada chunk de input
+            # Cada chunk da IA só precisa preservar OS SEUS próprios marcadores
+            chunk_img_indices: list[set[int]] = []
+            chunk_audio_indices: list[set[int]] = []
+            for chunk in chunks:
+                found_img = {int(m) for m in _IMG_MARKER_RE.findall(chunk)}
+                chunk_img_indices.append(found_img)
+                
+                found_audio = {int(m) for m in _AUDIO_MARKER_RE.findall(chunk)}
+                chunk_audio_indices.append(found_audio)
+
+            sem = asyncio.Semaphore(3)
             completed_chunks = 0
-            
+
             async def _process_chunk(i: int, chunk: str) -> str:
                 nonlocal completed_chunks
                 async with sem:
                     is_first = (i == 0)
                     is_last = (i == len(chunks) - 1)
-                    
-                    # Instrução específica para garantir junção perfeita
+
                     if is_first and is_last:
                         instruction = "Gere o documento completo seguindo a estrutura pedida."
                     elif is_first:
@@ -655,30 +1252,58 @@ async def organize_chat_with_ai(chat_json: dict, is_formal: bool = True, on_prog
                         instruction = f"Esta é a parte {i+1}. NÃO repita títulos ou cabeçalhos iniciais. Mantenha APENAS a transcrição fiel das mensagens obedecendo ao formato padrão."
 
                     chunk_prompt = f"INSTRUÇÃO DE SEGURANÇA: {instruction}\n\nCONTEÚDO PARA PROCESSAR:\n{chunk}"
-                    
+
                     logger.info(f"[{tipo}] Processando Chunk {i + 1}/{len(chunks)}...")
                     if on_progress:
                         prog = int((completed_chunks / len(chunks)) * 100)
                         await on_progress(f"[{tipo}] Processando parte {i + 1} de {len(chunks)}...", prog)
-                    
+
                     res = await _call_openai(system_prompt, chunk_prompt, client)
-                    
                     completed_chunks += 1
+
+                    # Restaura apenas os marcadores que pertenciam a ESTE chunk
+                    # (evita confundir numeração de outros chunks em paralelo)
+                    expected_in_chunk = chunk_img_indices[i]
+                    if expected_in_chunk:
+                        present_in_res = {int(m) for m in _IMG_MARKER_RE.findall(res)}
+                        missing = sorted(expected_in_chunk - present_in_res)
+                        if missing:
+                            logger.info(f"[IMG_RESTORE] Chunk {i+1}: IA removeu {len(missing)} marcadores — re-inserindo: {missing[:10]}")
+                            # Re-insere os marcadores ausentes usando _restore_missing_image_markers
+                            # passando o set de marcadores esperados APENAS para este chunk
+                            res = _restore_missing_image_markers(res, expected_in_chunk)
+
+                    expected_audio_in_chunk = chunk_audio_indices[i]
+                    if expected_audio_in_chunk:
+                        present_audio_in_res = {int(m) for m in _AUDIO_MARKER_RE.findall(res)}
+                        missing_audio = sorted(expected_audio_in_chunk - present_audio_in_res)
+                        if missing_audio:
+                            logger.info(f"[AUDIO_RESTORE] Chunk {i+1}: IA removeu {len(missing_audio)} marcadores — re-inserindo: {missing_audio[:10]}")
+                            res = _restore_missing_audio_markers(res, expected_audio_in_chunk)
+
                     return res
 
             # Executa chunks em paralelo com semáforo
             tasks = [_process_chunk(i, chunk) for i, chunk in enumerate(chunks)]
             partial_results = await asyncio.gather(*tasks)
-            
-            # Filtra possíveis repetições de título que a IA possa ter ignorado
-            # Une tudo com espaçamento duplo
+
+            # Une tudo e faz passagem final para capturar qualquer marcador residual
             final_content = "\n\n".join(partial_results)
-            final_content = _restore_audio_markers(final_content, chat_text)
+            final_content = _restore_missing_image_markers(final_content, len(img_schedule))
+            final_content = _restore_missing_audio_markers(final_content, len(audio_schedule))
+            
+            # Remove cabeçalhos duplicados que a IA possa ter gerado nos chunks intermediários
+            final_content = _remove_duplicate_headers(final_content)
+            
             content = _unify_index_section(_apply_formatting(final_content))
             html = _markdown_to_html(content)
+            html = _restore_audio_markers(html, audio_schedule)
             html = _inject_document_thumbnails(html)
             if image_bytes:
-                html = _inject_images_base64(html, image_bytes)
+                schedule = _build_positional_image_schedule(image_bytes, chat_json)
+                logger.info(f"[{tipo}] Schedule de imagens (multi-chunk): {len(schedule)} entradas")
+                await _compress_images_in_schedule(schedule)
+                html = _inject_images_by_timestamp_schedule(html, schedule)
             return {"conteudo": html}
             
         except Exception as e:
