@@ -68,8 +68,8 @@ async def purchase_package(req: PurchaseRequest, user_id: str = Depends(get_curr
     if is_custom:
         if not req.custom_credits or req.custom_credits < 50:
             raise HTTPException(status_code=400, detail="Mínimo de 50 créditos para compras personalizadas.")
-        if req.custom_credits > 10000:
-            raise HTTPException(status_code=400, detail="Máximo de 10.000 créditos por compra.")
+        if req.custom_credits > 2000:
+            raise HTTPException(status_code=400, detail="Máximo de 2.000 créditos por compra.")
         credits_amount = req.custom_credits
         price_per_page = package["price_per_page_cents"]
         total_price_cents = credits_amount * price_per_page

@@ -267,7 +267,7 @@ export default function Credits() {
                               <input
                                 type="number"
                                 min={50}
-                                max={10000}
+                                max={2000}
                                 value={customCredits}
                                 onChange={(e) => {
                                   let val = parseInt(e.target.value);
@@ -297,9 +297,9 @@ export default function Credits() {
                                 Compra mínima de 50 créditos.
                               </p>
                             )}
-                            {customCredits > 10000 && (
+                            {customCredits > 2000 && (
                               <p style={{ color: 'var(--danger, #ef4444)', fontSize: '0.8rem', marginTop: '0.5rem' }}>
-                                Máximo de 10.000 créditos por compra.
+                                Máximo de 2.000 créditos por compra.
                               </p>
                             )}
                           </div>
@@ -356,11 +356,11 @@ export default function Credits() {
                         <button
                           type="button"
                           onClick={() => handlePurchase(customPkg, customCredits)}
-                          disabled={loading || customCredits < 50 || customCredits > 10000}
+                          disabled={loading || customCredits < 50 || customCredits > 2000}
                           className="btn-gradient w-full py-3.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 cursor-pointer"
                         >
                           <Zap size={16} />
-                          Comprar {customCredits >= 50 && customCredits <= 10000 ? `${customCredits} ` : ''}créditos
+                          Comprar {customCredits >= 50 && customCredits <= 2000 ? `${customCredits} ` : ''}créditos
                         </button>
                         <div className="flex items-center gap-1.5 text-[10px]" style={{ color: 'var(--text-dimmed)' }}>
                           <Shield size={11} />
