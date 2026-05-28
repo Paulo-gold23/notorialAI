@@ -57,3 +57,9 @@ htmlcov/
 
 # Agent/AI folders (dev only)
 .agent/
+
+# Specific app exclusions
+notorial-api/app.log*
+notorial-api/debug_pdf_preview.html
+notorial-web/lint_output.txt
+test_archives/

@@ -5,7 +5,7 @@
 # ==============================================================================
 
 # Defina a URL do seu backend aqui:
-BACKEND_URL="https://legisvox-backend.onrender.com" # Substitua se for outra
+BACKEND_URL="https://notorialai.onrender.com" # Substitua se for outra
 
 echo "Efetuando ping em: $BACKEND_URL"
 

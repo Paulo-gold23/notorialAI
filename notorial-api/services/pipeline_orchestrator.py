@@ -17,13 +17,14 @@ local_results = {}
 
 def _update_status(ata_id: str, is_local: bool, supabase, status_name: str, progress: int = 0, message: str = ""):
     """Persiste status no Supabase. Atualiza local_results apenas em modo local."""
+    formatted_message = f"{progress}%: {message}" if progress > 0 else message
+    
     # Em modo com Supabase, a fonte de verdade é o banco — sem escrita em memória.
     if not is_local and supabase:
         try:
             supabase.table('atas').update({
                 'status': status_name,
-                'status_message': message,
-                'progress': progress
+                'status_message': formatted_message
             }).eq('id', ata_id).execute()
         except Exception as e:
             logger.warning(f"Erro ao atualizar status no Supabase: {e}")

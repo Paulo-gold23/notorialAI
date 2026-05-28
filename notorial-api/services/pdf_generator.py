@@ -4,7 +4,33 @@ import logging
 import re
 import io
 import secrets
+import nh3
 from config import settings
+
+ALLOWED_TAGS = {
+    "p", "b", "i", "u", "strong", "em", "h1", "h2", "h3", "h4", "h5", "h6",
+    "ul", "ol", "li", "span", "img", "div", "br", "a"
+}
+
+ALLOWED_ATTRIBUTES = {
+    "img": {"src", "alt", "style", "class"},
+    "a": {"href", "target", "style"},
+    "div": {"style", "class"},
+    "p": {"style", "class"},
+    "span": {"style", "class"},
+    "h3": {"id"}
+}
+
+def sanitize_user_html(html_content: str) -> str:
+    """
+    Sanitizes HTML content to prevent XSS and SSRF (Gotenberg local file reads).
+    """
+    return nh3.clean(
+        html_content,
+        tags=ALLOWED_TAGS,
+        attributes=ALLOWED_ATTRIBUTES,
+        url_schemes={"http", "https", "data"} # Blocks file:// scheme
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +218,8 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_has
     if "convert/html" not in url:
         url = f"{url.rstrip('/')}/forms/chromium/convert/html"
 
-    html_for_pdf = _wrap_html_for_pdf(html_str)
+    sanitized_html = sanitize_user_html(html_str)
+    html_for_pdf = _wrap_html_for_pdf(sanitized_html)
 
     # ── DIAGNÓSTICO TEMPORÁRIO: salva HTML que vai para o Gotenberg ──
     # Abra o arquivo gerado em qualquer browser para ver como o PDF deveria parecer.
@@ -270,8 +297,9 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_has
         ]
 
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(url, files=files, data=data, timeout=90.0)
+            from database import get_http_client
+            client = get_http_client()
+            response = await client.post(url, files=files, data=data, timeout=90.0)
 
             if response.status_code == 200:
                 if attempt > 1:

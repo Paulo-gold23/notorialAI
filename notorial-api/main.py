@@ -6,6 +6,12 @@ import logging
 import logging.handlers
 import os
 
+import httpx
+from pillow_heif import register_heif_opener
+
+# ── Register Apple HEIC support global opener ──────────────────────────────────
+register_heif_opener()
+
 # ── Logging ──────────────────────────────────────────────────────────────────
 _LOG_FILE = os.path.join(os.path.dirname(__file__), "app.log")
 _formatter = logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -26,7 +32,10 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     logger.info("Initializing LegisVox API...")
     yield
-    # cleanup on shutdown (add resource teardown here if needed in the future)
+    # Teardown shared client connection pool
+    from database import close_http_client
+    await close_http_client()
+    logger.info("Cleanup complete.")
 
 
 app = FastAPI(
@@ -55,10 +64,11 @@ app.add_middleware(
 )
 
 # Import and include routers AFTER middleware
-from routers import atas, credits, webhooks
+from routers import atas, credits, webhooks, auth
 app.include_router(atas.router)
 app.include_router(credits.router)
 app.include_router(webhooks.router)
+app.include_router(auth.router)
 
 @app.get("/")
 def read_root():

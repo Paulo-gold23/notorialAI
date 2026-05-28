@@ -3,6 +3,8 @@ import { supabase } from '../services/supabase';
 import { Eye, EyeOff, Gift, Shield, FileText, Sparkles, CheckCircle2, ArrowRight } from 'lucide-react';
 import Logo from '../components/Logo';
 import LegalFooter from '../components/LegalFooter';
+import { hashCpfCnpj, getDeviceFingerprint } from '../services/fingerprint';
+import { apiRequest } from '../services/api';
 
 export default function Login() {
     const [isRegister, setIsRegister] = useState(false);
@@ -80,7 +82,7 @@ export default function Login() {
                 else if (rawCpf.length === 14 && !isValidCnpj(rawCpf)) throw new Error('CNPJ inválido. Por favor, verifique os dígitos.');
                 else if (rawCpf.length !== 11 && rawCpf.length !== 14) throw new Error('O documento deve ter 11 dígitos (CPF) ou 14 dígitos (CNPJ).');
 
-                const encodedCpfCnpj = btoa(rawCpf);
+                const encodedCpfCnpj = await hashCpfCnpj(rawCpf);
 
                 // Profile + credits are created server-side by the DB trigger on auth.users.
                 // Pass all data in options.data so the trigger can read raw_user_meta_data.
@@ -102,6 +104,23 @@ export default function Login() {
 
                 // data.user is present whether or not email confirmation is required.
                 // The DB trigger fires on INSERT to auth.users, so the profile already exists.
+
+                // Audit log: register signup event with device fingerprint
+                try {
+                    const fingerprint = await getDeviceFingerprint();
+                    await apiRequest('/api/auth/log-audit', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            acao: 'signup',
+                            device_fingerprint: fingerprint,
+                            payload: { method: 'email_password' },
+                        }),
+                    });
+                } catch (auditErr) {
+                    // Audit failure must never block the user
+                    console.warn('Audit log (signup) failed:', auditErr);
+                }
+
                 setIsRegister(false);
                 setSuccessMsg('Conta criada com sucesso! Seus 50 créditos gratuitos já estão disponíveis. Redirecionando...');
                 setLoading(false);
@@ -452,6 +471,71 @@ export default function Login() {
                                         Criar Conta e Ganhar 50 Créditos <ArrowRight size={15} />
                                     </span>
                                 ) : 'Entrar'}
+                            </button>
+
+                            {/* ── OAuth separator ── */}
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: '0.75rem',
+                                margin: '1rem 0',
+                            }}>
+                                <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }} />
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-dimmed)', fontWeight: 500 }}>ou</span>
+                                <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }} />
+                            </div>
+
+                            {/* ── Google OAuth button ── */}
+                            <button
+                                type="button"
+                                disabled={loading}
+                                onClick={async () => {
+                                    setLoading(true);
+                                    setError('');
+                                    try {
+                                        const { error: oauthError } = await supabase.auth.signInWithOAuth({
+                                            provider: 'google',
+                                            options: {
+                                                redirectTo: window.location.origin + '/#/dashboard',
+                                            },
+                                        });
+                                        if (oauthError) throw oauthError;
+                                    } catch (err) {
+                                        setError(err.message || 'Erro ao conectar com o Google.');
+                                        setLoading(false);
+                                    }
+                                }}
+                                style={{
+                                    width: '100%',
+                                    padding: '0.75rem',
+                                    fontSize: '0.88rem',
+                                    fontWeight: 600,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '0.625rem',
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: '0.5rem',
+                                    background: 'var(--panel-bg)',
+                                    color: 'var(--text-main)',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease',
+                                }}
+                                onMouseOver={(e) => {
+                                    e.currentTarget.style.borderColor = 'var(--text-muted)';
+                                    e.currentTarget.style.background = 'var(--bg-secondary, rgba(255,255,255,0.03))';
+                                }}
+                                onMouseOut={(e) => {
+                                    e.currentTarget.style.borderColor = 'var(--border-color)';
+                                    e.currentTarget.style.background = 'var(--panel-bg)';
+                                }}
+                            >
+                                {/* Google "G" logo SVG */}
+                                <svg width="18" height="18" viewBox="0 0 48 48">
+                                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                                </svg>
+                                {isRegister ? 'Cadastrar com Google' : 'Entrar com Google'}
                             </button>
                         </form>
 

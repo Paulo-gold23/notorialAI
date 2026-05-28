@@ -1,5 +1,6 @@
 from supabase import create_client, Client
 from config import settings
+import httpx
 
 def get_supabase_client() -> Client:
     """Anon key client — used for Supabase Auth operations (JWT validation)."""
@@ -44,3 +45,21 @@ supabase = get_supabase_client()
 
 # Admin/service client — backend data queries (bypasses RLS)
 supabase_admin = get_supabase_admin_client()
+
+# HTTPX client connection pooling for external APIs (Gotenberg, OpenAI, Groq)
+_http_client = None
+
+def get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
+            timeout=httpx.Timeout(120.0)
+        )
+    return _http_client
+
+async def close_http_client():
+    global _http_client
+    if _http_client is not None and not _http_client.is_closed:
+        await _http_client.aclose()
+        _http_client = None

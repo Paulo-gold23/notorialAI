@@ -10,3 +10,5 @@ pytest-asyncio
 respx
 Pillow
 pypdf
+pillow-heif
+nh3

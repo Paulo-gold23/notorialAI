@@ -340,12 +340,9 @@ async def _call_openai(
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
-            if client is None:
-                # Fallback se não providenciado cliente persistente
-                async with httpx.AsyncClient() as temp_client:
-                    response = await temp_client.post(url, json=payload, headers=headers, timeout=180.0)
-            else:
-                response = await client.post(url, json=payload, headers=headers, timeout=180.0)
+            from database import get_http_client
+            active_client = client if client is not None else get_http_client()
+            response = await active_client.post(url, json=payload, headers=headers, timeout=180.0)
             
             if response.status_code == 200:
                 result = response.json()
@@ -1188,7 +1185,9 @@ async def organize_chat_with_ai(chat_json: dict, is_formal: bool = True, on_prog
     tipo = "FORMAL" if is_formal else "PREPARATÓRIO"
     system_prompt = PROMPT_FORMAL if is_formal else PROMPT_PREPARATORIO
     
-    async with httpx.AsyncClient() as client:
+    from database import get_http_client
+    client = get_http_client()
+    if True:
         try:
             # Converter para texto limpo
             chat_text, img_schedule, audio_schedule = _chat_to_text(chat_json)

@@ -520,17 +520,28 @@ async def get_ata_status(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_c
 
             data = res.data[0]
             db_status = data.get("status", "")
+            status_message = data.get("status_message", "")
 
             # Enriquecer com progress numérico.
+            progress = 50
             if db_status == "ready":
-                data["progress"] = 100
+                progress = 100
             elif db_status == "error":
-                data["progress"] = 0
+                progress = 0
+            elif status_message and "%: " in status_message:
+                try:
+                    parts = status_message.split("%: ", 1)
+                    progress = int(parts[0].strip())
+                    data["status_message"] = parts[1].strip()
+                except Exception:
+                    pass
             else:
-                # Em processamento: progress granular só existe no worker dono.
+                # Fallback: progress granular do worker local
                 cached = local_results.get(ata_id)
-                data["progress"] = cached.get('progress', 50) if cached else 50
+                if cached:
+                    progress = cached.get('progress', 50)
 
+            data["progress"] = progress
             return data
 
         # Fallback: sem Supabase (modo local).
