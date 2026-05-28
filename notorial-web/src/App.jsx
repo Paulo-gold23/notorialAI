@@ -129,6 +129,9 @@ function App() {
       <ErrorBoundary>
       <ToastProvider>
         <BrowserRouter>
+          {session && needsCpf && (
+            <CPFPromptModal onSaved={() => setNeedsCpf(false)} />
+          )}
           <Routes>
             {/* Rotas Públicas */}
             <Route path="/" element={<LandingPage session={session} />} />
@@ -142,9 +145,6 @@ function App() {
               </>
             ) : (
               <>
-                {needsCpf && (
-                  <CPFPromptModal onSaved={() => setNeedsCpf(false)} />
-                )}
                 <Route path="/dashboard" element={<Dashboard isAdmin={isAdmin} />} />
                 <Route path="/upload" element={<Upload />} />
                 <Route path="/review/:id" element={<Review />} />
