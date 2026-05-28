@@ -130,7 +130,10 @@ function App() {
       <ToastProvider>
         <BrowserRouter>
           {session && needsCpf && (
-            <CPFPromptModal onSaved={() => setNeedsCpf(false)} />
+            <CPFPromptModal 
+              userEmail={session.user?.email} 
+              onSaved={() => setNeedsCpf(false)} 
+            />
           )}
           <Routes>
             {/* Rotas Públicas */}

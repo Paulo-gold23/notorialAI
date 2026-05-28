@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Shield, CheckCircle2, AlertCircle, Fingerprint } from 'lucide-react';
 import { hashCpfCnpj, getDeviceFingerprint } from '../services/fingerprint';
 import { apiRequest } from '../services/api';
 
-export default function CPFPromptModal({ onSaved }) {
+export default function CPFPromptModal({ onSaved, userEmail }) {
+    const navigate = useNavigate();
     const [cpfCnpj, setCpfCnpj] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -114,8 +116,11 @@ export default function CPFPromptModal({ onSaved }) {
             });
 
             setStep('done');
-            // Brief success animation, then dismiss
-            setTimeout(() => onSaved(), 1200);
+            // Brief success animation, then dismiss and redirect
+            setTimeout(() => {
+                onSaved();
+                navigate('/dashboard');
+            }, 1200);
 
         } catch (err) {
             setError(err.message || 'Erro ao salvar CPF/CNPJ.');
@@ -178,10 +183,30 @@ export default function CPFPromptModal({ onSaved }) {
                         margin: 0, fontSize: '0.82rem',
                         color: 'var(--text-muted)', lineHeight: 1.5,
                     }}>
-                        {step === 'done'
-                            ? 'Seu documento foi vinculado com sucesso.'
-                            : 'Para sua segurança, informe seu CPF ou CNPJ para continuar usando a plataforma.'
-                        }
+                        {step === 'done' ? (
+                            'Seu documento foi vinculado com sucesso.'
+                        ) : (
+                            <>
+                                {userEmail && (
+                                    <div style={{
+                                        display: 'inline-block',
+                                        padding: '0.25rem 0.625rem',
+                                        borderRadius: '1rem',
+                                        background: 'rgba(59,130,246,0.08)',
+                                        border: '1px solid rgba(59,130,246,0.15)',
+                                        color: 'var(--primary-color)',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 500,
+                                        marginBottom: '0.75rem',
+                                    }}>
+                                        {userEmail}
+                                    </div>
+                                )}
+                                <div style={{ color: 'var(--text-muted)' }}>
+                                    Para sua segurança, informe seu CPF ou CNPJ para continuar usando a plataforma.
+                                </div>
+                            </>
+                        )}
                     </p>
                 </div>
 
