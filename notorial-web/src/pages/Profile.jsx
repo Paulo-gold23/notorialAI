@@ -127,7 +127,7 @@ export default function Profile() {
         setSendingReset(true);
         try {
             const { error } = await supabase.auth.resetPasswordForEmail(authEmail, {
-                redirectTo: `${window.location.origin}/#/login`
+                redirectTo: `${window.location.origin}/login`
             });
             if (error) throw error;
             toast.success('E-mail de redefinição de senha enviado com sucesso!');

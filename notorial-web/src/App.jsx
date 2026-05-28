@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { supabase } from './services/supabase';
 import { checkIsAdmin } from './services/adminApi';
 import { ToastProvider } from './components/ToastContext';
@@ -128,7 +128,7 @@ function App() {
       <ServiceStatusBanner />
       <ErrorBoundary>
       <ToastProvider>
-        <HashRouter>
+        <BrowserRouter>
           <Routes>
             {/* Rotas Públicas */}
             <Route path="/" element={<LandingPage session={session} />} />
@@ -155,7 +155,7 @@ function App() {
               </>
             )}
           </Routes>
-        </HashRouter>
+        </BrowserRouter>
       </ToastProvider>
 
     </ErrorBoundary>

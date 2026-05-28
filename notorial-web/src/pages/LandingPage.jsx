@@ -228,7 +228,7 @@ function Navbar({ session }) {
         {/* CTA */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }} className="lp-desktop-cta">
           {session ? (
-            <a href="/#/dashboard" style={{
+            <a href="/dashboard" style={{
               background: `linear-gradient(135deg, ${C.gold}, ${C.goldLt})`,
               color: C.navy,
               textDecoration: 'none',
@@ -246,7 +246,7 @@ function Navbar({ session }) {
             >Acessar Dashboard</a>
           ) : (
             <>
-              <a href="/#/login" style={{
+              <a href="/login" style={{
                 color: 'rgba(255,255,255,0.8)',
                 textDecoration: 'none',
                 fontSize: '0.875rem',
@@ -256,7 +256,7 @@ function Navbar({ session }) {
                 onMouseEnter={e => e.target.style.color = C.white}
                 onMouseLeave={e => e.target.style.color = 'rgba(255,255,255,0.8)'}
               >Entrar</a>
-              <a href="/#/login" style={{
+              <a href="/login" style={{
                 background: `linear-gradient(135deg, ${C.gold}, ${C.goldLt})`,
                 color: C.navy,
                 textDecoration: 'none',
@@ -316,7 +316,7 @@ function Navbar({ session }) {
             }}>{l.label}</a>
           ))}
           {session ? (
-            <a href="/#/dashboard" style={{
+            <a href="/dashboard" style={{
               background: `linear-gradient(135deg, ${C.gold}, ${C.goldLt})`,
               color: C.navy,
               textDecoration: 'none',
@@ -328,7 +328,7 @@ function Navbar({ session }) {
               marginTop: '0.5rem',
             }}>Acessar Dashboard</a>
           ) : (
-            <a href="/#/login" style={{
+            <a href="/login" style={{
               background: `linear-gradient(135deg, ${C.gold}, ${C.goldLt})`,
               color: C.navy,
               textDecoration: 'none',
@@ -458,7 +458,7 @@ function Hero({ session }) {
           </p>
 
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            <a href={session ? "/#/dashboard" : "/#/login"} id="hero-cta-primary" style={{
+            <a href={session ? "/dashboard" : "/login"} id="hero-cta-primary" style={{
               display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
               background: `linear-gradient(135deg, ${C.gold} 0%, ${C.goldLt} 100%)`,
               color: C.navy,
@@ -1364,7 +1364,7 @@ function Pricing() {
                 }}>{p.desc}</p>
 
                 {/* CTA */}
-                <a href="/#/login" style={{
+                <a href="/login" style={{
                   display: 'block',
                   textAlign: 'center',
                   textDecoration: 'none',
@@ -1415,7 +1415,7 @@ function Pricing() {
                 5 a 500 páginas · R$&nbsp;1,50/pág · Validade 6 meses
               </div>
             </div>
-            <a href="/#/login" style={{
+            <a href="/login" style={{
               display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
               textDecoration: 'none',
               padding: '0.7rem 1.5rem',
@@ -1550,7 +1550,7 @@ function FinalCTA({ session }) {
               </p>
 
               <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-                <a href={session ? "/#/dashboard" : "/#/login"} id="final-cta-btn" style={{
+                <a href={session ? "/dashboard" : "/login"} id="final-cta-btn" style={{
                   display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
                   background: `linear-gradient(135deg, ${C.gold}, ${C.goldLt})`,
                   color: C.navy,
@@ -1570,7 +1570,7 @@ function FinalCTA({ session }) {
                   {session ? "Acessar Dashboard" : "Criar conta gratuitamente"}
                   <Icon.ArrowRight />
                 </a>
-                <a href="#how" style={{
+                <a href="/how" style={{
                   display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
                   color: 'rgba(255,255,255,0.6)',
                   textDecoration: 'none',
@@ -1651,9 +1651,9 @@ function Footer() {
           <div>
             <h4 style={{ fontFamily: FONT_BODY, fontSize: '0.8rem', fontWeight: 700, color: C.gold, letterSpacing: '0.07em', textTransform: 'uppercase', margin: '0 0 1.25rem' }}>Legal</h4>
             {[
-              { label: 'Termos de Uso', href: '/#/terms' },
-              { label: 'Política de Privacidade', href: '/#/privacy' },
-              { label: 'LGPD', href: '/#/privacy' },
+              { label: 'Termos de Uso', href: '/terms' },
+              { label: 'Política de Privacidade', href: '/privacy' },
+              { label: 'LGPD', href: '/privacy' },
             ].map(l => (
               <a key={l.label} href={l.href} style={{
                 display: 'block',
@@ -1677,7 +1677,7 @@ function Footer() {
               { label: 'Como Funciona', href: '#how' },
               { label: 'Funcionalidades', href: '#features' },
               { label: 'Planos', href: '#pricing' },
-              { label: 'Entrar', href: '/#/login' },
+              { label: 'Entrar', href: '/login' },
             ].map(l => (
               <a key={l.label} href={l.href} style={{
                 display: 'block',

@@ -435,7 +435,7 @@ export default function Login() {
                                             setLoading(true); setError('');
                                             try {
                                                 const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email, {
-                                                    redirectTo: `${window.location.origin}/#/login`
+                                                    redirectTo: `${window.location.origin}/login`
                                                 });
                                                 if (resetErr) throw resetErr;
                                                 setSuccessMsg('E-mail de redefinição de senha enviado! Verifique sua caixa de entrada.');
@@ -494,7 +494,7 @@ export default function Login() {
                                         const { error: oauthError } = await supabase.auth.signInWithOAuth({
                                             provider: 'google',
                                             options: {
-                                                redirectTo: window.location.origin + '/#/dashboard',
+                                                redirectTo: window.location.origin + '/dashboard',
                                             },
                                         });
                                         if (oauthError) throw oauthError;
