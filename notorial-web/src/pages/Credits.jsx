@@ -13,8 +13,8 @@ const formatBRL = (cents) => {
   return `R$\u00A0${val}`;
 };
 
-const CUSTOM_MIN = 5;
-const CUSTOM_MAX = 200;
+const CUSTOM_MIN = 50;
+const CUSTOM_MAX = 2000;
 const CUSTOM_STEP = 5;
 
 export default function Credits() {
@@ -24,7 +24,7 @@ export default function Credits() {
   const [paymentData, setPaymentData] = useState(null);
   const [pollingInterval, setPollingInterval] = useState(null);
   const [copied, setCopied] = useState(false);
-  const [customCredits, setCustomCredits] = useState(30);
+  const [customCredits, setCustomCredits] = useState(100);
   const toast = useToast();
 
   useEffect(() => {
@@ -55,7 +55,7 @@ export default function Credits() {
   const customPkg = useMemo(() => packages.find(p => p.slug === 'sob-medida'), [packages]);
 
   /* Custom pricing calc */
-  const customPricePerPage = customPkg?.price_per_page_cents || 450;
+  const customPricePerPage = customPkg?.price_per_page_cents || 55;
   const customTotalCents = customCredits * customPricePerPage;
 
   const handlePurchase = async (pkg, overrideCredits = null) => {
@@ -115,7 +115,7 @@ export default function Credits() {
             Planos &amp; Créditos
           </h1>
           <p style={{ color: 'var(--text-muted)' }} className="text-lg max-w-xl">
-            Escolha o plano ideal para sua demanda ou monte um pacote sob medida.
+            Monte seu pacote personalizado de acordo com a sua demanda de páginas.
           </p>
         </div>
 
@@ -189,7 +189,7 @@ export default function Credits() {
                   }}
                   className="btn-ghost"
                 >
-                  Cancelar e voltar aos planos
+                  Cancelar e voltar
                 </button>
               </div>
             </div>
@@ -199,131 +199,29 @@ export default function Credits() {
         /* ─── PRICING UI ─── */
         <>
           {loading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mt-10">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="card flex flex-col pt-8" style={{ animation: `slideUp 0.3s ease-out ${i * 80}ms both` }}>
-                  <Skeleton height="1.5rem" width="60%" style={{ marginBottom: '0.75rem' }} />
-                  <Skeleton height="0.8rem" width="80%" style={{ marginBottom: '1.5rem' }} />
-                  <Skeleton height="2.5rem" width="50%" style={{ marginBottom: '1.5rem' }} />
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
-                    <Skeleton height="0.8rem" />
-                    <Skeleton height="0.8rem" width="90%" />
-                    <Skeleton height="0.8rem" width="85%" />
+            <div className="max-w-4xl mx-auto mt-10 animate-pulse">
+              <div className="card flex flex-col p-8 gap-4">
+                <Skeleton height="2rem" width="40%" style={{ marginBottom: '0.75rem' }} />
+                <Skeleton height="1rem" width="60%" style={{ marginBottom: '1.5rem' }} />
+                <hr style={{ borderColor: 'var(--border-color)', margin: '1rem 0' }} />
+                <div className="flex flex-col md:flex-row gap-8 mt-4">
+                  <div className="flex-grow space-y-4">
+                    <Skeleton height="3rem" width="50%" />
+                    <Skeleton height="1.5rem" />
+                    <Skeleton height="2.5rem" />
                   </div>
-                  <Skeleton height="3rem" style={{ borderRadius: '0.75rem' }} />
+                  <div className="md:w-64 space-y-3">
+                    <Skeleton height="3.5rem" />
+                    <Skeleton height="1rem" />
+                  </div>
                 </div>
-              ))}
+              </div>
             </div>
           ) : (
             <>
-              {/* ─── Fixed Plans Grid ─── */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mt-10">
-                {fixedPackages.map((pkg, i) => {
-                  const isPopular = pkg.badge === 'mais_popular';
-                  const isBestValue = pkg.price_per_page_cents === bestPricePerPage;
-                  const hasBadge = isPopular || isBestValue;
-                  const savings = pkg.credits > 0
-                    ? Math.round((1 - pkg.price_per_page_cents / 500) * 100)
-                    : 0;
-
-                  return (
-                    <div
-                      key={pkg.id}
-                      className={`card relative flex flex-col stagger-item transition-all duration-300 hover:shadow-xl`}
-                      style={{
-                        borderColor: isPopular ? 'var(--primary-color)' : isBestValue ? 'var(--gold-to)' : 'var(--border-color)',
-                        borderWidth: hasBadge ? '2px' : '1px',
-                        padding: '1.75rem 1.5rem 1.5rem',
-                        animation: `slideUp 0.4s ease-out ${i * 100}ms both`,
-                      }}
-                    >
-                      {/* Badge */}
-                      {isPopular && (
-                        <div
-                          className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wide flex items-center gap-1 shadow-lg"
-                          style={{ background: 'linear-gradient(135deg, var(--primary-color), var(--primary-hover))', color: '#fff' }}
-                        >
-                          <Star size={11} /> Mais Escolhido
-                        </div>
-                      )}
-                      {isBestValue && !isPopular && (
-                        <div
-                          className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wide flex items-center gap-1 shadow-lg"
-                          style={{ background: 'linear-gradient(135deg, var(--gold-from), var(--gold-to))', color: '#000' }}
-                        >
-                          <TrendingDown size={11} /> Melhor Valor
-                        </div>
-                      )}
-
-                      {/* Plan Name */}
-                      <h3 className="text-lg font-bold font-serif" style={{ color: 'var(--text-main)' }}>
-                        {pkg.name}
-                      </h3>
-                      <p className="text-xs mt-1.5 leading-relaxed min-h-[36px]" style={{ color: 'var(--text-muted)' }}>
-                        {pkg.description}
-                      </p>
-
-                      {/* Price */}
-                      <div className="mt-5 mb-1">
-                        <span className="text-3xl font-bold" style={{ color: 'var(--text-main)' }}>
-                          {formatBRL(pkg.price_cents)}
-                        </span>
-                      </div>
-
-                      {/* Per-page cost */}
-                      <div className="flex items-center gap-2 mb-5">
-                        <span className="text-xs" style={{ color: 'var(--text-dimmed)' }}>
-                          {formatBRL(pkg.price_per_page_cents)}/página
-                        </span>
-                        {savings > 0 && (
-                          <span
-                            className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                            style={{ background: 'rgba(74, 222, 128, 0.12)', color: 'var(--success-color)' }}
-                          >
-                            -{savings}%
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Features */}
-                      <div className="flex-grow space-y-3 mb-6">
-                        <div className="flex items-start gap-2.5">
-                          <CheckCircle2 size={15} style={{ color: 'var(--success-color)' }} className="mt-0.5 shrink-0" />
-                          <span className="text-xs leading-relaxed" style={{ color: 'var(--text-main)' }}>
-                            <strong>{pkg.credits} páginas</strong> para transcrição
-                          </span>
-                        </div>
-                        <div className="flex items-start gap-2.5">
-                          <Clock size={15} style={{ color: 'var(--success-color)' }} className="mt-0.5 shrink-0" />
-                          <span className="text-xs leading-relaxed" style={{ color: 'var(--text-main)' }}>
-                            Válidos por <strong>6 meses</strong>
-                          </span>
-                        </div>
-                        <div className="flex items-start gap-2.5">
-                          <Shield size={15} style={{ color: 'var(--success-color)' }} className="mt-0.5 shrink-0" />
-                          <span className="text-xs leading-relaxed" style={{ color: 'var(--text-main)' }}>
-                            Ata em padrão cartorário
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* CTA */}
-                      <button
-                        onClick={() => handlePurchase(pkg)}
-                        disabled={loading}
-                        className={`w-full py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${isPopular ? 'btn-gradient' : 'btn-secondary'}`}
-                      >
-                        Selecionar
-                        {isPopular && <ArrowRight size={15} />}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-
               {/* ─── Custom Credits Section ─── */}
               {customPkg && (
-                <div className="mt-14" style={{ animation: 'slideUp 0.5s ease-out 0.4s both' }}>
+                <div className="max-w-4xl mx-auto mt-6 animate-scale-in">
                   <div
                     className="card overflow-hidden"
                     style={{
@@ -342,17 +240,17 @@ export default function Credits() {
                       </div>
                       <div>
                         <h3 className="text-lg font-bold font-serif" style={{ color: 'var(--text-main)' }}>
-                          Sob Medida
+                          Adquirir Créditos Personalizados
                         </h3>
                         <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                          Escolha a quantidade exata de créditos que precisa
+                          Escolha a quantidade exata de páginas que precisa processar
                         </p>
                       </div>
                       <div
                         className="ml-auto px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider"
                         style={{ background: 'var(--primary-glow)', color: 'var(--primary-color)' }}
                       >
-                        {formatBRL(customPricePerPage)}/pág.
+                        {formatBRL(customPricePerPage)}/crédito
                       </div>
                     </div>
 
@@ -365,12 +263,45 @@ export default function Credits() {
                             <span className="text-xs uppercase tracking-wider font-semibold" style={{ color: 'var(--text-muted)' }}>
                               Créditos
                             </span>
-                            <div className="text-4xl font-bold font-serif mt-1" style={{ color: 'var(--text-main)' }}>
-                              {customCredits}
-                              <span className="text-sm font-sans font-normal ml-2" style={{ color: 'var(--text-dimmed)' }}>
-                                páginas
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
+                              <input
+                                type="number"
+                                min={50}
+                                max={10000}
+                                value={customCredits}
+                                onChange={(e) => {
+                                  let val = parseInt(e.target.value);
+                                  if (isNaN(val)) val = 0;
+                                  setCustomCredits(val);
+                                }}
+                                className="input-base"
+                                style={{
+                                  width: '7.5rem',
+                                  fontSize: '2rem',
+                                  fontFamily: 'var(--font-serif, serif)',
+                                  fontWeight: 700,
+                                  background: 'var(--bg-secondary, rgba(255,255,255,0.03))',
+                                  border: '1px solid var(--border-color)',
+                                  borderRadius: '0.5rem',
+                                  padding: '0.25rem 0.5rem',
+                                  color: 'var(--text-main)',
+                                  textAlign: 'center',
+                                }}
+                              />
+                              <span className="text-lg font-sans font-medium" style={{ color: 'var(--text-dimmed)' }}>
+                                créditos
                               </span>
                             </div>
+                            {customCredits > 0 && customCredits < 50 && (
+                              <p style={{ color: 'var(--danger, #ef4444)', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+                                Compra mínima de 50 créditos.
+                              </p>
+                            )}
+                            {customCredits > 10000 && (
+                              <p style={{ color: 'var(--danger, #ef4444)', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+                                Máximo de 10.000 créditos por compra.
+                              </p>
+                            )}
                           </div>
                           <div className="text-right">
                             <span className="text-xs uppercase tracking-wider font-semibold" style={{ color: 'var(--text-muted)' }}>
@@ -389,7 +320,7 @@ export default function Credits() {
                             min={CUSTOM_MIN}
                             max={CUSTOM_MAX}
                             step={CUSTOM_STEP}
-                            value={customCredits}
+                            value={customCredits > CUSTOM_MAX ? CUSTOM_MAX : customCredits < CUSTOM_MIN ? CUSTOM_MIN : customCredits}
                             onChange={(e) => setCustomCredits(Number(e.target.value))}
                             className="custom-range-slider"
                             style={{ width: '100%' }}
@@ -401,10 +332,11 @@ export default function Credits() {
                         </div>
 
                         {/* Quick select buttons */}
-                        <div className="flex flex-wrap gap-2 mt-4">
-                          {[10, 20, 30, 50, 75, 100, 150, 200].map((v) => (
+                        <div className="flex flex-wrap gap-2 mt-6">
+                          {[50, 100, 250, 500, 1000, 2000].map((v) => (
                             <button
                               key={v}
+                              type="button"
                               onClick={() => setCustomCredits(v)}
                               className="text-xs font-medium px-3 py-1.5 rounded-lg transition-all cursor-pointer"
                               style={{
@@ -422,12 +354,13 @@ export default function Credits() {
                       {/* Purchase CTA */}
                       <div className="shrink-0 w-full md:w-auto flex flex-col items-center gap-3 md:min-w-[200px]">
                         <button
+                          type="button"
                           onClick={() => handlePurchase(customPkg, customCredits)}
-                          disabled={loading}
+                          disabled={loading || customCredits < 50 || customCredits > 10000}
                           className="btn-gradient w-full py-3.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 cursor-pointer"
                         >
                           <Zap size={16} />
-                          Comprar {customCredits} créditos
+                          Comprar {customCredits >= 50 && customCredits <= 10000 ? `${customCredits} ` : ''}créditos
                         </button>
                         <div className="flex items-center gap-1.5 text-[10px]" style={{ color: 'var(--text-dimmed)' }}>
                           <Shield size={11} />
