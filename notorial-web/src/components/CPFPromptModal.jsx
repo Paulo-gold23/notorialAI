@@ -4,7 +4,7 @@ import { Shield, CheckCircle2, AlertCircle, Fingerprint } from 'lucide-react';
 import { hashCpfCnpj, getDeviceFingerprint } from '../services/fingerprint';
 import { apiRequest } from '../services/api';
 
-export default function CPFPromptModal({ onSaved, userEmail }) {
+export default function CPFPromptModal({ onSaved, userEmail, onSignOut }) {
     const navigate = useNavigate();
     const [cpfCnpj, setCpfCnpj] = useState('');
     const [loading, setLoading] = useState(false);
@@ -300,6 +300,29 @@ export default function CPFPromptModal({ onSaved, userEmail }) {
                                     'Verificar e Continuar'
                                 )}
                             </button>
+
+                            {onSignOut && (
+                                <div style={{ textAlign: 'center', marginTop: '1.25rem' }}>
+                                    <button
+                                        type="button"
+                                        onClick={onSignOut}
+                                        disabled={loading}
+                                        style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            color: 'var(--text-muted)',
+                                            fontSize: '0.82rem',
+                                            textDecoration: 'underline',
+                                            cursor: loading ? 'not-allowed' : 'pointer',
+                                            transition: 'color 0.2s ease',
+                                        }}
+                                        onMouseOver={(e) => { if (!loading) e.target.style.color = 'var(--danger, #ef4444)'; }}
+                                        onMouseOut={(e) => { e.target.style.color = 'var(--text-muted)'; }}
+                                    >
+                                        Sair ou Usar outra conta
+                                    </button>
+                                </div>
+                            )}
                         </form>
                     )}
                 </div>

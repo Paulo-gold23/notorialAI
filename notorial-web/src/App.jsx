@@ -58,6 +58,17 @@ function App() {
   // Executa o hook que desloga após 120 minutos (2 horas)
   useSessionTimeout(120);
 
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error('Error signing out:', e);
+    }
+    setSession(null);
+    setIsAdmin(false);
+    setNeedsCpf(false);
+  };
+
   useEffect(() => {
     const checkApprovalStatus = async (currentSession) => {
       if (!currentSession) {
@@ -133,6 +144,7 @@ function App() {
             <CPFPromptModal 
               userEmail={session.user?.email} 
               onSaved={() => setNeedsCpf(false)} 
+              onSignOut={handleSignOut}
             />
           )}
           <Routes>
