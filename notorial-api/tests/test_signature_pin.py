@@ -1,0 +1,227 @@
+import pytest
+from unittest.mock import MagicMock, patch
+from fastapi.testclient import TestClient
+from main import app
+from middleware.auth import get_current_user_id
+import hashlib
+
+# Override get_current_user_id dependency to return a dummy user
+MOCK_USER_ID = "test-user-uuid"
+app.dependency_overrides[get_current_user_id] = lambda: MOCK_USER_ID
+
+client = TestClient(app)
+
+# Helper function to compute hash for assertions
+def _hash_pin(pin: str, salt: str) -> str:
+    return hashlib.sha256((pin + salt).encode("utf-8")).hexdigest()
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+@pytest.fixture
+def mock_supabase():
+    with patch("routers.auth.supabase_admin") as mock_admin:
+        # Mock database response structures for builder pattern
+        mock_table = MagicMock()
+        mock_admin.table.return_value = mock_table
+        
+        mock_select = MagicMock()
+        mock_table.select.return_value = mock_select
+        
+        mock_eq = MagicMock()
+        mock_select.eq.return_value = mock_eq
+        
+        mock_execute = MagicMock()
+        mock_eq.execute.return_value = mock_execute
+        
+        yield mock_admin, mock_table, mock_execute
+
+
+def test_set_signature_pin_success(mock_supabase):
+    mock_admin, mock_table, mock_execute = mock_supabase
+    
+    # Mock successful update and select email query
+    mock_execute.data = [{"email": "test@legisvox.com.br"}]
+    
+    payload = {
+        "pin": "1234",
+        "device_fingerprint": "mock-fingerprint-1"
+    }
+    
+    response = client.post("/api/auth/signature-pin/set", json=payload)
+    
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+    
+    # Assert PIN hash update was called
+    expected_hash = _hash_pin("1234", MOCK_USER_ID)
+    mock_table.update.assert_any_call({
+        "senha_assinatura_hash": expected_hash,
+        "senha_assinatura_erros": 0,
+        "senha_assinatura_bloqueado": False
+    })
+
+
+def test_set_signature_pin_invalid_digits(mock_supabase):
+    payload = {
+        "pin": "abcd", # Not numeric
+        "device_fingerprint": "mock-fingerprint-1"
+    }
+    response = client.post("/api/auth/signature-pin/set", json=payload)
+    assert response.status_code == 422
+
+
+def test_verify_signature_pin_success(mock_supabase):
+    mock_admin, mock_table, mock_execute = mock_supabase
+    
+    # Mock data returned by database when reading advocate profile
+    expected_hash = _hash_pin("9999", MOCK_USER_ID)
+    mock_execute.data = [{
+        "email": "test@legisvox.com.br",
+        "senha_assinatura_hash": expected_hash,
+        "senha_assinatura_erros": 0,
+        "senha_assinatura_bloqueado": False
+    }]
+    
+    payload = {
+        "pin": "9999",
+        "device_fingerprint": "mock-fingerprint-1"
+    }
+    
+    response = client.post("/api/auth/signature-pin/verify", json=payload)
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+    
+    # Should update/reset error count to 0
+    mock_table.update.assert_any_call({"senha_assinatura_erros": 0})
+
+
+def test_verify_signature_pin_failed_attempts(mock_supabase):
+    mock_admin, mock_table, mock_execute = mock_supabase
+    
+    expected_hash = _hash_pin("9999", MOCK_USER_ID)
+    mock_execute.data = [{
+        "email": "test@legisvox.com.br",
+        "senha_assinatura_hash": expected_hash,
+        "senha_assinatura_erros": 2, # Already has 2 errors
+        "senha_assinatura_bloqueado": False
+    }]
+    
+    payload = {
+        "pin": "0000", # Incorrect PIN
+        "device_fingerprint": "mock-fingerprint-1"
+    }
+    
+    response = client.post("/api/auth/signature-pin/verify", json=payload)
+    assert response.status_code == 401
+    assert "tentativa" in response.json()["detail"]
+    
+    # Errors incremented to 3, blocked is still False
+    mock_table.update.assert_any_call({
+        "senha_assinatura_erros": 3,
+        "senha_assinatura_bloqueado": False
+    })
+
+
+def test_verify_signature_pin_lockout(mock_supabase):
+    mock_admin, mock_table, mock_execute = mock_supabase
+    
+    expected_hash = _hash_pin("9999", MOCK_USER_ID)
+    mock_execute.data = [{
+        "email": "test@legisvox.com.br",
+        "senha_assinatura_hash": expected_hash,
+        "senha_assinatura_erros": 4, # Next failure will be 5th
+        "senha_assinatura_bloqueado": False
+    }]
+    
+    payload = {
+        "pin": "0000", # Incorrect PIN
+        "device_fingerprint": "mock-fingerprint-1"
+    }
+    
+    response = client.post("/api/auth/signature-pin/verify", json=payload)
+    assert response.status_code == 403
+    assert "bloqueada" in response.json()["detail"]
+    
+    # Should set blocked = True
+    mock_table.update.assert_any_call({
+        "senha_assinatura_erros": 5,
+        "senha_assinatura_bloqueado": True
+    })
+
+
+def test_verify_signature_pin_already_locked(mock_supabase):
+    mock_admin, mock_table, mock_execute = mock_supabase
+    
+    mock_execute.data = [{
+        "email": "test@legisvox.com.br",
+        "senha_assinatura_hash": "some-hash",
+        "senha_assinatura_erros": 5,
+        "senha_assinatura_bloqueado": True
+    }]
+    
+    payload = {
+        "pin": "9999",
+        "device_fingerprint": "mock-fingerprint-1"
+    }
+    
+    response = client.post("/api/auth/signature-pin/verify", json=payload)
+    assert response.status_code == 403
+    assert "bloqueada" in response.json()["detail"]
+
+
+def test_forgot_signature_pin_generates_token(mock_supabase):
+    mock_admin, mock_table, mock_execute = mock_supabase
+    
+    mock_execute.data = [{"email": "test@legisvox.com.br"}]
+    
+    payload = {
+        "device_fingerprint": "mock-fingerprint-1"
+    }
+    
+    with patch("routers.auth.settings") as mock_settings:
+        mock_settings.ALLOW_TEST_BYPASS = True
+        
+        response = client.post("/api/auth/signature-pin/forgot", json=payload)
+        
+        assert response.status_code == 200
+        assert "test_token_bypass" in response.json()
+        assert len(response.json()["test_token_bypass"]) == 6
+        
+        # Verify token hash update was called
+        mock_table.update.assert_called()
+
+
+def test_reset_signature_pin_success(mock_supabase):
+    mock_admin, mock_table, mock_execute = mock_supabase
+    
+    token = "654321"
+    hashed_token = _hash_token(token)
+    
+    # Mock check token query
+    mock_execute.data = [{
+        "email": "test@legisvox.com.br",
+        "senha_assinatura_token_hash": hashed_token,
+        "senha_assinatura_token_exp": "2030-01-01T12:00:00+00:00" # Far in the future
+    }]
+    
+    payload = {
+        "token": token,
+        "new_pin": "5555",
+        "device_fingerprint": "mock-fingerprint-1"
+    }
+    
+    response = client.post("/api/auth/signature-pin/reset", json=payload)
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+    
+    # Should update and reset all PIN fields
+    expected_new_hash = _hash_pin("5555", MOCK_USER_ID)
+    mock_table.update.assert_any_call({
+        "senha_assinatura_hash": expected_new_hash,
+        "senha_assinatura_erros": 0,
+        "senha_assinatura_bloqueado": False,
+        "senha_assinatura_token_hash": None,
+        "senha_assinatura_token_exp": None
+    })

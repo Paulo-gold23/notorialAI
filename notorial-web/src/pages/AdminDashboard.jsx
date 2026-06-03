@@ -27,7 +27,7 @@ import Logo from '../components/Logo';
 const COLORS = {
   blue: '#3b82f6',
   amber: '#fbbf24',
-  violet: '#8b5cf6',
+  indigo: '#6366f1',
   emerald: '#4ade80',
   red: '#f87171',
   cyan: '#22d3ee',
@@ -246,7 +246,7 @@ export default function AdminDashboard() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.85rem', marginBottom: '1.5rem' }}>
               <StatCard icon={Users} label="Advogados" value={stats.total_advogados} color={COLORS.blue} sub={`${stats.registros_este_mes} este mês`} delay={0} />
               <StatCard icon={Clock} label="Pendentes" value={stats.advogados_pendentes} color={COLORS.amber} highlight={stats.advogados_pendentes > 0} sub={stats.advogados_pendentes > 0 ? 'Ação necessária' : 'Nenhum'} delay={50} />
-              <StatCard icon={FileText} label="Total Documentos" value={stats.total_atas} color={COLORS.violet} sub={`${stats.atas_este_mes} este mês`} delay={100} />
+              <StatCard icon={FileText} label="Total Documentos" value={stats.total_atas} color={COLORS.indigo} sub={`${stats.atas_este_mes} este mês`} delay={100} />
               <StatCard icon={FileCheck} label="Concluídas" value={stats.atas_prontas} color={COLORS.emerald} sub={stats.total_atas > 0 ? `${Math.round(stats.atas_prontas/stats.total_atas*100)}% taxa sucesso` : '—'} delay={150} />
             </div>
 
@@ -271,7 +271,7 @@ export default function AdminDashboard() {
               {/* Status Donut Chart */}
               <div className="card" style={{ padding: '1.25rem' }}>
                 <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Activity size={16} style={{ color: COLORS.violet }} /> Distribuição por Status
+                  <Activity size={16} style={{ color: COLORS.indigo }} /> Distribuição por Status
                 </h3>
                 <DonutChart data={statusData} />
               </div>
@@ -559,7 +559,7 @@ function WeeklyBarChart({ data }) {
               <div style={{
                 width: '70%', height: minH, borderRadius: '0.25rem 0.25rem 0 0',
                 background: Number(d.total) > 0
-                  ? `linear-gradient(180deg, ${COLORS.blue}, ${COLORS.violet})`
+                  ? `linear-gradient(180deg, ${COLORS.blue}, ${COLORS.indigo})`
                   : 'var(--border-color)',
                 transition: 'height 0.6s ease-out',
                 animation: `slideUp 0.5s ease-out ${i * 60}ms both`,

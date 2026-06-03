@@ -6,6 +6,8 @@ import { creditsApi } from '../services/creditsApi';
 import { useToast } from '../components/ToastContext';
 import { Skeleton } from '../components/Skeleton';
 import LegalFooter from '../components/LegalFooter';
+import SignaturePinPromptModal from '../components/SignaturePinPromptModal';
+import ResetSignaturePinModal from '../components/ResetSignaturePinModal';
 
 export default function Profile() {
     const navigate = useNavigate();
@@ -14,6 +16,8 @@ export default function Profile() {
     const [profile, setProfile] = useState(null);
     const [authEmail, setAuthEmail] = useState('');
     const [sendingReset, setSendingReset] = useState(false);
+    const [showPinModal, setShowPinModal] = useState(false);
+    const [showResetModal, setShowResetModal] = useState(false);
     
     // Credit States
     const [creditStats, setCreditStats] = useState({
@@ -118,7 +122,7 @@ export default function Profile() {
         try {
             // Decodifica a string Base64 salva no banco para exibir limpo
             return atob(encoded);
-        } catch (e) {
+        } catch {
             return encoded; // Fallback se já for texto normal (cadastros antigos)
         }
     };
@@ -293,6 +297,61 @@ export default function Profile() {
                                     )}
                                 </button>
                             </div>
+
+                            {/* Senha de Assinatura (PIN) */}
+                            <div className="pt-4 border-t border-[var(--border-color)]">
+                                <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-main)' }}>Senha de Assinatura (PIN)</h3>
+                                <p className="text-sm mb-4" style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                                    Senha numérica de 4 dígitos exigida no momento da emissão ou alteração de documentos.
+                                </p>
+                                {profile?.senha_assinatura_bloqueado ? (
+                                    <div className="flex flex-col gap-3">
+                                        <div style={{
+                                            background: 'rgba(239,68,68,0.08)',
+                                            border: '1px solid rgba(239,68,68,0.2)',
+                                            borderRadius: '0.5rem',
+                                            padding: '0.625rem 0.75rem',
+                                            color: 'var(--danger, #ef4444)',
+                                            fontSize: '0.8rem',
+                                            lineHeight: 1.4,
+                                        }}>
+                                            ⚠️ Sua senha de assinatura está bloqueada devido a excesso de tentativas incorretas.
+                                        </div>
+                                        <button
+                                            onClick={() => setShowResetModal(true)}
+                                            className="btn-primary px-5 py-2.5 flex items-center justify-center gap-2"
+                                            style={{ background: 'linear-gradient(to right, var(--gold-from), var(--gold-to))', color: '#111827', width: 'fit-content' }}
+                                        >
+                                            <Lock size={16} />
+                                            <span>Redefinir e Desbloquear por E-mail</span>
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-wrap gap-3 items-center">
+                                        <button 
+                                            onClick={() => setShowPinModal(true)}
+                                            className="btn-secondary px-5 py-2.5 flex items-center gap-2 group border border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-500"
+                                        >
+                                            <Lock size={16} className="text-gray-500 group-hover:text-gray-800 dark:text-gray-400 dark:group-hover:text-white transition-colors" />
+                                            <span>
+                                                {profile?.senha_assinatura_hash 
+                                                    ? 'Alterar Senha de Assinatura' 
+                                                    : 'Cadastrar Senha de Assinatura'
+                                                }
+                                            </span>
+                                        </button>
+                                        
+                                        {profile?.senha_assinatura_hash && (
+                                            <button
+                                                onClick={() => setShowResetModal(true)}
+                                                className="text-xs text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white transition-colors underline cursor-pointer"
+                                            >
+                                                Esqueci minha senha
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -348,8 +407,8 @@ export default function Profile() {
                         </div>
                     </div>
 
-                    <div className="card relative overflow-hidden" style={{ padding: '2rem', background: 'linear-gradient(135deg, rgba(59,130,246,0.05) 0%, rgba(139,92,246,0.05) 100%)', border: '1px solid rgba(59,130,246,0.2)' }}>
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full blur-3xl -mr-10 -mt-10" />
+                    <div className="card relative overflow-hidden" style={{ padding: '2rem', background: 'linear-gradient(135deg, rgba(59,130,246,0.05) 0%, rgba(37,99,235,0.05) 100%)', border: '1px solid rgba(59,130,246,0.2)' }}>
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl -mr-10 -mt-10" />
                         
                         <div className="flex flex-col h-full">
                             <div className="p-3 bg-blue-500/10 rounded-xl w-fit text-blue-500 mb-6 shadow-sm">
@@ -385,9 +444,26 @@ export default function Profile() {
                         </div>
                     </div>
                 </div>
-
             </div>
-            
+
+            {showPinModal && (
+                <SignaturePinPromptModal 
+                    onSaved={() => {
+                        setShowPinModal(false);
+                        loadProfile();
+                    }} 
+                />
+            )}
+            {showResetModal && (
+                <ResetSignaturePinModal 
+                    onClose={() => setShowResetModal(false)}
+                    onSuccess={() => {
+                        setShowResetModal(false);
+                        loadProfile();
+                    }}
+                />
+            )}
+
             <LegalFooter style={{ marginTop: '3rem' }} />
         </div>
     );

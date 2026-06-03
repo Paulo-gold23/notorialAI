@@ -7,6 +7,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import OfflineBanner from './components/OfflineBanner';
 import ServiceStatusBanner from './components/ServiceStatusBanner';
 import CPFPromptModal from './components/CPFPromptModal';
+import SignaturePinPromptModal from './components/SignaturePinPromptModal';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Upload from './pages/Upload';
@@ -54,6 +55,7 @@ function App() {
   const [session, setSession] = useState(undefined);
   const [isAdmin, setIsAdmin] = useState(false);
   const [needsCpf, setNeedsCpf] = useState(false);
+  const [needsPin, setNeedsPin] = useState(false);
 
   // Executa o hook que desloga após 120 minutos (2 horas)
   useSessionTimeout(120);
@@ -67,6 +69,7 @@ function App() {
     setSession(null);
     setIsAdmin(false);
     setNeedsCpf(false);
+    setNeedsPin(false);
   };
 
   useEffect(() => {
@@ -75,12 +78,13 @@ function App() {
         setSession(null);
         setIsAdmin(false);
         setNeedsCpf(false);
+        setNeedsPin(false);
         return;
       }
       try {
         const { data } = await supabase
           .from('advogados')
-          .select('status, cpf_cnpj')
+          .select('status, cpf_cnpj, senha_assinatura_hash')
           .eq('id', currentSession.user.id)
           .single();
 
@@ -90,10 +94,13 @@ function App() {
           setSession(null);
           setIsAdmin(false);
           setNeedsCpf(false);
+          setNeedsPin(false);
         } else {
           setSession(currentSession);
           // Check if CPF is missing
           setNeedsCpf(!data?.cpf_cnpj);
+          // Check if signature PIN is missing
+          setNeedsPin(!data?.senha_assinatura_hash);
           // Check admin status
           try {
             const adminResult = await checkIsAdmin();
@@ -106,6 +113,7 @@ function App() {
         setSession(currentSession); // fallback
         setIsAdmin(false);
         setNeedsCpf(false);
+        setNeedsPin(false);
       }
     };
 
@@ -145,6 +153,11 @@ function App() {
               userEmail={session.user?.email} 
               onSaved={() => setNeedsCpf(false)} 
               onSignOut={handleSignOut}
+            />
+          )}
+          {session && !needsCpf && needsPin && (
+            <SignaturePinPromptModal 
+              onSaved={() => setNeedsPin(false)} 
             />
           )}
           <Routes>

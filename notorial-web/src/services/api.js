@@ -81,10 +81,8 @@ export async function uploadZip(file, options = {}) {
 
     if (!response.ok) {
         let errorMsg = 'Erro no upload';
-        try {
-            const err = await response.json();
-            if (err && err.detail) errorMsg = err.detail;
-        } catch (e) {}
+        const err = await response.json().catch(() => ({}));
+        if (err && err.detail) errorMsg = err.detail;
         throw new Error(errorMsg);
     }
 
@@ -111,10 +109,8 @@ export async function estimateUpload(file, options = {}) {
 
     if (!response.ok) {
         let errorMsg = 'Erro na estimativa';
-        try {
-            const err = await response.json();
-            if (err && err.detail) errorMsg = err.detail;
-        } catch (e) {}
+        const err = await response.json().catch(() => ({}));
+        if (err && err.detail) errorMsg = err.detail;
         throw new Error(errorMsg);
     }
 
