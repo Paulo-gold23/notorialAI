@@ -1,80 +1,177 @@
--- Perfil do advogado (vinculado ao auth.users)
-CREATE TABLE advogados (
+-- ==========================================
+-- LEGISVOX - Database Schema (Production Sync)
+-- ==========================================
+
+-- 1. EXTENSIONS
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "pg_cron";
+CREATE EXTENSION IF NOT EXISTS "pg_net";
+
+-- 2. TABLES
+
+-- Profiles linked to auth.users
+CREATE TABLE public.advogados (
     id UUID PRIMARY KEY REFERENCES auth.users(id),
     nome VARCHAR(255) NOT NULL,
     oab VARCHAR(20),
     email VARCHAR(255) NOT NULL,
     telefone VARCHAR(20),
     escritorio VARCHAR(255),
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT now(),
+    status TEXT DEFAULT 'pendente'::text,
+    is_admin BOOLEAN DEFAULT false,
+    cpf_cnpj VARCHAR(255),
+    trial_used BOOLEAN DEFAULT false,
+    senha_assinatura_hash VARCHAR(255) DEFAULT NULL::character varying,
+    senha_assinatura_erros INTEGER NOT NULL DEFAULT 0,
+    senha_assinatura_bloqueado BOOLEAN NOT NULL DEFAULT false,
+    senha_assinatura_token_hash VARCHAR(255) DEFAULT NULL::character varying,
+    senha_assinatura_token_exp TIMESTAMPTZ DEFAULT NULL,
+    terms_accepted_at TIMESTAMPTZ DEFAULT NULL,
+    terms_version VARCHAR(10) DEFAULT NULL
 );
 
--- Índice para buscas por email
-CREATE INDEX idx_advogados_email ON advogados(email);
-
--- Atas geradas (metadados e controle)
-CREATE TABLE atas (
+-- Credit packages available for purchase
+CREATE TABLE public.credit_packages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    advogado_id UUID NOT NULL REFERENCES advogados(id),
-    
-    -- Identificação
+    name VARCHAR(255) NOT NULL,
+    slug VARCHAR(255) NOT NULL,
+    credits INTEGER NOT NULL,
+    price_cents INTEGER NOT NULL,
+    price_per_page_cents INTEGER NOT NULL,
+    description TEXT,
+    badge VARCHAR(255),
+    is_active BOOLEAN DEFAULT true,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Real-time credit balances per lawyer
+CREATE TABLE public.credit_balances (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    advogado_id UUID NOT NULL REFERENCES public.advogados(id) ON DELETE CASCADE UNIQUE,
+    balance INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Asaas payment links and client mappings
+CREATE TABLE public.asaas_customers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    advogado_id UUID NOT NULL REFERENCES public.advogados(id) ON DELETE CASCADE,
+    asaas_customer_id VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Financial payments log (Asaas status tracking)
+CREATE TABLE public.payments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    advogado_id UUID NOT NULL REFERENCES public.advogados(id) ON DELETE CASCADE,
+    asaas_payment_id VARCHAR(255) NOT NULL,
+    package_id UUID NOT NULL REFERENCES public.credit_packages(id),
+    amount_cents INTEGER NOT NULL,
+    status VARCHAR(255) NOT NULL DEFAULT 'pending'::character varying,
+    payment_method VARCHAR(255),
+    pix_qr_code TEXT,
+    pix_copy_paste TEXT,
+    boleto_url TEXT,
+    invoice_url TEXT,
+    paid_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    purchased_credits INTEGER
+);
+
+-- Audit trail for sensitive operations
+CREATE TABLE public.audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    advogado_id UUID REFERENCES public.advogados(id) ON DELETE SET NULL,
+    email VARCHAR(255),
+    acao VARCHAR(255) NOT NULL,
+    ip_address VARCHAR(255) NOT NULL,
+    user_agent TEXT NOT NULL,
+    device_fingerprint VARCHAR(255) NOT NULL,
+    payload JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
+);
+
+-- Atas documents (metadata and status)
+CREATE TABLE public.atas (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    advogado_id UUID NOT NULL REFERENCES public.advogados(id) ON DELETE CASCADE,
     titulo VARCHAR(255),
-    
-    -- Dados do upload
     zip_url TEXT,
     zip_filename VARCHAR(255),
-    
-    -- Metadados parseados
     participantes JSONB,
     periodo_inicio DATE,
     periodo_fim DATE,
     total_mensagens INTEGER,
     total_audios INTEGER,
-    
-    -- Controle de processamento
-    status VARCHAR(30) DEFAULT 'uploading',
-    -- Status: uploading → parsing → transcribing → organizing → ready → error
-    error_message TEXT,  -- mensagem legível em caso de erro
-    
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    status VARCHAR(30) DEFAULT 'uploading'::character varying,
+    error_message TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    status_message TEXT,
+    estimated_pages INTEGER,
+    actual_pages INTEGER,
+    credits_charged INTEGER,
+    is_trial BOOLEAN DEFAULT false,
+    zip_hash TEXT,
+    pdf_hash TEXT,
+    pdf_gerado_em TIMESTAMPTZ,
+    deleted_at TIMESTAMPTZ
 );
 
--- Índices para queries frequentes
-CREATE INDEX idx_atas_advogado ON atas(advogado_id);
-CREATE INDEX idx_atas_status ON atas(status);
-CREATE INDEX idx_atas_created ON atas(created_at DESC);
-
--- Conteúdo pesado (separado para performance nas listagens)
-CREATE TABLE atas_conteudo (
+-- heavy content parsed & generated by AI
+CREATE TABLE public.atas_conteudo (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    ata_id UUID NOT NULL REFERENCES atas(id) ON DELETE CASCADE,
-    
-    chat_parseado JSONB,        -- JSON estruturado do parser
-    conteudo_formal JSONB,      -- Saída da IA: ata formal
-    conteudo_preparatorio JSONB, -- Saída da IA: material preparatório
-    
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    ata_id UUID NOT NULL REFERENCES public.atas(id) ON DELETE CASCADE,
+    chat_parseado JSONB,
+    conteudo_formal JSONB,
+    conteudo_preparatorio JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_conteudo_ata ON atas_conteudo(ata_id);
-
--- PDFs gerados (pode ter múltiplas versões)
-CREATE TABLE atas_pdfs (
+-- PDF exports
+CREATE TABLE public.atas_pdfs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    ata_id UUID NOT NULL REFERENCES atas(id) ON DELETE CASCADE,
-    
-    tipo VARCHAR(20) NOT NULL, -- 'formal' ou 'preparatorio'
+    ata_id UUID NOT NULL REFERENCES public.atas(id) ON DELETE CASCADE,
+    tipo VARCHAR(255) NOT NULL,
     pdf_url TEXT NOT NULL,
     versao INTEGER DEFAULT 1,
-    
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_pdfs_ata ON atas_pdfs(ata_id);
+-- Ledger of credit modifications (financial audit path)
+CREATE TABLE public.credit_transactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    advogado_id UUID NOT NULL REFERENCES public.advogados(id) ON DELETE CASCADE,
+    type VARCHAR(255) NOT NULL, -- 'trial', 'purchase', 'debit', 'refund', 'expiration'
+    amount INTEGER NOT NULL,
+    balance_after INTEGER NOT NULL,
+    description TEXT,
+    package_id UUID REFERENCES public.credit_packages(id) ON DELETE SET NULL,
+    payment_id UUID REFERENCES public.payments(id) ON DELETE SET NULL,
+    ata_id UUID REFERENCES public.atas(id) ON DELETE SET NULL,
+    estimated_pages INTEGER,
+    actual_pages INTEGER,
+    expires_at TIMESTAMPTZ,
+    expired BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
 
--- Trigger para updated_at automático
-CREATE OR REPLACE FUNCTION update_updated_at()
+-- 3. INDEXES
+CREATE INDEX idx_advogados_email ON public.advogados(email);
+CREATE UNIQUE INDEX idx_advogados_cpf_unique ON public.advogados(cpf_cnpj) WHERE (cpf_cnpj IS NOT NULL AND cpf_cnpj::text <> ''::text);
+CREATE INDEX idx_atas_advogado ON public.atas(advogado_id);
+CREATE INDEX idx_atas_status ON public.atas(status);
+CREATE INDEX idx_atas_created ON public.atas(created_at DESC);
+CREATE INDEX idx_conteudo_ata ON public.atas_conteudo(ata_id);
+CREATE INDEX idx_pdfs_ata ON public.atas_pdfs(ata_id);
+
+-- 4. TRIGGERS & PROCEDURES
+
+CREATE OR REPLACE FUNCTION public.update_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
@@ -83,24 +180,343 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER set_updated_at
-    BEFORE UPDATE ON atas
+    BEFORE UPDATE ON public.atas
     FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at();
+    EXECUTE FUNCTION public.update_updated_at();
 
--- RLS (Row Level Security)
--- Advogados só veem seus próprios dados
-ALTER TABLE atas ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "advogados_own_atas" ON atas
-    FOR ALL USING (advogado_id = auth.uid());
+-- Auto create advogado profile and grant trial credits on signup
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_nome       text;
+  v_oab        text;
+  v_cpf_cnpj   text;
+  v_email      text;
+BEGIN
+  v_nome      := COALESCE(
+                   NEW.raw_user_meta_data ->> 'nome',
+                   NEW.raw_user_meta_data ->> 'full_name',
+                   NEW.raw_user_meta_data ->> 'name'
+                 );
+  v_oab       := NEW.raw_user_meta_data ->> 'oab';
+  v_cpf_cnpj  := NEW.raw_user_meta_data ->> 'cpf_cnpj';
+  v_email     := NEW.email;
 
-ALTER TABLE atas_conteudo ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "advogados_own_conteudo" ON atas_conteudo
-    FOR ALL USING (
-        ata_id IN (SELECT id FROM atas WHERE advogado_id = auth.uid())
-    );
+  -- Insert profile
+  INSERT INTO public.advogados (id, nome, oab, email, cpf_cnpj, status, trial_used)
+  VALUES (
+    NEW.id,
+    COALESCE(v_nome, v_email),
+    v_oab,
+    v_email,
+    v_cpf_cnpj,
+    'aprovado',
+    false
+  )
+  ON CONFLICT (id) DO NOTHING;
 
-ALTER TABLE atas_pdfs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "advogados_own_pdfs" ON atas_pdfs
-    FOR ALL USING (
-        ata_id IN (SELECT id FROM atas WHERE advogado_id = auth.uid())
-    );
+  -- Init balance
+  INSERT INTO public.credit_balances (advogado_id, balance)
+  VALUES (NEW.id, 0)
+  ON CONFLICT (advogado_id) DO NOTHING;
+
+  -- Welcome credits
+  IF NOT EXISTS (
+    SELECT 1 FROM public.credit_transactions
+    WHERE advogado_id = NEW.id AND type = 'trial'
+    LIMIT 1
+  ) THEN
+    UPDATE public.credit_balances
+    SET balance = balance + 50, updated_at = now()
+    WHERE advogado_id = NEW.id;
+
+    INSERT INTO public.credit_transactions (advogado_id, type, amount, balance_after, description)
+    SELECT NEW.id, 'trial', 50, balance, 'Bônus de boas-vindas — 50 créditos gratuitos'
+    FROM public.credit_balances
+    WHERE advogado_id = NEW.id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger to execute handle_new_user automatically on auth signup
+-- Note: Must be created on auth.users (requires superuser or configured through Supabase Dashboard)
+-- CREATE TRIGGER on_auth_user_created
+--   AFTER INSERT ON auth.users
+--   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- 5. RPC FUNCTIONS
+
+-- Check if current authenticated user is admin
+CREATE OR REPLACE FUNCTION public.is_current_user_admin()
+RETURNS BOOLEAN AS $$
+  SELECT COALESCE(
+    (SELECT is_admin FROM public.advogados WHERE id = auth.uid()),
+    false
+  );
+$$ LANGUAGE sql SECURITY DEFINER;
+
+-- Atomic debit credit operation (prevents TOCTOU)
+CREATE OR REPLACE FUNCTION public.debit_credits(
+  p_advogado_id UUID,
+  p_ata_id UUID,
+  p_pages INT
+) RETURNS TABLE(success BOOLEAN, new_balance INT) AS $$
+DECLARE
+  v_balance INT;
+BEGIN
+  SELECT balance INTO v_balance
+  FROM public.credit_balances
+  WHERE advogado_id = p_advogado_id
+  FOR UPDATE;
+
+  IF v_balance IS NULL OR v_balance < p_pages THEN
+    RETURN QUERY SELECT false, COALESCE(v_balance, 0);
+    RETURN;
+  END IF;
+
+  UPDATE public.credit_balances
+  SET balance = balance - p_pages,
+      updated_at = now()
+  WHERE advogado_id = p_advogado_id;
+
+  INSERT INTO public.credit_transactions (
+    advogado_id, type, amount, balance_after,
+    description, ata_id, estimated_pages, created_at
+  ) VALUES (
+    p_advogado_id, 'debit', p_pages, v_balance - p_pages,
+    'Processamento de Relatório Preparatório: ' || p_pages || ' páginas',
+    p_ata_id, p_pages, now()
+  );
+
+  RETURN QUERY SELECT true, v_balance - p_pages;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Atomic refund credits (if estimated pages > actual pages)
+CREATE OR REPLACE FUNCTION public.refund_credits(
+  p_advogado_id UUID,
+  p_ata_id UUID,
+  p_estimated INT,
+  p_actual INT
+) RETURNS TABLE(success BOOLEAN, new_balance INT) AS $$
+DECLARE
+  v_balance INT;
+  v_refund INT;
+BEGIN
+  IF p_actual >= p_estimated THEN
+    SELECT balance INTO v_balance FROM public.credit_balances WHERE advogado_id = p_advogado_id;
+    RETURN QUERY SELECT false, COALESCE(v_balance, 0);
+    RETURN;
+  END IF;
+
+  v_refund := p_estimated - p_actual;
+
+  SELECT balance INTO v_balance
+  FROM public.credit_balances
+  WHERE advogado_id = p_advogado_id
+  FOR UPDATE;
+
+  IF v_balance IS NULL THEN
+    INSERT INTO public.credit_balances (advogado_id, balance, updated_at)
+    VALUES (p_advogado_id, v_refund, now());
+    v_balance := 0;
+  ELSE
+    UPDATE public.credit_balances
+    SET balance = balance + v_refund,
+        updated_at = now()
+    WHERE advogado_id = p_advogado_id;
+  END IF;
+
+  INSERT INTO public.credit_transactions (
+    advogado_id, type, amount, balance_after,
+    description, ata_id, estimated_pages, actual_pages, created_at
+  ) VALUES (
+    p_advogado_id, 'refund', v_refund, v_balance + v_refund,
+    'Devolução de ' || v_refund || ' créditos (estimativa: ' || p_estimated || ', real: ' || p_actual || ')',
+    p_ata_id, p_estimated, p_actual, now()
+  );
+
+  RETURN QUERY SELECT true, v_balance + v_refund;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Add credits on successful Asaas payment webhook
+CREATE OR REPLACE FUNCTION public.add_credits(
+  p_advogado_id UUID,
+  p_package_id UUID,
+  p_payment_id UUID,
+  p_amount INT
+) RETURNS TABLE(success BOOLEAN, new_balance INT) AS $$
+DECLARE
+  v_balance INT;
+  v_expires_at TIMESTAMPTZ;
+BEGIN
+  SELECT balance INTO v_balance
+  FROM public.credit_balances
+  WHERE advogado_id = p_advogado_id
+  FOR UPDATE;
+
+  IF v_balance IS NULL THEN
+    INSERT INTO public.credit_balances (advogado_id, balance, updated_at)
+    VALUES (p_advogado_id, p_amount, now());
+    v_balance := 0;
+  ELSE
+    UPDATE public.credit_balances
+    SET balance = balance + p_amount,
+        updated_at = now()
+    WHERE advogado_id = p_advogado_id;
+  END IF;
+
+  v_expires_at := now() + interval '180 days';
+
+  INSERT INTO public.credit_transactions (
+    advogado_id, type, amount, balance_after,
+    description, package_id, payment_id, expires_at, created_at
+  ) VALUES (
+    p_advogado_id, 'purchase', p_amount, v_balance + p_amount,
+    'Compra de ' || p_amount || ' créditos',
+    p_package_id, p_payment_id, v_expires_at, now()
+  );
+
+  RETURN QUERY SELECT true, v_balance + p_amount;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Grant welcome test credits
+CREATE OR REPLACE FUNCTION public.grant_welcome_credits(
+  p_advogado_id UUID
+) RETURNS TABLE(success BOOLEAN, new_balance INT) AS $$
+DECLARE
+  v_already_received BOOLEAN;
+  v_amount INT := 50;
+  v_expires_at TIMESTAMPTZ;
+  v_exists BOOLEAN;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM public.credit_transactions
+    WHERE advogado_id = p_advogado_id AND type = 'trial'
+  ) INTO v_already_received;
+
+  IF v_already_received THEN
+    RETURN QUERY SELECT false, 0;
+    RETURN;
+  END IF;
+
+  v_expires_at := now() + interval '180 days';
+
+  SELECT EXISTS (
+    SELECT 1 FROM public.credit_balances WHERE advogado_id = p_advogado_id
+  ) INTO v_exists;
+
+  IF v_exists THEN
+    UPDATE public.credit_balances
+    SET balance = v_amount,
+        updated_at = now()
+    WHERE advogado_id = p_advogado_id;
+  ELSE
+    INSERT INTO public.credit_balances (advogado_id, balance, updated_at)
+    VALUES (p_advogado_id, v_amount, now());
+  END IF;
+
+  INSERT INTO public.credit_transactions (
+    advogado_id, type, amount, balance_after,
+    description, expires_at, created_at
+  ) VALUES (
+    p_advogado_id, 'trial', v_amount, v_amount,
+    '🎁 Boas-vindas! 50 créditos de teste gratuitos.',
+    v_expires_at, now()
+  );
+
+  RETURN QUERY SELECT true, v_amount;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Expire credits older than 180 days
+CREATE OR REPLACE FUNCTION public.expire_credits() 
+RETURNS void AS $$
+DECLARE
+  r RECORD;
+  v_balance INT;
+BEGIN
+  FOR r IN 
+    SELECT id, advogado_id, amount 
+    FROM public.credit_transactions 
+    WHERE expires_at IS NOT NULL 
+      AND expires_at < now() 
+      AND (expired IS NULL OR expired = false)
+      AND amount > 0
+  LOOP
+    SELECT balance INTO v_balance 
+    FROM public.credit_balances 
+    WHERE advogado_id = r.advogado_id 
+    FOR UPDATE;
+
+    IF v_balance IS NOT NULL AND v_balance > 0 THEN
+      DECLARE
+        v_to_expire INT := LEAST(v_balance, r.amount);
+      BEGIN
+        IF v_to_expire > 0 THEN
+          UPDATE public.credit_balances 
+          SET balance = balance - v_to_expire,
+              updated_at = now()
+          WHERE advogado_id = r.advogado_id;
+
+          INSERT INTO public.credit_transactions (
+            advogado_id, type, amount, balance_after, description, created_at
+          ) VALUES (
+            r.advogado_id, 'expiration', v_to_expire, v_balance - v_to_expire,
+            'Expiração de créditos não utilizados da transação ' || r.id::text, now()
+          );
+        END IF;
+      END;
+    END IF;
+
+    UPDATE public.credit_transactions 
+    SET expired = true 
+    WHERE id = r.id;
+  END LOOP;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Recover stuck atas stuck in 'uploading', 'parsing', 'transcribing', 'organizing' status for > 30m
+CREATE OR REPLACE FUNCTION public.recover_stuck_atas() 
+RETURNS void AS $$
+BEGIN
+  UPDATE public.atas
+  SET status = 'error',
+      error_message = 'Processamento expirou por inatividade. Por favor, envie o arquivo novamente.',
+      updated_at = now()
+  WHERE status IN ('uploading', 'parsing', 'transcribing', 'organizing')
+    AND updated_at < now() - interval '30 minutes'
+    AND (deleted_at IS NULL);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Cleanup storage files older than 24 hours
+CREATE OR REPLACE FUNCTION public.cleanup_storage_files() 
+RETURNS void AS $$
+BEGIN
+  DELETE FROM storage.objects 
+  WHERE bucket_id = 'pdfs-temp' 
+    AND created_at < now() - interval '24 hours';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 6. ROW LEVEL SECURITY (RLS) POLICIES
+ALTER TABLE public.advogados ENABLE ROW LEVEL SECURITY;
+CREATE POLICY advogados_own_profile ON public.advogados FOR ALL USING (id = auth.uid());
+
+ALTER TABLE public.atas ENABLE ROW LEVEL SECURITY;
+CREATE POLICY advogados_own_atas ON public.atas FOR ALL USING (advogado_id = auth.uid() AND deleted_at IS NULL);
+
+ALTER TABLE public.atas_conteudo ENABLE ROW LEVEL SECURITY;
+CREATE POLICY advogados_own_conteudo ON public.atas_conteudo FOR ALL USING (
+    ata_id IN (SELECT id FROM public.atas WHERE advogado_id = auth.uid())
+);
+
+ALTER TABLE public.atas_pdfs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY advogados_own_pdfs ON public.atas_pdfs FOR ALL USING (
+    ata_id IN (SELECT id FROM public.atas WHERE advogado_id = auth.uid())
+);

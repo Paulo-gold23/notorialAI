@@ -77,11 +77,11 @@ def get_auth_context(request: Request, advogado_id: str = Depends(get_current_us
 
 @router.get("")
 async def list_atas(auth_ctx: AuthContext = Depends(get_auth_context)):
-    """Lista todas as atas do advogado."""
+    """Lista todas as atas do advogado (excluindo soft-deleted)."""
     supabase = auth_ctx.client
     if supabase:
         try:
-            res = supabase.table("atas").select("*").execute()
+            res = supabase.table("atas").select("*").is_("deleted_at", "null").execute()
             return res.data or []
         except Exception as e:
             logger.error(f"Erro ao listar atas: {e}")
@@ -102,15 +102,14 @@ async def list_atas(auth_ctx: AuthContext = Depends(get_auth_context)):
 
 @router.delete("/{ata_id}")
 async def delete_ata(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_context)):
-    """Deleta uma ata."""
+    """Deleta logicamente (soft delete) uma ata."""
     supabase = auth_ctx.client
     if supabase:
         try:
-            # Remove transações de crédito associadas para não violar constraint de Foreign Key
-            supabase.table("credit_transactions").delete().eq("ata_id", ata_id).execute()
-            
-            # Deleta a ata
-            supabase.table("atas").delete().eq("id", ata_id).execute()
+            # Faz soft delete da ata, definindo deleted_at (preserva transações financeiras para auditoria)
+            supabase.table("atas").update({
+                "deleted_at": datetime.now(timezone.utc).isoformat()
+            }).eq("id", ata_id).execute()
         except Exception as e:
             logger.error(f"Erro ao deletar ata {ata_id}: {e}")
             raise HTTPException(status_code=500, detail="Erro ao deletar ata do banco de dados")
@@ -382,7 +381,7 @@ async def confirm_upload(
 
     if not cached and supabase and not is_bypass:
         try:
-            res = supabase.table('atas').select('status, status_message, advogado_id, zip_filename, estimated_pages').eq('id', ata_id).execute()
+            res = supabase.table('atas').select('status, status_message, advogado_id, zip_filename, estimated_pages').eq('id', ata_id).is_('deleted_at', 'null').execute()
             if res.data:
                 row = res.data[0]
                 if row.get('status') != 'estimating':
@@ -506,7 +505,7 @@ async def get_ata_status(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_c
 
         # Supabase é sempre a fonte de verdade (multi-worker safe).
         if supabase:
-            res = supabase.table("atas").select("status, status_message, error_message").eq("id", ata_id).execute()
+            res = supabase.table("atas").select("status, status_message, error_message").eq("id", ata_id).is_("deleted_at", "null").execute()
             if not res.data:
                 # Pode estar ainda no mesmo worker (pipeline recém iniciada): checar local.
                 cached = local_results.get(ata_id)
@@ -567,7 +566,7 @@ async def get_ata_preview(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_
     supabase = auth_ctx.client
 
     if supabase:
-        ata_res = supabase.table("atas").select("*").eq("id", ata_id).execute()
+        ata_res = supabase.table("atas").select("*").eq("id", ata_id).is_("deleted_at", "null").execute()
         if not ata_res.data:
             raise HTTPException(status_code=404, detail="Ata não encontrada")
         conteudo_res = supabase.table("atas_conteudo").select("*").eq("ata_id", ata_id).execute()
@@ -593,6 +592,96 @@ async def get_ata_preview(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_
         }
     }
     
+import re
+import unicodedata
+
+def remove_accents(input_str: str) -> str:
+    nfkd_form = unicodedata.normalize('NFKD', input_str)
+    return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
+
+def merge_images_into_html(incoming_html: str, current_html: str) -> str:
+    """
+    Mescla as imagens base64 do current_html (do banco) no incoming_html (do frontend),
+    garantindo que nenhuma imagem seja perdida enquanto as edições textuais do usuário
+    são salvas.
+    """
+    if not current_html:
+        return incoming_html
+
+    # 1. Extrair todas as imagens do HTML do banco
+    img_pattern = re.compile(r'(<img[^>]+class="ata-imagem-anexada"[^>]*>)')
+    db_img_tags = img_pattern.findall(current_html)
+    
+    if not db_img_tags:
+        return incoming_html  # Nenhuma imagem para restaurar
+        
+    db_images = []
+    for tag in db_img_tags:
+        alt_match = re.search(r'alt="([^"]+)"', tag)
+        alt = alt_match.group(1) if alt_match else ""
+        db_images.append({
+            "alt": alt,
+            "tag": tag
+        })
+        
+    # 2. Verificar quais imagens do banco já estão no incoming_html
+    incoming_html_img_tags = img_pattern.findall(incoming_html)
+    incoming_alts = []
+    for tag in incoming_html_img_tags:
+        alt_match = re.search(r'alt="([^"]+)"', tag)
+        if alt_match:
+            incoming_alts.append(alt_match.group(1))
+            
+    result_html = incoming_html
+    
+    # Restaurar as imagens que já estão presentes no incoming_html (atualizando o src base64)
+    for db_img in db_images:
+        alt = db_img["alt"]
+        if alt and alt in incoming_alts:
+            # Substituir no incoming_html a tag correspondente com o src correto do banco
+            specific_img_pattern = re.compile(r'<img[^>]+alt="' + re.escape(alt) + r'"[^>]*>')
+            result_html = specific_img_pattern.sub(db_img["tag"], result_html, count=1)
+            
+    # 3. Restaurar as imagens que estão FALTANDO no incoming_html
+    segments = img_pattern.split(current_html)
+    
+    for idx, db_img in enumerate(db_images):
+        alt = db_img["alt"]
+        if alt and alt not in incoming_alts:
+            # A imagem está faltando!
+            preceding_html = segments[idx * 2]
+            
+            # Obter texto puro de contexto (últimos de 80 caracteres)
+            preceding_text = re.sub(r'<[^>]+>', '', preceding_html)
+            preceding_text = " ".join(preceding_text.split())
+            context_text = preceding_text[-80:].strip() if len(preceding_text) > 80 else preceding_text.strip()
+            
+            inserted = False
+            if context_text:
+                # Tentar encontrar este contexto no result_html
+                words = [w for w in context_text.split() if len(w) > 2]
+                if words:
+                    # Tentar regex flexível
+                    flex_pattern_str = r'\s*'.join(re.escape(w) for w in words[-6:])
+                    try:
+                        flex_pattern = re.compile(flex_pattern_str, re.IGNORECASE)
+                        match = flex_pattern.search(result_html)
+                        if match:
+                            end_pos = match.end()
+                            img_paragraph = f'<p>{db_img["tag"]}</p>'
+                            result_html = result_html[:end_pos] + img_paragraph + result_html[end_pos:]
+                            inserted = True
+                            logger.info(f"[MERGE_IMG] Imagem {alt} restaurada por contexto flexível.")
+                    except Exception as e:
+                        logger.warning(f"[MERGE_IMG] Erro ao buscar contexto flexível para {alt}: {e}")
+                        
+            if not inserted:
+                # Anexar ao final se não achar o contexto
+                result_html += f'<p>{db_img["tag"]}</p>'
+                logger.info(f"[MERGE_IMG] Imagem {alt} restaurada inserida no final por falta de contexto.")
+                
+    return result_html
+
 @router.put("/{ata_id}/content")
 async def update_ata_content(
     ata_id: str, 
@@ -605,29 +694,19 @@ async def update_ata_content(
 
     column = "conteudo_formal" if update_data.tipo == "formal" else "conteudo_preparatorio"
     incoming_html = update_data.conteudo
-    incoming_img_count = incoming_html.count('<img ')
 
     # ── Proteger imagens base64 contra perda no save ──
     # O Tiptap pode descartar <img src="data:..."> durante a serialização.
-    # Se o HTML novo tem MENOS imagens que o salvo no banco, mantemos o HTML
-    # do banco como base e apenas aceitamos as edições textuais do usuário.
-    # Isso garante que o "Salvar Edições" nunca apague as imagens do documento.
+    # Usamos o merge de imagens para preservar todas as imagens originais do banco,
+    # mesclando-as com as alterações de texto enviadas pelo usuário.
     html_to_save = incoming_html
     try:
         current_res = supabase.table("atas_conteudo").select(column).eq("ata_id", ata_id).execute()
         if current_res.data:
             current_html = current_res.data[0].get(column) or ''
-            current_img_count = current_html.count('<img ')
-            if current_img_count > incoming_img_count:
-                # Tiptap descartou imagens — usar HTML do banco para preservar as imagens
-                logger.info(
-                    f"[{ata_id}] Save bloqueou perda de imagens: "
-                    f"banco={current_img_count} imgs, frontend={incoming_img_count} imgs. "
-                    f"Preservando HTML original."
-                )
-                html_to_save = current_html
+            html_to_save = merge_images_into_html(incoming_html, current_html)
     except Exception as e:
-        logger.warning(f"[{ata_id}] Não foi possível verificar imagens antes do save: {e}")
+        logger.warning(f"[{ata_id}] Não foi possível mesclar/verificar imagens antes do save: {e}")
 
     supabase.table("atas_conteudo").update({column: html_to_save}).eq("ata_id", ata_id).execute()
     return {"status": "success"}
@@ -649,8 +728,6 @@ async def update_ata_title(
     return {"status": "success"}
 
 
-
-
 @router.post("/{ata_id}/generate-pdf")
 async def generate_pdf(
     ata_id: str,
@@ -670,12 +747,9 @@ async def generate_pdf(
             logger.warning(f"[{ata_id}] Falha ao buscar zip_hash para o PDF: {e}")
 
     # ── Garantir que imagens base64 não se percam no round-trip pelo Tiptap ──
-    # O frontend envia editor.getHTML() — o ProseMirror pode truncar/remover
-    # <img src="data:..."> durante a serialização, especialmente com payloads grandes.
-    # Fonte de verdade: HTML salvo no banco (atas_conteudo), que contém todas as imagens.
+    # Mesclamos o HTML do editor (que pode ter perdido imagens) com o HTML original
+    # persistido no banco de dados para garantir que todas as imagens sejam renderizadas no PDF.
     html_for_pdf = req_data.conteudo
-    frontend_img_count = html_for_pdf.count('<img ')
-
     if auth_ctx.client:
         try:
             col = 'conteudo_formal' if req_data.tipo == 'formal' else 'conteudo_preparatorio'
@@ -685,18 +759,9 @@ async def generate_pdf(
                 .execute()
             if conteudo_res.data:
                 db_html = conteudo_res.data[0].get(col) or ''
-                db_img_count = db_html.count('<img ')
-                logger.info(
-                    f"[{ata_id}] PDF img count — frontend: {frontend_img_count}, banco: {db_img_count}"
-                )
-                if db_img_count > frontend_img_count:
-                    logger.info(
-                        f"[{ata_id}] Usando HTML do banco para PDF "
-                        f"({db_img_count} imgs vs {frontend_img_count} do frontend)"
-                    )
-                    html_for_pdf = db_html
+                html_for_pdf = merge_images_into_html(req_data.conteudo, db_html)
         except Exception as e:
-            logger.warning(f"[{ata_id}] Falha ao buscar HTML do banco para PDF (usando frontend): {e}")
+            logger.warning(f"[{ata_id}] Falha ao mesclar HTML com banco para PDF (usando original do frontend): {e}")
 
     pdf_bytes, pdf_hash = await generate_pdf_from_html(html_for_pdf, reviewer_name=reviewer, zip_hash=zip_hash)
     if not pdf_bytes:

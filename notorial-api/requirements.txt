@@ -13,3 +13,4 @@ pypdf
 pillow-heif
 nh3
 slowapi
+sentry-sdk[fastapi]

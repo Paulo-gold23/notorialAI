@@ -5,6 +5,18 @@ from config import settings
 import logging
 import logging.handlers
 import os
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastAPIIntegration
+
+# Initialize Sentry if DSN is provided
+SENTRY_DSN = os.getenv("SENTRY_DSN", "")
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[FastAPIIntegration()],
+        traces_sample_rate=1.0,
+        profiles_sample_rate=1.0,
+    )
 
 import httpx
 from pillow_heif import register_heif_opener

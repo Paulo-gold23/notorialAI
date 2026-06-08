@@ -19,6 +19,7 @@
     "@tiptap/extension-text-align": "^3.22.2",
     "@tiptap/react": "^3.20.1",
     "@tiptap/starter-kit": "^3.20.1",
+    "@sentry/react": "^7.114.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.577.0",
     "react": "^19.2.0",

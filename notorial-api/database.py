@@ -2,12 +2,19 @@ from supabase import create_client, Client
 from config import settings
 import httpx
 
+_cached_supabase = None
+_cached_supabase_admin = None
+
 def get_supabase_client() -> Client:
     """Anon key client — used for Supabase Auth operations (JWT validation)."""
+    global _cached_supabase
+    if _cached_supabase is not None:
+        return _cached_supabase
     if not settings.SUPABASE_URL or not settings.SUPABASE_KEY or "your-supabase" in settings.SUPABASE_URL:
         return None
     try:
-        return create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        _cached_supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        return _cached_supabase
     except Exception as e:
         print(f"\n[ALERTA] Erro ao conectar ao Supabase (anon): {e}")
         return None
@@ -19,6 +26,9 @@ def get_supabase_admin_client() -> Client:
     Use only for server-side operations that need to read/write any user's data.
     Falls back to anon client if SUPABASE_SERVICE_KEY is not configured.
     """
+    global _cached_supabase_admin
+    if _cached_supabase_admin is not None:
+        return _cached_supabase_admin
     url = settings.SUPABASE_URL
     service_key = settings.SUPABASE_SERVICE_KEY
 
@@ -31,11 +41,11 @@ def get_supabase_admin_client() -> Client:
         return None
 
     try:
-        client = create_client(url, key)
+        _cached_supabase_admin = create_client(url, key)
         if not service_key:
             print("[AVISO] SUPABASE_SERVICE_KEY nao configurada. Queries do backend usarao anon key (RLS ativo).")
             print("[INFO] Configure SUPABASE_SERVICE_KEY no .env para evitar erros de 'Perfil nao encontrado'.")
-        return client
+        return _cached_supabase_admin
     except Exception as e:
         print(f"\n[ALERTA] Erro ao conectar ao Supabase (admin): {e}")
         return None
