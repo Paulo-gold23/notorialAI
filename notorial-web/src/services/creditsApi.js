@@ -42,11 +42,12 @@ export const creditsApi = {
   },
 
   // Iniciar compra (gera PIX)
-  async purchasePackage(packageId, paymentMethod = 'PIX', customAmount = null) {
+  async purchasePackage(packageId, paymentMethod = 'PIX', customAmount = null, cpf = '') {
     const authHeaders = await this.getAuthHeaders();
     const payload = {
       package_id: packageId,
-      payment_method: paymentMethod
+      payment_method: paymentMethod,
+      cpf: cpf
     };
     if (customAmount) {
       payload.custom_credits = parseInt(customAmount, 10);

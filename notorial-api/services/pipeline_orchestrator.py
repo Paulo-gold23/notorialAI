@@ -156,7 +156,7 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
 
         try:
             preparatorio_data = await organize_chat_with_ai(
-                parsed_data, is_formal=False, on_progress=org_progress, image_bytes=all_image_bytes
+                parsed_data, on_progress=org_progress, image_bytes=all_image_bytes
             )
             logger.info(f"[{ata_id}] IA Preparatória concluída em {time.time()-t2:.2f}s")
         except Exception as e:

@@ -1,10 +1,11 @@
 import httpx
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
 
 from config import settings
 from database import supabase, supabase_admin
+from services.log_utils import mask_email, mask_cpf
 
 _db = supabase_admin or supabase  # use service role to bypass RLS
 
@@ -60,7 +61,7 @@ class AsaasService:
             # 3. Creation failed — log full Asaas response
             logger.error(
                 f"[ASAAS] Customer creation failed | status={response.status_code} | "
-                f"advogado={advogado_id} | cpf={cpf_cnpj} | body={response.text}"
+                f"advogado={advogado_id} | cpf={mask_cpf(cpf_cnpj)} | body={response.text}"
             )
 
             # 4. If CPF/CNPJ already exists in Asaas, retrieve existing customer
@@ -125,7 +126,7 @@ class AsaasService:
         self, asaas_customer_id: str, amount_cents: int, desc: str
     ) -> Dict[str, Any]:
         amount = amount_cents / 100.0
-        due_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        due_date = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
 
         payload = {
             "customer": asaas_customer_id,

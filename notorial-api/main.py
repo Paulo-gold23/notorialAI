@@ -38,12 +38,18 @@ async def lifespan(app: FastAPI):
     logger.info("Cleanup complete.")
 
 
+from services.limiter import limiter
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
 app = FastAPI(
     title="LegisVox API",
-    description="Automação de Atas Notariais a partir de WhatsApp",
+    description="Organização de conversas WhatsApp para advogados (Material Preparatório)",
     version="1.0.0",
     lifespan=lifespan,
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS must be registered BEFORE routers — FastAPI applies middleware in reverse order
 app.add_middleware(
@@ -73,6 +79,26 @@ app.include_router(auth.router)
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "API LegisVox is running"}
+
+from fastapi import Response, status
+@app.get("/health")
+async def health_check(response: Response):
+    checks = {"api": "ok"}
+    try:
+        from database import supabase_admin
+        if supabase_admin:
+            supabase_admin.table("advogados").select("id").limit(1).execute()
+            checks["database"] = "ok"
+        else:
+            checks["database"] = "unconfigured"
+    except Exception as e:
+        logger.error(f"Health check DB error: {e}")
+        checks["database"] = "error"
+    
+    if any(v == "error" for v in checks.values()):
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    
+    return checks
 
 if __name__ == "__main__":
     import uvicorn

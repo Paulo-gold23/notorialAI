@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { creditsApi } from '../services/creditsApi';
 import QRCode from 'react-qr-code';
-import { Shield, Sparkles, CheckCircle2, Coins, Clock, ArrowRight, Sliders, Zap, TrendingDown, Star } from 'lucide-react';
+import { Shield, Sparkles, CheckCircle2, Coins, Clock, ArrowRight, Sliders, Zap, TrendingDown, Star, AlertCircle } from 'lucide-react';
 import BackButton from '../components/BackButton';
 import { Skeleton } from '../components/Skeleton';
 import { useToast } from '../components/ToastContext';
@@ -25,6 +25,9 @@ export default function Credits() {
   const [pollingInterval, setPollingInterval] = useState(null);
   const [copied, setCopied] = useState(false);
   const [customCredits, setCustomCredits] = useState(100);
+  const [showCpfPrompt, setShowCpfPrompt] = useState(false);
+  const [cpfForCheckout, setCpfForCheckout] = useState('');
+  const [cpfError, setCpfError] = useState('');
   const toast = useToast();
 
   useEffect(() => {
@@ -58,11 +61,42 @@ export default function Credits() {
   const customPricePerPage = customPkg?.price_per_page_cents || 55;
   const customTotalCents = customCredits * customPricePerPage;
 
-  const handlePurchase = async (pkg, overrideCredits = null) => {
+  const isValidCpf = (cpf) => {
+    cpf = cpf.replace(/\D/g, '');
+    if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
+    for (let t = 9; t < 11; t++) {
+      let d = 0;
+      for (let c = 0; c < t; c++) d += parseInt(cpf[c]) * ((t + 1) - c);
+      d = ((10 * d) % 11) % 10;
+      if (parseInt(cpf[t]) !== d) return false;
+    }
+    return true;
+  };
+
+  const isValidCnpj = (cnpj) => {
+    cnpj = cnpj.replace(/\D/g, '');
+    if (cnpj.length !== 14 || /^(\d)\1{13}$/.test(cnpj)) return false;
+    let tamanho = 12, numeros = cnpj.substring(0, tamanho);
+    const digitos = cnpj.substring(tamanho);
+    let soma = 0, pos = tamanho - 7;
+    for (let i = tamanho; i >= 1; i--) { soma += numeros.charAt(tamanho - i) * pos--; if (pos < 2) pos = 9; }
+    let resultado = soma % 11 < 2 ? 0 : 11 - soma % 11;
+    if (resultado != digitos.charAt(0)) return false;
+    tamanho = 13; numeros = cnpj.substring(0, tamanho); soma = 0; pos = tamanho - 7;
+    for (let i = tamanho; i >= 1; i--) { soma += numeros.charAt(tamanho - i) * pos--; if (pos < 2) pos = 9; }
+    resultado = soma % 11 < 2 ? 0 : 11 - soma % 11;
+    return resultado == digitos.charAt(1);
+  };
+
+  const handlePurchase = async (pkg, overrideCredits = null, cpf = '') => {
     try {
       setLoading(true);
-      const res = await creditsApi.purchasePackage(pkg.id, 'PIX', overrideCredits);
+      const cleanCpf = cpf.replace(/\D/g, '');
+      const res = await creditsApi.purchasePackage(pkg.id, 'PIX', overrideCredits, cleanCpf);
       if (res.status === 'success' && res.payment) {
+        if (cleanCpf) {
+          localStorage.setItem('user_cpf_raw', cleanCpf);
+        }
         setPaymentData({
           ...res.payment,
           pkg_name: overrideCredits ? `Sob Medida (${overrideCredits} pág.)` : pkg.name,
@@ -80,7 +114,6 @@ export default function Credits() {
       }
     } catch (e) {
       const msg = e.message || 'Erro desconhecido. Tente novamente.';
-      // Highlight server-offline errors differently
       if (msg.includes('offline') || msg.includes('inacess')) {
         toast.error(`⚡ ${msg}`, { duration: 8000 });
       } else {
@@ -88,6 +121,17 @@ export default function Credits() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePurchaseClick = (pkg, overrideCredits = null) => {
+    const cachedCpf = localStorage.getItem('user_cpf_raw') || '';
+    if (cachedCpf && cachedCpf.length >= 11) {
+      handlePurchase(pkg, overrideCredits, cachedCpf);
+    } else {
+      setCpfForCheckout('');
+      setCpfError('');
+      setShowCpfPrompt(true);
     }
   };
 
@@ -355,7 +399,7 @@ export default function Credits() {
                       <div className="shrink-0 w-full md:w-auto flex flex-col items-center gap-3 md:min-w-[200px]">
                         <button
                           type="button"
-                          onClick={() => handlePurchase(customPkg, customCredits)}
+                          onClick={() => handlePurchaseClick(customPkg, customCredits)}
                           disabled={loading || customCredits < 50 || customCredits > 2000}
                           className="btn-gradient w-full py-3.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 cursor-pointer"
                         >
@@ -394,6 +438,116 @@ export default function Credits() {
         </>
       )}
       <LegalFooter style={{ marginTop: '3rem' }} />
+
+      {showCpfPrompt && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '1rem',
+        }}>
+          {/* Backdrop */}
+          <div 
+            onClick={() => setShowCpfPrompt(false)}
+            style={{
+              position: 'absolute', inset: 0,
+              background: 'rgba(0,0,0,0.65)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+            }} 
+          />
+          {/* Card */}
+          <div className="card animate-scale-in" style={{
+            position: 'relative',
+            width: '100%',
+            maxWidth: '26rem',
+            padding: '2rem',
+            boxShadow: '0 25px 60px rgba(0,0,0,0.4)',
+            zIndex: 10000,
+          }}>
+            <div className="text-center mb-6">
+              <div className="inline-flex items-center justify-center rounded-full p-3 mb-3" style={{ background: 'var(--primary-glow)', color: 'var(--primary-color)' }}>
+                <Shield size={24} />
+              </div>
+              <h3 className="text-xl font-serif font-bold" style={{ color: 'var(--text-main)' }}>Confirmar Identidade</h3>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                Informe seu CPF ou CNPJ para emissão da nota fiscal e QR Code do PIX.
+              </p>
+            </div>
+
+            {cpfError && (
+              <div className="mb-4 p-3 rounded-lg border border-red-500/20 bg-red-500/10 text-red-400 text-xs flex items-center gap-2">
+                <AlertCircle size={14} className="shrink-0" />
+                {cpfError}
+              </div>
+            )}
+
+            <div className="mb-6">
+              <label className="block text-xs uppercase tracking-wider font-semibold mb-2" style={{ color: 'var(--text-muted)' }}>
+                CPF ou CNPJ
+              </label>
+              <input
+                type="text"
+                placeholder="000.000.000-00 ou 00.000.000/0000-00"
+                value={cpfForCheckout}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const digits = val.replace(/\D/g, '').slice(0, 14);
+                  let formatted = digits;
+                  if (digits.length <= 11) {
+                    formatted = digits
+                      .replace(/(\d{3})(\d)/, '$1.$2')
+                      .replace(/(\d{3})(\d)/, '$1.$2')
+                      .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+                  } else {
+                    formatted = digits
+                      .replace(/(\d{2})(\d)/, '$1.$2')
+                      .replace(/(\d{3})(\d)/, '$1.$2')
+                      .replace(/(\d{3})(\d)/, '$1/$2')
+                      .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
+                  }
+                  setCpfForCheckout(formatted);
+                }}
+                className="input-base w-full"
+                style={{ fontSize: '1.1rem', textAlign: 'center' }}
+                autoFocus
+              />
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const clean = cpfForCheckout.replace(/\D/g, '');
+                  if (clean.length === 11 && !isValidCpf(clean)) {
+                    setCpfError('CPF inválido. Verifique os dígitos.');
+                    return;
+                  }
+                  if (clean.length === 14 && !isValidCnpj(clean)) {
+                    setCpfError('CNPJ inválido. Verifique os dígitos.');
+                    return;
+                  }
+                  if (clean.length !== 11 && clean.length !== 14) {
+                    setCpfError('Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.');
+                    return;
+                  }
+                  setShowCpfPrompt(false);
+                  handlePurchase(customPkg, customCredits, clean);
+                }}
+                className="btn-gradient w-full py-3 rounded-xl font-semibold text-sm cursor-pointer"
+              >
+                Gerar PIX
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCpfPrompt(false)}
+                className="btn-ghost w-full py-2.5 text-sm"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

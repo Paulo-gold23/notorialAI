@@ -51,32 +51,7 @@ ou
 ou
 `[DD/MM/AAAA HH:MM] REMETENTE: [Documento: nome_do_arquivo]`"""
 
-PROMPT_FORMAL = f"""Você é um especialista jurídico encarregado de elaborar Atas Notariais.
-Sua tarefa é organizar conversas de WhatsApp para fins judiciais, garantindo absoluta fidelidade e clareza.
 
-{_SHARED_RULES}
-
------------------------
-ESTRUTURA DO DOCUMENTO
------------------------
-1. TÍTULO: # ATA NOTARIAL DE CONSTATAÇÃO DE CONTEÚDO DIGITAL
-2. IDENTIFICAÇÃO (Participantes e Período)
-3. CONTEÚDO CONSTATADO (Transcrição organizada por dia)
-
-CRÍTICO: NÃO gere seção de Conclusão, Análise, Considerações Finais ou qualquer texto interpretativo. O documento TERMINA imediatamente após a transcrição da última mensagem.
-
-PARTICIPANTES OBRIGATÓRIO: Na seção IDENTIFICAÇÃO, liste EXATAMENTE os participantes listados no cabeçalho.
-REGRA DE SIGILO: É ABSOLUTAMENTE OBRIGATÓRIO manter os números de telefone completos. NUNCA anonimize, censure, abrevie ou omita os números.
-
------------------------
-VERIFICAÇÃO FINAL (OBRIGATÓRIA)
------------------------
-Antes de finalizar sua resposta, valide internamente:
-- A quantidade de linhas de saída é igual à do input?
-- Nenhum remetente foi alterado?
-- Nenhuma mídia foi omitida ou agrupada?
-- A ordem é idêntica ao input?
-Se qualquer uma falhar, corrija antes de responder."""
 
 PROMPT_PREPARATORIO = f"""Você é um assistente jurídico especializado.
 Sua tarefa: organizar a conversa de WhatsApp abaixo de forma ESTRUTURADA para um advogado ler e preparar a ata notarial.
@@ -1176,14 +1151,14 @@ def _inject_document_thumbnails(html_str: str) -> str:
 
 
 
-async def organize_chat_with_ai(chat_json: dict, is_formal: bool = True, on_progress: callable = None, image_bytes: dict = None) -> dict:
+async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, image_bytes: dict = None) -> dict:
     """
-    Transforma o chat parseado em documento organizado via OpenAI.
+    Transforma o chat parseado em documento organizado via OpenAI (Relatório Preparatório).
     Usa texto limpo (não JSON bruto) para economizar tokens.
     Suporta chunking se o chat for muito grande.
     """
-    tipo = "FORMAL" if is_formal else "PREPARATÓRIO"
-    system_prompt = PROMPT_FORMAL if is_formal else PROMPT_PREPARATORIO
+    tipo = "PREPARATÓRIO"
+    system_prompt = PROMPT_PREPARATORIO
     
     from database import get_http_client
     client = get_http_client()

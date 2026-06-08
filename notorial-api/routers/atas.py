@@ -649,67 +649,7 @@ async def update_ata_title(
     return {"status": "success"}
 
 
-@router.post("/{ata_id}/generate-formal")
-async def generate_formal_content(
-    ata_id: str,
-    auth_ctx: AuthContext = Depends(get_auth_context)
-):
-    """Gera a versão cartorária (formal) sob demanda."""
-    supabase = auth_ctx.client
-    
-    parsed_data = None
-    
-    if ata_id in local_results:
-        cached = local_results.get(ata_id, {})
-        parsed_data = cached.get('parsed_data')
-        cached_images = cached.get('image_bytes', {})
-    elif supabase:
-        conteudo_res = supabase.table('atas_conteudo').select('chat_parseado').eq('ata_id', ata_id).execute()
-        if conteudo_res.data:
-            parsed_data = conteudo_res.data[0].get('chat_parseado')
-    
-    if not parsed_data:
-        raise HTTPException(status_code=404, detail="Dados do chat não encontrados. Processe o ZIP primeiro.")
-    
-    if ata_id in local_results:
-        local_results[ata_id]['status'] = 'generating_formal'
-        local_results[ata_id]['status_message'] = 'Gerando versão cartorária...'
-    elif supabase:
-        supabase.table('atas').update({
-            'status': 'generating_formal',
-            'status_message': 'Gerando versão cartorária...'
-        }).eq('id', ata_id).execute()
-    
-    try:
-        start_ai = time.time()
-        cached_images = local_results.get(ata_id, {}).get('image_bytes', {}) if ata_id in local_results else {}
-        formal_data = await organize_chat_with_ai(parsed_data, is_formal=True, image_bytes=cached_images)
-        logger.info(f"[{ata_id}] IA Formal concluída em {time.time() - start_ai:.2f}s")
-        
-        formal_content = formal_data.get('conteudo', '')
-        
-        if ata_id in local_results:
-            local_results[ata_id]['conteudo_formal'] = formal_content
-            local_results[ata_id]['status'] = 'ready'
-            local_results[ata_id]['status_message'] = 'Versão cartorária gerada com sucesso!'
-        elif supabase:
-            supabase.table('atas_conteudo').update({
-                'conteudo_formal': formal_content
-            }).eq('ata_id', ata_id).execute()
-            supabase.table('atas').update({
-                'status': 'ready',
-                'status_message': 'Versão cartorária gerada com sucesso!'
-            }).eq('id', ata_id).execute()
-        
-        return {"status": "success", "conteudo_formal": formal_content}
-        
-    except Exception as e:
-        logger.error(f"[{ata_id}] Erro ao gerar formal: {e}", exc_info=True)
-        if ata_id in local_results:
-            local_results[ata_id]['status'] = 'ready'
-        elif supabase:
-            supabase.table('atas').update({'status': 'ready'}).eq('id', ata_id).execute()
-        raise HTTPException(status_code=500, detail=f"Erro ao gerar versão formal: {str(e)}")
+
 
 @router.post("/{ata_id}/generate-pdf")
 async def generate_pdf(

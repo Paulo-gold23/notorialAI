@@ -115,6 +115,9 @@ export default function CPFPromptModal({ onSaved, userEmail, onSignOut }) {
                 }),
             });
 
+            // Save raw digits locally for subsequent credit purchases
+            localStorage.setItem('user_cpf_raw', raw);
+
             setStep('done');
             // Brief success animation, then dismiss and redirect
             setTimeout(() => {

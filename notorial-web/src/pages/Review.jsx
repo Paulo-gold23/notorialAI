@@ -572,15 +572,19 @@ export default function Review() {
         setTermsModal(null);
         setTermsChecked(false);
         setHasAcceptedTerms(true);
-        // Descomentar para persistir a flag:
-        // localStorage.setItem('legisvox_terms_accepted', 'true');
+        
+        try {
+            // Persiste aceite de termos no banco (T1.11)
+            await apiRequest('/api/auth/accept-terms', { method: 'POST' });
+            localStorage.setItem('legisvox_terms_accepted', 'true');
+        } catch (err) {
+            console.error('Falha ao registrar aceite de termos:', err);
+        }
 
         if (action === 'save') {
             triggerPinVerification(_doSave);
         } else if (action === 'pdf_preparatorio') {
             triggerPinVerification(() => _doGeneratePdf('preparatorio'));
-        } else if (action === 'pdf_formal') {
-            triggerPinVerification(() => _doGeneratePdf('formal'));
         }
     };
 

@@ -1,6 +1,6 @@
 import hashlib
 import logging
-import random
+import secrets
 import string
 import smtplib
 from email.mime.text import MIMEText
@@ -13,6 +13,8 @@ from typing import Optional
 from database import supabase_admin
 from middleware.auth import get_current_user_id
 from config import settings
+from services.limiter import limiter
+from services.log_utils import mask_email
 
 logger = logging.getLogger(__name__)
 
@@ -90,10 +92,10 @@ def _send_reset_email(to_email: str, token: str) -> bool:
             
         server.sendmail(settings.SMTP_FROM, [to_email], msg.as_string())
         server.quit()
-        logger.info(f"Signature PIN reset email sent to {to_email}")
+        logger.info(f"Signature PIN reset email sent to {mask_email(to_email)}")
         return True
     except Exception as e:
-        logger.error(f"Failed to send signature reset email to {to_email}: {e}")
+        logger.error(f"Failed to send signature reset email to {mask_email(to_email)}: {e}")
         return False
 
 
@@ -210,7 +212,8 @@ def _get_real_ip(request: Request) -> str:
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.post("/check-cpf")
-def check_cpf(req: CheckCPFRequest, user_id: str = Depends(get_current_user_id)):
+@limiter.limit("10/minute")
+def check_cpf(req: CheckCPFRequest, request: Request, user_id: str = Depends(get_current_user_id)):
     """Validates CPF/CNPJ mathematically and checks if it's already in use."""
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -240,6 +243,7 @@ def check_cpf(req: CheckCPFRequest, user_id: str = Depends(get_current_user_id))
 
 
 @router.post("/save-cpf")
+@limiter.limit("5/minute")
 def save_cpf(req: SaveCPFRequest, request: Request, user_id: str = Depends(get_current_user_id)):
     """Saves a validated CPF/CNPJ (as SHA-256 hash) to the user's profile
     and logs the action in the audit trail."""
@@ -328,6 +332,7 @@ def log_audit(req: AuditLogRequest, request: Request, user_id: str = Depends(get
 
 
 @router.post("/signature-pin/set")
+@limiter.limit("5/minute")
 def set_signature_pin(req: SignaturePinSetRequest, request: Request, user_id: str = Depends(get_current_user_id)):
     """Sets or updates the lawyer's signature PIN."""
     if not user_id:
@@ -373,6 +378,7 @@ def set_signature_pin(req: SignaturePinSetRequest, request: Request, user_id: st
 
 
 @router.post("/signature-pin/verify")
+@limiter.limit("5/minute")
 def verify_signature_pin(req: SignaturePinVerifyRequest, request: Request, user_id: str = Depends(get_current_user_id)):
     """Verifies the lawyer's signature PIN and locks the account on 5 consecutive failures."""
     if not user_id:
@@ -459,6 +465,7 @@ def verify_signature_pin(req: SignaturePinVerifyRequest, request: Request, user_
 
 
 @router.post("/signature-pin/forgot")
+@limiter.limit("3/minute")
 def forgot_signature_pin(req: SignaturePinForgotRequest, request: Request, user_id: str = Depends(get_current_user_id)):
     """Generates a 6-digit verification token and emails it to the logged in user."""
     if not user_id:
@@ -473,7 +480,7 @@ def forgot_signature_pin(req: SignaturePinForgotRequest, request: Request, user_
         
     email = user_resp.data[0]["email"]
     
-    token = "".join(random.choices(string.digits, k=6))
+    token = "".join(secrets.choice(string.digits) for _ in range(6))
     hashed_token = _hash_token(token)
     exp_time = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
     
@@ -492,10 +499,11 @@ def forgot_signature_pin(req: SignaturePinForgotRequest, request: Request, user_
     sent = _send_reset_email(email, token)
     
     response_payload = {"status": "success", "message": "Código de recuperação enviado para o seu e-mail."}
-    if settings.ALLOW_TEST_BYPASS or not sent:
-        if not sent:
-            logger.warning("SMTP failed or not configured. Test/fallback bypass returning token.")
+    if settings.ALLOW_TEST_BYPASS:
+        logger.debug(f"[DEV-ONLY] Reset token for user {user_id}: {token}")
         response_payload["test_token_bypass"] = token
+    elif not sent:
+        logger.warning(f"SMTP failed to send reset token to {email}. Token is NOT returned in response body in production.")
         
     try:
         supabase_admin.table("audit_logs").insert({
@@ -514,6 +522,7 @@ def forgot_signature_pin(req: SignaturePinForgotRequest, request: Request, user_
 
 
 @router.post("/signature-pin/reset")
+@limiter.limit("5/minute")
 def reset_signature_pin(req: SignaturePinResetRequest, request: Request, user_id: str = Depends(get_current_user_id)):
     """Resets the PIN using the 6-digit verification token, unlocking the account."""
     if not user_id:
@@ -577,3 +586,19 @@ def reset_signature_pin(req: SignaturePinResetRequest, request: Request, user_id
         
     return {"status": "success", "message": "Senha de assinatura redefinida com sucesso e conta desbloqueada."}
 
+
+@router.post("/accept-terms")
+def accept_terms(user_id: str = Depends(get_current_user_id)):
+    """Grava o aceite dos termos de uso (LGPD e MCR) pelo advogado no banco de dados."""
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    try:
+        supabase_admin.table("advogados").update({
+            "terms_accepted_at": datetime.now(timezone.utc).isoformat(),
+            "terms_version": "2.3"
+        }).eq("id", user_id).execute()
+        return {"status": "success", "message": "Termos aceitos com sucesso."}
+    except Exception as e:
+        logger.error(f"Failed to save terms acceptance for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao gravar aceite de termos.")

@@ -138,89 +138,55 @@ class CreditsService:
 
     def debit_credits(self, advogado_id: str, ata_id: str, pages: int) -> bool:
         if not _db: return False
-        
         try:
-            current_balance = self.get_balance(advogado_id)
-            if current_balance < pages:
-                return False
-                
-            new_balance = current_balance - pages
-            
-            # Debitar (UPDATE, não upsert — PK é 'id', não 'advogado_id')
-            _db.table("credit_balances").update({
-                "balance": new_balance,
-                "updated_at": datetime.now().isoformat()
-            }).eq("advogado_id", advogado_id).execute()
-            
-            # Gravar transação
-            _db.table("credit_transactions").insert({
-                "advogado_id": advogado_id,
-                "type": "debit",
-                "amount": pages,
-                "balance_after": new_balance,
-                "description": f"Processamento de Ata: Estimativa de {pages} páginas",
-                "ata_id": ata_id,
-                "estimated_pages": pages
+            result = _db.rpc("debit_credits", {
+                "p_advogado_id": advogado_id,
+                "p_ata_id": ata_id,
+                "p_pages": pages
             }).execute()
-            
-            return True
+            if result.data and len(result.data) > 0:
+                return result.data[0].get("success", False)
+            return False
         except Exception as e:
             import logging
-            logging.getLogger(__name__).error(f"Erro ao debitar créditos: {e}")
+            logging.getLogger(__name__).error(f"Erro ao debitar créditos via RPC: {e}")
             return False
 
-    def refund_credits(self, advogado_id: str, ata_id: str, estimated: int, actual: int):
-        if not _db: return
+    def refund_credits(self, advogado_id: str, ata_id: str, estimated: int, actual: int) -> bool:
+        if not _db: return False
         if actual >= estimated:
-            return # Sem reembolso
-            
-        refund_amount = estimated - actual
-        current_balance = self.get_balance(advogado_id)
-        new_balance = current_balance + refund_amount
-        
-        # Atualizar saldo
-        _db.table("credit_balances").update({
-            "balance": new_balance,
-            "updated_at": datetime.now().isoformat()
-        }).eq("advogado_id", advogado_id).execute()
-        
-        # Gravar transação
-        _db.table("credit_transactions").insert({
-            "advogado_id": advogado_id,
-            "type": "refund",
-            "amount": refund_amount,
-            "balance_after": new_balance,
-            "description": f"Devolução de {refund_amount} créditos (estimativa: {estimated}, real: {actual})",
-            "ata_id": ata_id,
-            "estimated_pages": estimated,
-            "actual_pages": actual
-        }).execute()
+            return False
+        try:
+            result = _db.rpc("refund_credits", {
+                "p_advogado_id": advogado_id,
+                "p_ata_id": ata_id,
+                "p_estimated": estimated,
+                "p_actual": actual
+            }).execute()
+            if result.data and len(result.data) > 0:
+                return result.data[0].get("success", False)
+            return False
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Erro ao reembolsar créditos via RPC: {e}")
+            return False
 
-    def add_credits(self, advogado_id: str, package_id: str, payment_id: str, amount: int):
-        if not _db: return
-        current_balance = self.get_balance(advogado_id)
-        new_balance = current_balance + amount
-        
-        # Atualizar saldo
-        _db.table("credit_balances").update({
-            "balance": new_balance,
-            "updated_at": datetime.now().isoformat()
-        }).eq("advogado_id", advogado_id).execute()
-        
-        # Expira em 6 meses
-        expires_at = (datetime.now() + timedelta(days=180)).isoformat()
-        
-        # Gravar transação
-        _db.table("credit_transactions").insert({
-            "advogado_id": advogado_id,
-            "type": "purchase",
-            "amount": amount,
-            "balance_after": new_balance,
-            "description": f"Compra de {amount} créditos",
-            "package_id": package_id,
-            "payment_id": payment_id,
-            "expires_at": expires_at
-        }).execute()
+    def add_credits(self, advogado_id: str, package_id: str, payment_id: str, amount: int) -> bool:
+        if not _db: return False
+        try:
+            result = _db.rpc("add_credits", {
+                "p_advogado_id": advogado_id,
+                "p_package_id": package_id,
+                "p_payment_id": payment_id,
+                "p_amount": amount
+            }).execute()
+            if result.data and len(result.data) > 0:
+                return result.data[0].get("success", False)
+            return False
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Erro ao adicionar créditos via RPC: {e}")
+            return False
 
     def check_trial_eligible(self, advogado_id: str) -> bool:
         """Verifica se o advogado ainda não recebeu créditos de boas-vindas."""
@@ -231,46 +197,19 @@ class CreditsService:
         return len(resp.data or []) == 0
 
     def grant_welcome_credits(self, advogado_id: str) -> bool:
-        """Concede 50 créditos de boas-vindas para novo usuário (uma única vez)."""
+        """Concede 50 créditos de boas-vindas para novo usuário (uma única vez) via RPC atômica."""
         if not _db: return False
-        
-        if not self.check_trial_eligible(advogado_id):
-            return False  # Já recebeu
-        
-        amount = self.WELCOME_CREDITS
-        expires_at = (datetime.now() + timedelta(days=180)).isoformat()
-        
-        # Criar registro de saldo (upsert para segurança)
-        existing = _db.table("credit_balances").select("id").eq(
-            "advogado_id", advogado_id
-        ).execute()
-        
-        if existing.data:
-            _db.table("credit_balances").update({
-                "balance": amount,
-                "updated_at": datetime.now().isoformat()
-            }).eq("advogado_id", advogado_id).execute()
-        else:
-            _db.table("credit_balances").insert({
-                "advogado_id": advogado_id,
-                "balance": amount
+        try:
+            result = _db.rpc("grant_welcome_credits", {
+                "p_advogado_id": advogado_id
             }).execute()
-        
-        # Gravar transação de trial
-        _db.table("credit_transactions").insert({
-            "advogado_id": advogado_id,
-            "type": "trial",
-            "amount": amount,
-            "balance_after": amount,
-            "description": f"🎁 Boas-vindas! {amount} créditos de teste gratuitos.",
-            "expires_at": expires_at
-        }).execute()
-        
-        import logging
-        logging.getLogger(__name__).info(
-            f"[TRIAL] Concedidos {amount} créditos de boas-vindas para {advogado_id}"
-        )
-        return True
+            if result.data and len(result.data) > 0:
+                return result.data[0].get("success", False)
+            return False
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Erro ao conceder créditos de boas-vindas via RPC: {e}")
+            return False
 
     def get_packages(self) -> List[Dict[str, Any]]:
         if not _db: return []

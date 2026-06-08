@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Request, Depends
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 import base64
+import hashlib
 
 from database import supabase, supabase_admin
 from services.credits import credits_service
@@ -13,6 +14,7 @@ router = APIRouter(prefix="/api/credits", tags=["Credits"])
 class PurchaseRequest(BaseModel):
     package_id: str
     payment_method: str # PIX, BOLETO, CREDIT_CARD
+    cpf: str            # CPF/CNPJ raw digits (T1.2)
     custom_credits: Optional[int] = None  # For 'Sob Medida' custom packages
 
 @router.get("/balance")
@@ -33,8 +35,6 @@ async def purchase_package(req: PurchaseRequest, user_id: str = Depends(get_curr
     # 1. Pegar infos do advogado no banco (obrigatório)
     user_resp = supabase_admin.table("advogados").select("*").eq("id", user_id).execute()
     if not user_resp.data:
-        print("\n\033[91m[ERRO CRÍTICO] Usuário não encontrado no banco.\033[0m")
-        print("\033[93mSE VOCÊ JÁ PREENCHEU O CPF, O PROBLEMA É A FALTA DA 'SUPABASE_SERVICE_KEY' NO .env\033[0m")
         raise HTTPException(
             status_code=404, 
             detail="Perfil não encontrado. Complete seu cadastro com CPF/CNPJ ou verifique se a SUPABASE_SERVICE_KEY está configurada no backend."
@@ -42,19 +42,43 @@ async def purchase_package(req: PurchaseRequest, user_id: str = Depends(get_curr
     
     user_data = user_resp.data[0]
     
-    # Validar que CPF/CNPJ está preenchido (obrigatório para Asaas)
-    encoded_cpf = user_data.get("cpf_cnpj")
-    if not encoded_cpf:
+    # Validar que CPF/CNPJ está cadastrado no perfil do usuário no banco
+    db_cpf_cnpj = user_data.get("cpf_cnpj")
+    if not db_cpf_cnpj:
         raise HTTPException(
             status_code=400,
-            detail="CPF ou CNPJ é obrigatório para realizar compras. Atualize seu perfil."
+            detail="CPF ou CNPJ não cadastrado no perfil. Acesse as configurações de perfil primeiro."
         )
 
-    # Tentar decodificar Base64 (fallback para texto limpo em cadastros antigos)
-    try:
-        raw_cpf = base64.b64decode(encoded_cpf).decode('utf-8')
-    except Exception:
-        raw_cpf = encoded_cpf
+    # Limpar CPF/CNPJ enviado pelo request
+    raw_cpf = "".join(c for c in req.cpf if c.isdigit())
+    if not raw_cpf:
+        raise HTTPException(
+            status_code=400,
+            detail="O CPF ou CNPJ para emissão do Pix é obrigatório."
+        )
+
+    # Validar se o CPF enviado confere com o cadastrado no banco (SHA-256 ou fallback Base64)
+    hashed_sent = hashlib.sha256(raw_cpf.encode("utf-8")).hexdigest()
+    
+    is_valid_user_cpf = False
+    if db_cpf_cnpj == hashed_sent:
+        is_valid_user_cpf = True
+    else:
+        # Fallback: tentar decodificar Base64 (usuários antigos)
+        try:
+            db_decoded = base64.b64decode(db_cpf_cnpj).decode('utf-8')
+            db_decoded_clean = "".join(c for c in db_decoded if c.isdigit())
+            if db_decoded_clean == raw_cpf:
+                is_valid_user_cpf = True
+        except Exception:
+            pass
+
+    if not is_valid_user_cpf:
+        raise HTTPException(
+            status_code=400,
+            detail="O CPF/CNPJ informado não corresponde ao documento cadastrado na sua conta."
+        )
     
     # 2. Pegar pacote
     pkg_resp = supabase_admin.table("credit_packages").select("*").eq("id", req.package_id).execute()
@@ -83,7 +107,7 @@ async def purchase_package(req: PurchaseRequest, user_id: str = Depends(get_curr
             user_id, 
             user_data.get("nome", "Advogado Sem Nome"),
             user_data.get("email", ""),
-            raw_cpf # Exige CPF válido no Asaas, enviamos decodificado
+            raw_cpf
         )
     except ValueError as e:
         raise HTTPException(
@@ -151,8 +175,7 @@ def grant_welcome_credits(request: Request, user_id: str = Depends(get_current_u
     """
     if not user_id: raise HTTPException(status_code=401, detail="Unauthorized")
     
-    # Admin pode conceder a outro usuário via header
-    target_id = request.headers.get("advogado_id", user_id)
+    target_id = user_id
     
     granted = credits_service.grant_welcome_credits(target_id)
     if granted:
