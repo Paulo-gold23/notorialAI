@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Request, HTTPException, Header
 import json
+from datetime import datetime, timezone
 
 from config import settings
 from database import supabase_admin
@@ -14,7 +15,7 @@ async def asaas_webhook(request: Request, asaas_access_token: str = Header(None)
         
     try:
         body = await request.json()
-    except:
+    except (ValueError, json.JSONDecodeError):
         raise HTTPException(status_code=400, detail="Invalid JSON")
         
     event = body.get("event")
@@ -37,7 +38,7 @@ async def asaas_webhook(request: Request, asaas_access_token: str = Header(None)
         # 2. Atualizar status
         supabase_admin.table("payments").update({
             "status": "confirmed",
-            "paid_at": "now()"
+            "paid_at": datetime.now(timezone.utc).isoformat()
         }).eq("asaas_payment_id", payment_id).execute()
         
         # 3. Adicionar créditos

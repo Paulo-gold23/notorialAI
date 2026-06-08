@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 import tempfile
 import json
+from datetime import datetime, timezone
 from fastapi.responses import Response
 
 logger = logging.getLogger(__name__)
@@ -158,7 +159,7 @@ async def upload_whatsapp_zip(
     token = auth_ctx.token
     is_bypass_user = _ALLOW_BYPASS and advogado_id == "bypass-admin-id"
     
-    if supabase and not is_bypass:
+    if supabase and not is_bypass_user:
         try:
             response = supabase.table('atas').insert({
                 'advogado_id': advogado_id,
@@ -331,7 +332,6 @@ async def estimate_upload(
                     'temp_path': temp_path,
                     'start_date': start_date,
                     'end_date': end_date,
-                    'token': auth_ctx.token,
                     'timestamp': time.time(),
                 })
             }).execute()
@@ -340,7 +340,7 @@ async def estimate_upload(
             logger.warning(f"[ESTIMATE] Falha ao persistir no banco, usando cache local: {e}")
             estimate_cache[ata_id] = {
                 'temp_path': temp_path, 'start_date': start_date, 'end_date': end_date,
-                'advogado_id': advogado_id, 'token': auth_ctx.token,
+                'advogado_id': advogado_id,
                 'estimated_pages': estimated_pages, 'confirmed': False,
                 'timestamp': time.time(), 'zip_filename': file.filename
             }
@@ -348,7 +348,7 @@ async def estimate_upload(
         # Bypass / no Supabase: use local cache
         estimate_cache[ata_id] = {
             'temp_path': temp_path, 'start_date': start_date, 'end_date': end_date,
-            'advogado_id': advogado_id, 'token': auth_ctx.token,
+            'advogado_id': advogado_id,
             'estimated_pages': estimated_pages, 'confirmed': False,
             'timestamp': time.time(), 'zip_filename': file.filename
         }
@@ -393,7 +393,7 @@ async def confirm_upload(
                     'start_date': meta.get('start_date'),
                     'end_date': meta.get('end_date'),
                     'advogado_id': row['advogado_id'],
-                    'token': meta.get('token', auth_ctx.token),
+                    'token': auth_ctx.token,
                     'estimated_pages': row.get('estimated_pages', 0),
                     'confirmed': False,
                     'timestamp': meta.get('timestamp', time.time()),
@@ -767,7 +767,7 @@ async def generate_pdf(
         try:
             auth_ctx.client.table("atas").update({
                 "pdf_hash": pdf_hash,
-                "pdf_gerado_em": "now()"
+                "pdf_gerado_em": datetime.now(timezone.utc).isoformat()
             }).eq("id", ata_id).execute()
             logger.info(f"[PDF] Hash salvo no banco para ata {ata_id}: {pdf_hash[:16]}...")
         except Exception as e:

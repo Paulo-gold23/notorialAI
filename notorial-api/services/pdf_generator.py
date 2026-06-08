@@ -221,18 +221,15 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_has
     sanitized_html = sanitize_user_html(html_str)
     html_for_pdf = _wrap_html_for_pdf(sanitized_html)
 
-    # ── DIAGNÓSTICO TEMPORÁRIO: salva HTML que vai para o Gotenberg ──
-    # Abra o arquivo gerado em qualquer browser para ver como o PDF deveria parecer.
-    # Se o browser mostrar todas as imagens → problema é no Gotenberg.
-    # Se o browser mostrar só 1 → problema é CSS/dados no HTML.
-    try:
-        import pathlib
-        _diag_path = pathlib.Path(__file__).parent.parent / "debug_pdf_preview.html"
-        _diag_path.write_text(html_for_pdf, encoding='utf-8')
-        logger.info(f"[PDF_DIAG] HTML salvo em: {_diag_path} ({len(html_str):,} chars, {html_str.count('<img '):} imgs)")
-    except Exception as _e:
-        logger.warning(f"[PDF_DIAG] Falha ao salvar HTML de diagnóstico: {_e}")
-    # ── FIM DIAGNÓSTICO ──
+    # Debug preview: only active when DEBUG_PDF_PREVIEW=true (never in production)
+    if os.getenv("DEBUG_PDF_PREVIEW", "false").lower() == "true":
+        try:
+            import pathlib
+            _diag_path = pathlib.Path(__file__).parent.parent / "debug_pdf_preview.html"
+            _diag_path.write_text(html_for_pdf, encoding='utf-8')
+            logger.info(f"[PDF_DIAG] HTML salvo em: {_diag_path} ({len(html_str):,} chars, {html_str.count('<img '):} imgs)")
+        except Exception as _e:
+            logger.warning(f"[PDF_DIAG] Falha ao salvar HTML de diagnóstico: {_e}")
 
 
     conferido_por = f"e conferido por <strong>{reviewer_name}</strong>" if reviewer_name else "e conferido por usuário"
