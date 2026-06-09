@@ -35,7 +35,7 @@ async def test_get_ata_status_progress_parsing():
         "status_message": "35%: Transcrevendo áudios: 1/3 (0 erros)",
         "error_message": None
     }]
-    mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = mock_response
+    mock_client.table.return_value.select.return_value.eq.return_value.is_.return_value.execute.return_value = mock_response
 
     mock_auth_ctx = MagicMock(spec=AuthContext)
     mock_auth_ctx.client = mock_client
