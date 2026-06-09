@@ -17,7 +17,7 @@ const STEPS = [
     { key: 'parsing', label: 'Extraindo mensagens', desc: 'Processando conversas e metadados' },
     { key: 'transcribing', label: 'Transcrevendo áudios', desc: 'Convertendo áudio em texto com IA' },
     { key: 'organizing', label: 'Organizando documento', desc: 'Estruturando conteúdo cronologicamente' },
-    { key: 'ready', label: 'Pronta!', desc: 'Ata gerada com sucesso' },
+    { key: 'ready', label: 'Pronto!', desc: 'Documento gerado com sucesso' },
 ];
 
 function SubtleConfetti() {
@@ -166,7 +166,7 @@ export default function Upload() {
                 if (data.status === 'ready') {
                     setUploading(false);
                     setProgress(100);
-                    toast.success('Ata processada com sucesso!');
+                    toast.success('Documento processado com sucesso!');
                 }
             } catch (err) {
                 console.error(err);

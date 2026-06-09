@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from config import settings
@@ -79,6 +79,16 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "advogado_id", "asaas_access_token", "asaas-access-token"],
 )
 
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+    return response
+
 # Import and include routers AFTER middleware
 from routers import atas, credits, webhooks, auth
 app.include_router(atas.router)
@@ -90,7 +100,6 @@ app.include_router(auth.router)
 def read_root():
     return {"status": "ok", "message": "API LegisVox is running"}
 
-from fastapi import Response, status
 @app.get("/health")
 async def health_check(response: Response):
     checks = {"api": "ok"}

@@ -35,7 +35,7 @@ export default function TutorialModal({ isOpen, onClose }) {
                     <p>O WhatsApp irá gerar automaticamente um único pacote compactado, no formato <code className="bg-black/5 dark:bg-white/5 py-0.5 px-1.5 rounded">.zip</code>.</p>
                     <p>Você pode salvar esse arquivo no seu próprio celular (ex: iCloud Drive, Google Drive, Arquivos) ou mandá-lo rapidamente para o seu Telegram / E-mail para utilizá-lo direto do escritório pelo computador.</p>
                     <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-600 dark:text-amber-500 mt-4 leading-relaxed font-medium">
-                        💡 Dica de Perícia Oficial: Nunca modifique o conteúdo das pastas e mensagens dentro do arquivo ZIP exportado, isso garante a integridade dos metadados extraídos para a ata final.
+                        💡 Dica de Perícia Oficial: Nunca modifique o conteúdo das pastas e mensagens dentro do arquivo ZIP exportado, isso garante a integridade dos metadados extraídos para o documento final.
                     </div>
                 </div>
             )
@@ -45,7 +45,7 @@ export default function TutorialModal({ isOpen, onClose }) {
             title: '3. Envie para o LegisVox',
             content: (
                 <div className="space-y-3 text-sm" style={{ color: 'var(--text-muted)' }}>
-                    <p>Com o pacote <code className="bg-black/5 dark:bg-white/5 py-0.5 px-1.5 rounded">.zip</code> em mãos, abra nossa plataforma clicando em <strong>Nova Ata</strong> no painel de conversas principal.</p>
+                    <p>Com o pacote <code className="bg-black/5 dark:bg-white/5 py-0.5 px-1.5 rounded">.zip</code> em mãos, abra nossa plataforma clicando em <strong>Novo Documento</strong> no painel principal.</p>
                     <p>Arraste o arquivo para a área de envio. A ferramenta usará nossos créditos automáticos para prever o quantitativo de páginas (folhas notariais) e, assim que você confirmar o envio, o Robô de Orquestramento fará todo o processo: parsear a conversa, criar linha cronológica e embedar as imagens formatadas no Word/PDF.</p>
                 </div>
             )

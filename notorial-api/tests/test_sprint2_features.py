@@ -65,8 +65,11 @@ async def test_list_atas_filters_deleted_at_null():
     mock_response.data = [
         {"id": "ata-1", "titulo": "Ata Ativa", "deleted_at": None}
     ]
-    # Set up mock chain: supabase.table("atas").select("*").is_("deleted_at", "null").execute()
-    mock_client.table.return_value.select.return_value.is_.return_value.execute.return_value = mock_response
+    # Set up mock chain with order and range pagination
+    mock_is = mock_client.table.return_value.select.return_value.is_
+    mock_order = mock_is.return_value.order
+    mock_range = mock_order.return_value.range
+    mock_range.return_value.execute.return_value = mock_response
 
     mock_auth_ctx = MagicMock(spec=AuthContext)
     mock_auth_ctx.client = mock_client
@@ -75,30 +78,42 @@ async def test_list_atas_filters_deleted_at_null():
     res = await list_atas(auth_ctx=mock_auth_ctx)
     assert len(res) == 1
     assert res[0]["id"] == "ata-1"
-    # Verify that .is_("deleted_at", "null") was called in the chain
+    # Verify that the correct chain was called
     mock_client.table.assert_called_with("atas")
     mock_client.table.return_value.select.assert_called_with("*")
-    mock_client.table.return_value.select.return_value.is_.assert_called_with("deleted_at", "null")
+    mock_is.assert_called_with("deleted_at", "null")
+    mock_order.assert_called_with("created_at", desc=True)
+    mock_range.assert_called_with(0, 49)
 
 
 @pytest.mark.asyncio
 async def test_delete_ata_performs_soft_delete():
+    import uuid
+    valid_ata_id = str(uuid.uuid4())
+
     mock_client = MagicMock()
-    # Set up mock chain: supabase.table("atas").update({...}).eq("id", "ata-1").execute()
-    mock_client.table.return_value.update.return_value.eq.return_value.execute = MagicMock()
+    # Mock the ownership check chain: .select().eq().eq().is_().execute()
+    mock_select_chain = MagicMock()
+    mock_select_chain.execute.return_value.data = [{"id": valid_ata_id}]
+    mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.is_.return_value = mock_select_chain
+
+    # Mock the update chain: .update().eq().eq().execute()
+    mock_update_chain = MagicMock()
+    mock_update_chain.execute.return_value.data = [{"id": valid_ata_id, "deleted_at": "2026-01-01T00:00:00Z"}]
+    mock_client.table.return_value.update.return_value.eq.return_value.eq.return_value = mock_update_chain
 
     mock_auth_ctx = MagicMock(spec=AuthContext)
     mock_auth_ctx.client = mock_client
     mock_auth_ctx.advogado_id = "test-advogado"
 
-    res = await delete_ata(ata_id="ata-1", auth_ctx=mock_auth_ctx)
+    # Patch get_supabase_admin_client to return None so fallback user-token path is tested
+    with patch("routers.atas.get_supabase_admin_client", return_value=None):
+        res = await delete_ata(ata_id=valid_ata_id, auth_ctx=mock_auth_ctx)
+
     assert res == {"status": "success"}
 
     # Verify that update was called with a deleted_at timestamp
-    mock_client.table.assert_called_with("atas")
-    # Retrieve arguments of update call
     update_args = mock_client.table.return_value.update.call_args[0][0]
     assert "deleted_at" in update_args
     assert isinstance(update_args["deleted_at"], str)
-    # Verify eq was called with correct ID
-    mock_client.table.return_value.update.return_value.eq.assert_called_with("id", "ata-1")
+

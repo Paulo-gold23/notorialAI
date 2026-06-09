@@ -16,75 +16,30 @@ logger = logging.getLogger(__name__)
 # Prompts - equivalentes aos que rodavam no n8n
 # ===========================================================================
 
-# Regras partilhadas por ambos os prompts.
-# Modificar aqui aplica automaticamente ao formal E ao preparatório.
-_SHARED_RULES = """\
+# Carrega os prompts dinamicamente de arquivos externos para facilidade de edição e redução do tamanho do código
+from pathlib import Path
+
+def _load_prompt(name: str) -> str:
+    path = Path(__file__).parent.parent / "prompts" / f"{name}.md"
+    return path.read_text(encoding="utf-8")
+
+try:
+    _SHARED_RULES = _load_prompt("shared_rules")
+    PROMPT_PREPARATORIO = _load_prompt("preparatorio").replace("{{SHARED_RULES}}", _SHARED_RULES)
+except Exception as e:
+    logger.error(f"Erro ao carregar prompts externos: {e}")
+    # Fallback inline para segurança contra falhas de IO
+    _SHARED_RULES = """\
 -----------------------
 REGRAS ABSOLUTAS (CRÍTICO)
 -----------------------
 1. PROIBIDO interpretar, resumir ou corrigir qualquer conteúdo.
-2. PROIBIDO alterar nomes de remetentes. O remetente é SEMPRE o texto antes dos dois pontos ":". Nunca altere, substitua ou tente "corrigir".
+2. PROIBIDO alterar nomes de remetentes.
 3. PROIBIDO inferir contexto.
 4. PROIBIDO agrupar mensagens.
-5. PROIBIDO omitir qualquer linha. A quantidade de linhas de saída DEVE ser igual à quantidade de mensagens relevantes do input.
-6. PROIBIDO reorganizar por data ou lógica. A ordem correta é EXATAMENTE a ordem das linhas do texto fornecido. Ignore timestamps como critério de ordenação.
-
------------------------
-MÍDIAS (CRÍTICO)
------------------------
-Toda linha que contém marcadores de mídia (como "%%IMG_N%%", "%%AUDIO_N%%", "[Documento: ...]") DEVE obrigatoriamente aparecer no resultado na exata mesma ordem.
-NUNCA reduza múltiplas linhas de mídia em uma só. Se existirem 7 imagens no texto original, devem existir 7 marcadores distintos na saída, preservando-os.
-
------------------------
-FORMATO DE SAÍDA OBRIGATÓRIO
------------------------
-Agrupe por dia usando: `### DD/MM/AAAA`
-
-Para cada linha, use o formato:
-`[DD/MM/AAAA HH:MM] REMETENTE: **"CONTEÚDO"**`
-(O conteúdo textual deve estar SEMPRE entre aspas e em **negrito**)
-
-Se for mídia, mantenha EXATAMENTE o marcador fornecido (NÃO use negrito nos marcadores):
-`[DD/MM/AAAA HH:MM] REMETENTE: %%IMG_N%%`
-ou
-`[DD/MM/AAAA HH:MM] REMETENTE: %%AUDIO_N%% "transcrição se existir"`
-ou
-`[DD/MM/AAAA HH:MM] REMETENTE: [Documento: nome_do_arquivo]`"""
-
-
-
-PROMPT_PREPARATORIO = f"""Você é um assistente jurídico especializado.
-Sua tarefa: organizar a conversa de WhatsApp abaixo de forma ESTRUTURADA para um advogado ler e preparar a ata notarial.
-
-{_SHARED_RULES}
-
-ÍNDICE NAVEGÁVEL (apenas na primeira parte):
-- Incluir no início um índice com links para os dias. Ex: `[02/08/2021](#data-02082021)`
-
-ESTRUTURA:
-# Relatório Preparatório
-## Participantes
-- [Nome do Participante] ([Número de Telefone])
-## Índice
-- ...
-## Conteúdo Organizado
-### DD/MM/AAAA
-[02/08/2021 10:00] Carlos: **"Mensagem..."**
-
-CRÍTICO: NÃO gere seção de Conclusão ou Análise.
-
-PARTICIPANTES OBRIGATÓRIO: Copie EXATAMENTE a lista fornecida. Se o nome não tiver número associado, adicione **[INSIRA NUMERO AQUI]** ao lado para preenchimento manual do advogado. 
-REGRA DE SIGILO (CRÍTICO): NUNCA censure, abrevie ou trunque os números de telefone originais.
-
------------------------
-VERIFICAÇÃO FINAL (OBRIGATÓRIA)
------------------------
-Antes de finalizar, valide internamente:
-- A quantidade de linhas de saída é igual à do input?
-- Nenhum remetente foi alterado?
-- Nenhuma mídia foi omitida ou agrupada?
-- A ordem é idêntica ao input?
-Se qualquer uma falhar, corrija antes de responder."""
+5. PROIBIDO omitir qualquer linha.
+6. PROIBIDO reorganizar por data ou lógica."""
+    PROMPT_PREPARATORIO = f"Você é um assistente jurídico especializado.\n\n{_SHARED_RULES}"
 
 # ===========================================================================
 # Converter chat parsed -> texto limpo para a IA (economiza tokens)
@@ -526,12 +481,12 @@ def _restore_audio_markers(html_text: str, audio_schedule: list[dict]) -> str:
         ts_display  = f"[{ts}] " if ts else ""
         if transcricao:
             return (
-                f'<p><strong>\U0001f399\ufe0f {ts_display}{remetente}: '
-                f'&ldquo;{transcricao}&rdquo;</strong></p>'
+                f'<p>\U0001f399\ufe0f \u00c1udio Transcrito &mdash; {ts_display}{remetente}: '
+                f'<strong>&ldquo;{transcricao}&rdquo;</strong></p>'
             )
         return (
-            f'<p><strong>\U0001f399\ufe0f {ts_display}{remetente}: '
-            f'(\u00e1udio sem transcri\u00e7\u00e3o)</strong></p>'
+            f'<p>\U0001f399\ufe0f \u00c1udio Transcrito &mdash; {ts_display}{remetente}: '
+            f'<em>(\u00e1udio sem transcri\u00e7\u00e3o)</em></p>'
         )
 
     for line in lines:

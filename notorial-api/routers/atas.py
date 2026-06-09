@@ -1,11 +1,14 @@
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status, Request
 from pydantic import BaseModel
 from middleware.auth import get_current_user_id
-from database import get_supabase_client
+from database import get_supabase_client, get_supabase_admin_client
 from services.whatsapp_parser import parse_whatsapp_zip
 from services.pipeline_orchestrator import local_results, _process_pipeline
-from services.pdf_generator import generate_pdf_from_html
+from services.pdf_generator import generate_pdf_from_html, PdfGenerationError
 from services.credits import credits_service
+from services.upload_service import save_upload_file_with_limit_and_hash
+from services.estimate_service import estimate_cache, ESTIMATE_CACHE_TTL, cleanup_estimate_cache
+from services.pdf_cache_service import pdf_cache, PDF_CACHE_TTL, _PDF_STORAGE_BUCKET, cleanup_pdf_cache
 import logging
 import uuid
 import time
@@ -22,19 +25,7 @@ logger = logging.getLogger(__name__)
 
 # ── Security constants ──
 MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500 MB max upload
-PDF_CACHE_TTL = 3600  # 1 hour TTL for cached PDFs
 _ALLOW_BYPASS = os.getenv("ALLOW_TEST_BYPASS", "false").lower() == "true"
-
-# In-memory PDF cache — stores metadata only when Supabase Storage is available.
-# Fallback: stores full bytes when Storage is unavailable (bypass/local mode).
-# Format: {pdf_id: {"ts": float, "owner": str, "bytes": Optional[bytes]}}
-pdf_cache = {}
-_PDF_STORAGE_BUCKET = "pdfs-temp"
-
-# Estimate fallback cache — only used when Supabase is unavailable (bypass/local mode)
-# In production with Supabase, estimate metadata is persisted in the atas table.
-estimate_cache = {}
-ESTIMATE_CACHE_TTL = 600  # 10 minutes
 
 class AtaContentUpdate(BaseModel):
     tipo: str
@@ -76,12 +67,22 @@ def get_auth_context(request: Request, advogado_id: str = Depends(get_current_us
 # ══════════════════════════════════════════════════════════════════
 
 @router.get("")
-async def list_atas(auth_ctx: AuthContext = Depends(get_auth_context)):
-    """Lista todas as atas do advogado (excluindo soft-deleted)."""
+async def list_atas(
+    page: int = 1,
+    per_page: int = 50,
+    auth_ctx: AuthContext = Depends(get_auth_context)
+):
+    """Lista todas as atas do advogado (excluindo soft-deleted) com paginação."""
     supabase = auth_ctx.client
     if supabase:
         try:
-            res = supabase.table("atas").select("*").is_("deleted_at", "null").execute()
+            offset = (page - 1) * per_page
+            res = supabase.table("atas") \
+                .select("*") \
+                .is_("deleted_at", "null") \
+                .order("created_at", desc=True) \
+                .range(offset, offset + per_page - 1) \
+                .execute()
             return res.data or []
         except Exception as e:
             logger.error(f"Erro ao listar atas: {e}")
@@ -102,21 +103,53 @@ async def list_atas(auth_ctx: AuthContext = Depends(get_auth_context)):
 
 @router.delete("/{ata_id}")
 async def delete_ata(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_context)):
-    """Deleta logicamente (soft delete) uma ata."""
+    """Deleta logicamente (soft delete) um documento."""
+    advogado_id = auth_ctx.advogado_id
     supabase = auth_ctx.client
-    if supabase:
+
+    if supabase and advogado_id:
         try:
-            # Faz soft delete da ata, definindo deleted_at (preserva transações financeiras para auditoria)
-            supabase.table("atas").update({
-                "deleted_at": datetime.now(timezone.utc).isoformat()
-            }).eq("id", ata_id).execute()
+            # Verifica se o documento existe e pertence ao usuário antes de deletar
+            check = supabase.table("atas") \
+                .select("id") \
+                .eq("id", ata_id) \
+                .eq("advogado_id", advogado_id) \
+                .is_("deleted_at", "null") \
+                .execute()
+
+            if not check.data:
+                logger.warning(f"[DELETE] Documento {ata_id} não encontrado ou não pertence ao usuário {advogado_id}")
+                raise HTTPException(status_code=404, detail="Documento não encontrado")
+
+            # Usa service-role client para contornar RLS no soft delete
+            # (A policy de UPDATE do RLS filtra linhas onde deleted_at IS NULL,
+            # mas o WITH CHECK não permite que o campo seja alterado pelo user token.
+            # O controle de posse já foi verificado acima.)
+            admin_client = get_supabase_admin_client()
+            if admin_client:
+                res = admin_client.table("atas").update({
+                    "deleted_at": datetime.now(timezone.utc).isoformat()
+                }).eq("id", ata_id).eq("advogado_id", advogado_id).execute()
+                logger.info(f"[DELETE] Documento {ata_id} marcado como deletado via admin client")
+            else:
+                # Fallback para user token se admin não disponível
+                res = supabase.table("atas").update({
+                    "deleted_at": datetime.now(timezone.utc).isoformat()
+                }).eq("id", ata_id).eq("advogado_id", advogado_id).execute()
+
+                if not res.data:
+                    logger.error(f"[DELETE] Soft delete não teve efeito para ata {ata_id} — verifique a RLS policy")
+                    raise HTTPException(status_code=500, detail="Falha ao excluir o documento. Tente novamente.")
+
+        except HTTPException:
+            raise
         except Exception as e:
-            logger.error(f"Erro ao deletar ata {ata_id}: {e}")
-            raise HTTPException(status_code=500, detail="Erro ao deletar ata do banco de dados")
-    
+            logger.error(f"[DELETE] Erro ao deletar documento {ata_id}: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao excluir o documento do banco de dados")
+
     if ata_id in local_results:
         del local_results[ata_id]
-        
+
     return {"status": "success"}
 
 @router.post("/upload")
@@ -211,35 +244,6 @@ async def upload_whatsapp_zip(
 class ConfirmUploadRequest(BaseModel):
     ata_id: str
 
-def save_upload_file_with_limit_and_hash(upload_file, destination_path, max_size):
-    """Save upload file to disk chunk by chunk, returning size and hash."""
-    size = 0
-    sha256_hash = hashlib.sha256()
-    with open(destination_path, "wb") as buffer:
-        while chunk := upload_file.file.read(1024 * 1024):
-            size += len(chunk)
-            if size > max_size:
-                raise ValueError(f"Arquivo muito grande ({size / (1024 * 1024):.0f}MB). Limite máximo: {max_size // (1024*1024)}MB")
-            sha256_hash.update(chunk)
-            buffer.write(chunk)
-    return size, sha256_hash.hexdigest()
-
-def _cleanup_estimate_cache():
-    """Remove expired estimates and their temp files."""
-    now = time.time()
-    expired = []
-    for eid, data in estimate_cache.items():
-        if now - data["timestamp"] > ESTIMATE_CACHE_TTL:
-            expired.append(eid)
-    for eid in expired:
-        data = estimate_cache.pop(eid)
-        if "temp_path" in data and os.path.exists(data["temp_path"]):
-            try:
-                os.remove(data["temp_path"])
-            except Exception as e:
-                logger.error(f"Erro ao remover arquivo temporario {data['temp_path']}: {e}")
-    if expired:
-        logger.info(f"Cleaned up {len(expired)} expired estimates from cache")
 
 
 @router.post("/upload/estimate")
@@ -312,7 +316,7 @@ async def estimate_upload(
 
     # Generate temporary ID and store estimate metadata
     ata_id = str(uuid.uuid4())
-    _cleanup_estimate_cache()
+    cleanup_estimate_cache()
 
     supabase = auth_ctx.client
     is_bypass = _ALLOW_BYPASS and advogado_id == "bypass-admin-id"
@@ -763,7 +767,15 @@ async def generate_pdf(
         except Exception as e:
             logger.warning(f"[{ata_id}] Falha ao mesclar HTML com banco para PDF (usando original do frontend): {e}")
 
-    pdf_bytes, pdf_hash = await generate_pdf_from_html(html_for_pdf, reviewer_name=reviewer, zip_hash=zip_hash)
+    try:
+        pdf_bytes, pdf_hash = await generate_pdf_from_html(html_for_pdf, reviewer_name=reviewer, zip_hash=zip_hash)
+    except PdfGenerationError as e:
+        logger.error(f"[PDF] Falha na geração do PDF para ata {ata_id}: {e}")
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"[PDF] Erro inesperado ao gerar PDF para ata {ata_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro interno inesperado ao gerar o PDF")
+
     if not pdf_bytes:
         raise HTTPException(status_code=500, detail="Erro ao gerar PDF")
 
@@ -811,7 +823,7 @@ async def generate_pdf(
             logger.warning(f"[REFUND] Falha ao processar reembolso: {e}")
 
     # Cleanup expired PDFs before adding new one.
-    _cleanup_pdf_cache()
+    cleanup_pdf_cache()
 
     pdf_id = str(uuid.uuid4())
     owner_id = auth_ctx.advogado_id
@@ -852,22 +864,6 @@ async def generate_pdf(
     }
 
 
-def _cleanup_pdf_cache():
-    """Remove PDFs que excederam o TTL (e seus arquivos no Storage)."""
-    now = time.time()
-    expired = [pid for pid, meta in pdf_cache.items() if now - meta["ts"] > PDF_CACHE_TTL]
-    for pid in expired:
-        meta = pdf_cache.pop(pid)
-        # Se estava no Storage, tenta remover (best-effort).
-        supabase = get_supabase_client()
-        if supabase and not meta.get("bytes"):
-            try:
-                path = f"{meta['owner']}/{pid}.pdf"
-                supabase.storage.from_(_PDF_STORAGE_BUCKET).remove([path])
-            except Exception:
-                pass
-    if expired:
-        logger.info(f"Cleaned up {len(expired)} expired PDFs from cache")
 
 
 @router.get("/download/{pdf_id}")

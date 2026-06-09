@@ -25,6 +25,11 @@ import {
 import Logo from '../components/Logo';
 import { supabase } from '../services/supabase';
 import ResetSignaturePinModal from '../components/ResetSignaturePinModal';
+import SignaturePinSetupModal from '../components/SignaturePinPromptModal';
+import TermsAcceptanceModal from '../components/review/TermsAcceptanceModal';
+import PinVerificationModal from '../components/review/PinVerificationModal';
+import CreditReportModal from '../components/review/CreditReportModal';
+import MissingNumbersModal from '../components/review/MissingNumbersModal';
 import { getDeviceFingerprint } from '../services/fingerprint';
 
 function normalizeEditorContent(value) {
@@ -97,18 +102,16 @@ export default function Review() {
     const [hasScroll, setHasScroll] = useState(false);
     // termsModal: null | 'save' | 'pdf_preparatorio' | 'pdf_formal'
     const [termsModal, setTermsModal] = useState(null);
-    const [termsChecked, setTermsChecked] = useState(false);
     
     // States for Signature PIN verification
     const [showPinConfirm, setShowPinConfirm] = useState(null); // callback to run on success
-    const [pinInput, setPinInput] = useState(['', '', '', '']);
-    const [pinError, setPinError] = useState('');
-    const [verifyingPin, setVerifyingPin] = useState(false);
     const [showResetPinModal, setShowResetPinModal] = useState(false);
     const [isPinBlocked, setIsPinBlocked] = useState(false);
+    const [hasPinConfigured, setHasPinConfigured] = useState(true); // assume true until loaded
+    const [showPinSetup, setShowPinSetup] = useState(false); // for first-time PIN creation
+    const [pendingPinCallback, setPendingPinCallback] = useState(null); // callback after setup
     // Credit report after PDF generation
     const [creditReport, setCreditReport] = useState(null);
-    const [termsScrolledToBottom, setTermsScrolledToBottom] = useState(false);
     const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
     const [missingNumbersModal, setMissingNumbersModal] = useState({ isOpen: false, matches: [] });
 
@@ -367,11 +370,12 @@ export default function Review() {
             if (user) {
                 const { data } = await supabase
                     .from('advogados')
-                    .select('senha_assinatura_bloqueado')
+                    .select('senha_assinatura_bloqueado, senha_assinatura_hash')
                     .eq('id', user.id)
                     .single();
                 if (data) {
                     setIsPinBlocked(data.senha_assinatura_bloqueado);
+                    setHasPinConfigured(!!data.senha_assinatura_hash);
                 }
             }
         } catch (err) {
@@ -407,49 +411,12 @@ export default function Review() {
     }, [activeTab, conteudo, editor]);
 
     const triggerPinVerification = (callback) => {
-        setPinInput(['', '', '', '']);
-        setPinError('');
-        setVerifyingPin(false);
-        setShowPinConfirm(() => callback);
-    };
-
-    const handlePinVerifySubmit = async (e) => {
-        if (e) e.preventDefault();
-        setVerifyingPin(true);
-        setPinError('');
-        try {
-            const fingerprint = await getDeviceFingerprint();
-            const rawPin = pinInput.join('');
-            
-            if (rawPin.length !== 4) {
-                setPinError('O PIN deve ter 4 dígitos.');
-                setVerifyingPin(false);
-                return;
-            }
-
-            await apiRequest('/api/auth/signature-pin/verify', {
-                method: 'POST',
-                body: JSON.stringify({
-                    pin: rawPin,
-                    device_fingerprint: fingerprint
-                })
-            });
-
-            // If success, run callback and clear modal
-            const callback = showPinConfirm;
-            setShowPinConfirm(null);
-            setPinInput(['', '', '', '']);
-            if (callback) {
-                await callback();
-            }
-        } catch (err) {
-            setPinError(err.message || 'Senha de assinatura incorreta.');
-            setPinInput(['', '', '', '']);
-            if (err.message && err.message.includes('bloqueada')) {
-                setIsPinBlocked(true);
-            }
-        } finally {
-            setVerifyingPin(false);
+        if (!hasPinConfigured) {
+            // User has no PIN yet — show setup modal first
+            setPendingPinCallback(() => callback);
+            setShowPinSetup(true);
+        } else {
+            setShowPinConfirm(() => callback);
         }
     };
 
@@ -457,8 +424,6 @@ export default function Review() {
         if (hasAcceptedTerms) {
             triggerPinVerification(_doSave);
         } else {
-            setTermsChecked(false);
-            setTermsScrolledToBottom(false);
             setTermsModal('save');
         }
     };
@@ -488,8 +453,6 @@ export default function Review() {
             triggerPinVerification(() => _doGeneratePdf(tipo));
         } else {
             // Abre modal de termos antes de gerar o PDF
-            setTermsChecked(false);
-            setTermsScrolledToBottom(false);
             setTermsModal(`pdf_${tipo}`);
         }
     };
@@ -570,7 +533,6 @@ export default function Review() {
     const handleTermsConfirm = async () => {
         const action = termsModal;
         setTermsModal(null);
-        setTermsChecked(false);
         setHasAcceptedTerms(true);
         
         try {
@@ -880,458 +842,26 @@ export default function Review() {
                 </button>
             </div>
 
+            <MissingNumbersModal
+                isOpen={missingNumbersModal.isOpen}
+                matches={missingNumbersModal.matches}
+                onMatchesChange={(newMatches) => setMissingNumbersModal({ ...missingNumbersModal, matches: newMatches })}
+                onClose={() => setMissingNumbersModal({ isOpen: false, matches: [] })}
+                onConfirm={handleConfirmFillNumbers}
+            />
 
+            <TermsAcceptanceModal
+                isOpen={!!termsModal}
+                action={termsModal}
+                onClose={() => setTermsModal(null)}
+                onConfirm={handleTermsConfirm}
+            />
 
-            {/* Missing Numbers Modal */}
-            {missingNumbersModal.isOpen && (
-                <div style={{
-                    position: 'fixed', inset: 0, zIndex: 9999,
-                    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    padding: '1rem',
-                    animation: 'fadeIn 0.2s ease-out',
-                }}>
-                    <div style={{
-                        background: 'var(--panel-bg)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: '1rem',
-                        padding: '2rem',
-                        maxWidth: '500px',
-                        width: '100%',
-                        boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
-                        animation: 'slideUp 0.25s ease-out',
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
-                            <div style={{
-                                width: 40, height: 40, borderRadius: '0.6rem',
-                                background: 'var(--primary-glow)',
-                                border: '1px solid rgba(59,130,246,0.3)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                color: 'var(--primary-color)', flexShrink: 0,
-                            }}>
-                                <Phone size={20} />
-                            </div>
-                            <div>
-                                <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                                    Preencher Números Faltantes
-                                </h2>
-                                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                                    Insira os dados dos participantes pendentes
-                                </p>
-                            </div>
-                        </div>
-
-                        <div style={{ 
-                            maxHeight: '350px', overflowY: 'auto', 
-                            paddingRight: '0.5rem', marginBottom: '1.5rem',
-                            display: 'flex', flexDirection: 'column', gap: '1rem'
-                        }}>
-                            {missingNumbersModal.matches.map((match, index) => (
-                                <div key={index} style={{
-                                    background: 'var(--surface-color)',
-                                    border: '1px solid var(--border-color)',
-                                    borderRadius: '0.6rem',
-                                    padding: '1rem',
-                                }}>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-main)' }}>
-                                        {match.name}
-                                    </label>
-                                    <input
-                                        type="text"
-                                        placeholder="(00) 00000-0000"
-                                        maxLength="15"
-                                        value={match.value}
-                                        onChange={(e) => {
-                                            const newMatches = [...missingNumbersModal.matches];
-                                            newMatches[index].value = formatPhone(e.target.value);
-                                            setMissingNumbersModal({ ...missingNumbersModal, matches: newMatches });
-                                        }}
-                                        style={{
-                                            width: '100%',
-                                            padding: '0.6rem 0.8rem',
-                                            background: 'var(--panel-bg)',
-                                            border: '1px solid var(--border-color)',
-                                            borderRadius: '0.4rem',
-                                            color: 'var(--text-main)',
-                                            fontSize: '0.9rem',
-                                            outline: 'none',
-                                            transition: 'border-color 0.2s',
-                                        }}
-                                        onFocus={e => e.target.style.borderColor = 'var(--primary-color)'}
-                                        onBlur={e => e.target.style.borderColor = 'var(--border-color)'}
-                                    />
-                                </div>
-                            ))}
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
-                            <button
-                                className="btn-secondary"
-                                onClick={() => setMissingNumbersModal({ isOpen: false, matches: [] })}
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                className="btn-gradient"
-                                onClick={handleConfirmFillNumbers}
-                            >
-                                <Check size={16} /> Confirmar Substituição
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Terms Modal */}
-            {termsModal && (
-                <div style={{
-                    position: 'fixed', inset: 0, zIndex: 9999,
-                    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    padding: '1rem',
-                    animation: 'fadeIn 0.2s ease-out',
-                }}>
-                    <div style={{
-                        background: 'var(--panel-bg)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: '1rem',
-                        padding: '2rem',
-                        maxWidth: '540px',
-                        width: '100%',
-                        boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
-                        animation: 'slideUp 0.25s ease-out',
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
-                            <div style={{
-                                width: 40, height: 40, borderRadius: '0.6rem',
-                                background: 'var(--primary-glow)',
-                                border: '1px solid rgba(59,130,246,0.3)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                color: 'var(--primary-color)', flexShrink: 0,
-                            }}>
-                                <FileText size={20} />
-                            </div>
-                            <div>
-                                <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>
-                                    Termo de Responsabilidade
-                                </h2>
-                                <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                                    Leia e aceite antes de continuar
-                                </p>
-                            </div>
-                        </div>
-
-                        <div 
-                            ref={(el) => {
-                                if (el && el.scrollHeight <= el.clientHeight) {
-                                    setTermsScrolledToBottom(true);
-                                }
-                            }}
-                            onScroll={(e) => {
-                                const { scrollTop, scrollHeight, clientHeight } = e.target;
-                                if (Math.ceil(scrollTop + clientHeight) >= scrollHeight - 20) {
-                                    setTermsScrolledToBottom(true);
-                                }
-                            }}
-                            style={{
-                            background: 'var(--surface-color)',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: '0.6rem',
-                            padding: '1.1rem 1.25rem',
-                            fontSize: '0.82rem',
-                            lineHeight: 1.6,
-                            color: 'var(--text-main)',
-                            marginBottom: '1.25rem',
-                            maxHeight: '260px',
-                            overflowY: 'auto',
-                            scrollBehavior: 'smooth',
-                        }}>
-                            <p style={{ margin: '0 0 0.75rem', fontWeight: 700, textAlign: 'center' }}>TERMO DE RESPONSABILIDADE, CONFORMIDADE E DECLARAÇÃO DE VERACIDADE</p>
-                            <p style={{ margin: '0 0 0.75rem', textAlign: 'justify' }}>
-                                Ao confirmar a geração deste documento, o responsável pela presente ação declara expressamente que:
-                            </p>
-                            <ol style={{ margin: '0 0 0.75rem', paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.6rem', textAlign: 'justify' }}>
-                                <li><strong>Revisão e Validação Integral:</strong> Realizou a conferência exaustiva de todo o conteúdo exibido no editor, atestando a veracidade, completude, integridade e fidelidade das informações apresentadas em relação aos fatos e dados reais.</li>
-                                <li><strong>Ciência de Processamento Automatizado:</strong> Compreende que o documento é fruto de processamento tecnológico e transcrições automáticas, estando ciente de que tais ferramentas podem apresentar imprecisões. Reconhece que a validação final e a correção de eventuais erros são deveres indelegáveis do usuário.</li>
-                                <li><strong>Responsabilidade Plena (Civil, Administrativa e Criminal):</strong> Assume integral e exclusiva responsabilidade civil, administrativa e criminal, ética e profissional pelo conteúdo e pelo uso do documento gerado. Declara-se ciente de que a inserção de informações falsas ou a omissão de dados relevantes pode configurar ilícitos (como falsidade ideológica), isentando os desenvolvedores de qualquer solidariedade por danos ou irregularidades.</li>
-                                <li><strong>Controle de Dados e LGPD:</strong> Declara-se, para fins da Lei nº 13.709/2018 (LGPD), como o único Controlador dos dados inseridos, garantindo possuir base legal ou consentimento explícito para o tratamento de dados de terceiros, eximindo a plataforma de responsabilidade sobre a origem ou legitimidade desses dados.</li>
-                                <li><strong>Sigilo e Confidencialidade:</strong> Compromete-se a manter o sigilo sobre informações sensíveis contidas no documento, declarando que possui autorização hierárquica ou legal para o processamento de tais dados em ambiente digital.</li>
-                                <li><strong>Dever de Indenização:</strong> Obriga-se a manter a plataforma e seus desenvolvedores indenes de qualquer prejuízo, comprometendo-se a ressarcir quaisquer custos, honorários ou indenizações decorrentes de ações judiciais ou administrativas causadas pelo uso indevido deste documento.</li>
-                                <li><strong>Irretratabilidade e Registro de Autoria:</strong> Reconhece que este aceite eletrônico é irretratável e será vinculado ao documento final, servindo como prova de autoria, revisão e concordância irrestrita com todos os termos aqui descritos.</li>
-                            </ol>
-                        </div>
-
-                        <label style={{
-                            display: 'flex', alignItems: 'center', gap: '0.75rem',
-                            cursor: termsScrolledToBottom ? 'pointer' : 'not-allowed', marginBottom: '1.5rem',
-                            padding: '0.9rem 1rem',
-                            background: termsChecked ? 'rgba(59,130,246,0.08)' : 'var(--surface-color)',
-                            border: `1px solid ${termsChecked ? 'rgba(59,130,246,0.4)' : 'var(--border-color)'}`,
-                            borderRadius: '0.6rem',
-                            transition: 'all 0.2s',
-                            opacity: termsScrolledToBottom ? 1 : 0.6,
-                        }}>
-                            <input
-                                type="checkbox"
-                                checked={termsChecked}
-                                disabled={!termsScrolledToBottom}
-                                onChange={e => setTermsChecked(e.target.checked)}
-                                style={{ width: '1.1rem', height: '1.1rem', marginTop: '0.1rem', accentColor: 'var(--primary-color)', flexShrink: 0, cursor: termsScrolledToBottom ? 'pointer' : 'not-allowed' }}
-                            />
-                            <span style={{ fontSize: '0.88rem', lineHeight: 1.4, color: termsScrolledToBottom ? 'var(--text-main)' : 'var(--text-muted)' }}>
-                                {termsScrolledToBottom 
-                                    ? "Li, compreendi e aceito os termos acima, assumindo total responsabilidade pelo conteúdo a ser gerado."
-                                    : "Role a barra de texto acima até o final para liberar o aceite."}
-                            </span>
-                        </label>
-
-                        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
-                            <button
-                                className="btn-secondary"
-                                onClick={() => { setTermsModal(null); setTermsChecked(false); }}
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                className="btn-gradient"
-                                disabled={!termsChecked}
-                                onClick={handleTermsConfirm}
-                                style={{ opacity: termsChecked ? 1 : 0.5, cursor: termsChecked ? 'pointer' : 'not-allowed' }}
-                            >
-                                {termsModal === 'save' ? (
-                                    <><Save size={15} /> Aceitar e Salvar</>
-                                ) : (
-                                    <><FileText size={15} /> Aceitar e Gerar PDF</>
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Credit Report Modal */}
-            {creditReport && (
-                <div style={{
-                    position: 'fixed', inset: 0, zIndex: 9999,
-                    background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    padding: '1rem',
-                    animation: 'fadeIn 0.2s ease-out',
-                }}>
-                    <div style={{
-                        background: 'var(--panel-bg)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: '1rem',
-                        padding: '2rem',
-                        maxWidth: '440px',
-                        width: '100%',
-                        boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
-                        animation: 'slideUp 0.3s ease-out',
-                    }}>
-                        {/* Header */}
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                                <div style={{
-                                    width: 44, height: 44, borderRadius: '0.7rem',
-                                    background: 'linear-gradient(135deg, rgba(59,130,246,0.15), rgba(16,185,129,0.15))',
-                                    border: '1px solid rgba(59,130,246,0.25)',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    color: 'var(--primary-color)', flexShrink: 0,
-                                }}>
-                                    <Coins size={22} />
-                                </div>
-                                <div>
-                                    <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>
-                                        Relatório de Créditos
-                                    </h2>
-                                    <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                        PDF gerado com sucesso
-                                    </p>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => setCreditReport(null)}
-                                style={{
-                                    background: 'var(--surface-color)',
-                                    border: '1px solid var(--border-color)',
-                                    borderRadius: '0.5rem',
-                                    width: 32, height: 32,
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    cursor: 'pointer', color: 'var(--text-muted)',
-                                    transition: 'all 0.15s',
-                                }}
-                                onMouseOver={e => { e.currentTarget.style.color = 'var(--text-main)'; e.currentTarget.style.borderColor = 'var(--text-muted)'; }}
-                                onMouseOut={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
-                            >
-                                <X size={16} />
-                            </button>
-                        </div>
-
-                        {/* Stats Grid */}
-                        <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: creditReport.refunded > 0 ? '1fr 1fr' : '1fr 1fr',
-                            gap: '0.75rem',
-                            marginBottom: '1.25rem',
-                        }}>
-                            {/* Créditos Cobrados */}
-                            <div style={{
-                                padding: '1rem',
-                                borderRadius: '0.75rem',
-                                background: 'var(--surface-color)',
-                                border: '1px solid var(--border-color)',
-                                textAlign: 'center',
-                            }}>
-                                <div style={{
-                                    width: 36, height: 36, borderRadius: '50%',
-                                    background: 'rgba(59,130,246,0.12)',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    margin: '0 auto 0.5rem',
-                                    color: 'var(--primary-color)',
-                                }}>
-                                    <Coins size={18} />
-                                </div>
-                                <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--primary-color)', lineHeight: 1 }}>
-                                    {creditReport.estimated}
-                                </div>
-                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>
-                                    Créditos Cobrados
-                                </div>
-                            </div>
-
-                            {/* Páginas Geradas */}
-                            <div style={{
-                                padding: '1rem',
-                                borderRadius: '0.75rem',
-                                background: 'var(--surface-color)',
-                                border: '1px solid var(--border-color)',
-                                textAlign: 'center',
-                            }}>
-                                <div style={{
-                                    width: 36, height: 36, borderRadius: '50%',
-                                    background: 'rgba(16,185,129,0.12)',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    margin: '0 auto 0.5rem',
-                                    color: 'var(--success)',
-                                }}>
-                                    <FileText size={18} />
-                                </div>
-                                <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--success)', lineHeight: 1 }}>
-                                    {creditReport.actual || '?'}
-                                </div>
-                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>
-                                    Páginas no PDF
-                                </div>
-                            </div>
-
-                            {/* Reembolso (condicional) */}
-                            {creditReport.refunded > 0 && (
-                                <div style={{
-                                    padding: '1rem',
-                                    borderRadius: '0.75rem',
-                                    background: 'rgba(250,204,21,0.06)',
-                                    border: '1px solid rgba(250,204,21,0.2)',
-                                    textAlign: 'center',
-                                }}>
-                                    <div style={{
-                                        width: 36, height: 36, borderRadius: '50%',
-                                        background: 'rgba(250,204,21,0.15)',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        margin: '0 auto 0.5rem',
-                                        color: '#eab308',
-                                    }}>
-                                        <RefreshCw size={18} />
-                                    </div>
-                                    <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#eab308', lineHeight: 1 }}>
-                                        +{creditReport.refunded}
-                                    </div>
-                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>
-                                        Devolvidos
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        <div style={{
-                            background: 'var(--surface-color)', padding: '1rem',
-                            borderRadius: '0.6rem', border: '1px solid var(--border-color)',
-                            marginBottom: '1rem'
-                        }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                                <span style={{ color: 'var(--text-muted)' }}>Páginas do PDF:</span>
-                                <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{creditReport.actual} páginas</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.75rem', borderBottom: '1px dashed var(--border-color)', marginBottom: '0.75rem' }}>
-                                <span style={{ color: 'var(--text-muted)' }}>Custo Exato:</span>
-                                <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{creditReport.actual} créditos</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: 'var(--text-muted)' }}>Meu Saldo:</span>
-                                <span style={{ fontWeight: 600, color: 'var(--primary-color)' }}>{Math.floor(creditReport.balanceAfter)} créditos</span>
-                            </div>
-                            {creditReport.pdfHash && (
-                                <div style={{
-                                    marginTop: '0.75rem',
-                                    paddingTop: '0.75rem',
-                                    borderTop: '1px dashed var(--border-color)',
-                                }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
-                                        <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>SHA-256 do PDF:</span>
-                                        <span
-                                            title={creditReport.pdfHash}
-                                            style={{
-                                                fontFamily: 'monospace',
-                                                fontSize: '0.7rem',
-                                                color: 'var(--text-muted)',
-                                                wordBreak: 'break-all',
-                                                textAlign: 'right',
-                                                cursor: 'help',
-                                            }}
-                                        >
-                                            {creditReport.pdfHash.slice(0, 16)}…{creditReport.pdfHash.slice(-8)}
-                                        </span>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Note about precision adjustment */}
-                        <div style={{
-                            padding: '0.6rem 1rem',
-                            borderRadius: '0.6rem',
-                            background: 'rgba(59, 130, 246, 0.08)',
-                            border: '1px solid rgba(59, 130, 246, 0.2)',
-                            fontSize: '0.8rem',
-                            color: 'var(--primary-color)',
-                            textAlign: 'center',
-                            marginBottom: '1.25rem',
-                        }}>
-                            💡 O ajuste matemático já foi realizado na sua reserva. Você pagou exatamente pelas {creditReport.actual} páginas do documento.
-                        </div>
-
-                        {/* Buttons */}
-                        <div style={{ display: 'flex', gap: '0.75rem' }}>
-                            <button
-                                className="btn-secondary"
-                                onClick={() => setCreditReport(null)}
-                                style={{ flex: 1, justifyContent: 'center' }}
-                            >
-                                Fechar
-                            </button>
-                            <button
-                                className="btn-gradient"
-                                onClick={() => {
-                                    handleOpenPdf();
-                                }}
-                                autoFocus
-                                style={{ flex: 2, justifyContent: 'center' }}
-                            >
-                                <FileText size={16} /> Baixar PDF
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <CreditReportModal
+                report={creditReport}
+                onClose={() => setCreditReport(null)}
+                onDownload={handleOpenPdf}
+            />
 
 
 
@@ -1395,199 +925,23 @@ export default function Review() {
                     {isAtBottom ? <ArrowUp size={20} /> : <ArrowDown size={20} />}
                 </button>
             )}
-            {/* Signature PIN Verification Modal */}
-            {showPinConfirm && (
-                <div style={{
-                    position: 'fixed', inset: 0, zIndex: 9999,
-                    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    padding: '1rem',
-                    animation: 'fadeIn 0.2s ease-out',
-                }}>
-                    <div style={{
-                        background: 'var(--panel-bg)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: '1rem',
-                        padding: '2rem',
-                        maxWidth: '400px',
-                        width: '100%',
-                        boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
-                        animation: 'slideUp 0.25s ease-out',
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
-                            <div style={{
-                                width: 40, height: 40, borderRadius: '0.6rem',
-                                background: 'linear-gradient(135deg, rgba(59,130,246,0.12), rgba(59,130,246,0.03))',
-                                border: '1px solid rgba(59,130,246,0.2)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                color: 'var(--primary-color)', flexShrink: 0,
-                            }}>
-                                <Lock size={20} />
-                            </div>
-                            <div>
-                                <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>
-                                    Assinatura Eletrônica
-                                </h2>
-                                <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                                    Confirme sua identidade com seu PIN
-                                </p>
-                            </div>
-                        </div>
-
-                        {isPinBlocked ? (
-                            <div style={{ marginBottom: '1.5rem' }}>
-                                <div style={{
-                                    background: 'rgba(239,68,68,0.08)',
-                                    border: '1px solid rgba(239,68,68,0.2)',
-                                    borderRadius: '0.5rem',
-                                    padding: '0.75rem 1rem',
-                                    color: 'var(--danger, #ef4444)',
-                                    fontSize: '0.82rem',
-                                    lineHeight: 1.4,
-                                    marginBottom: '1rem',
-                                }}>
-                                    ⚠️ Sua senha de assinatura está bloqueada por excesso de tentativas incorretas. Por favor, redefina-a por e-mail para continuar.
-                                </div>
-                                <div style={{ display: 'flex', gap: '0.75rem' }}>
-                                    <button
-                                        className="btn-secondary"
-                                        onClick={() => setShowPinConfirm(null)}
-                                        style={{ flex: 1 }}
-                                    >
-                                        Cancelar
-                                    </button>
-                                    <button
-                                        className="btn-gradient"
-                                        onClick={() => {
-                                            setShowPinConfirm(null);
-                                            setShowResetPinModal(true);
-                                        }}
-                                        style={{ flex: 2 }}
-                                    >
-                                        Redefinir PIN por E-mail
-                                    </button>
-                                </div>
-                            </div>
-                        ) : (
-                            <form onSubmit={handlePinVerifySubmit}>
-                                {pinError && (
-                                    <div style={{
-                                        background: 'rgba(239,68,68,0.08)',
-                                        border: '1px solid rgba(239,68,68,0.2)',
-                                        borderRadius: '0.5rem',
-                                        padding: '0.625rem 0.75rem',
-                                        marginBottom: '1rem',
-                                        color: 'var(--danger, #ef4444)',
-                                        fontSize: '0.8rem',
-                                        display: 'flex', alignItems: 'center', gap: '0.4rem',
-                                        lineHeight: 1.4,
-                                    }}>
-                                        <AlertTriangle size={14} style={{ flexShrink: 0 }} />
-                                        {pinError}
-                                    </div>
-                                )}
-
-                                <div style={{ marginBottom: '1.25rem' }}>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-main)' }}>
-                                        PIN de 4 dígitos
-                                    </label>
-                                    <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
-                                        {pinInput.map((digit, idx) => (
-                                            <input
-                                                key={`verify-pin-${idx}`}
-                                                type="password"
-                                                inputMode="numeric"
-                                                pattern="[0-9]*"
-                                                maxLength={1}
-                                                value={digit}
-                                                disabled={verifyingPin}
-                                                onChange={(e) => {
-                                                    const cleanVal = e.target.value.replace(/\D/g, '').slice(-1);
-                                                    const newPin = [...pinInput];
-                                                    if (cleanVal) {
-                                                        newPin[idx] = cleanVal;
-                                                        setPinInput(newPin);
-                                                        // Auto focus next input
-                                                        if (idx < 3) {
-                                                            const nextInput = e.target.nextElementSibling;
-                                                            if (nextInput) nextInput.focus();
-                                                        }
-                                                    }
-                                                }}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Backspace') {
-                                                        e.preventDefault();
-                                                        const newPin = [...pinInput];
-                                                        if (newPin[idx]) {
-                                                            newPin[idx] = '';
-                                                            setPinInput(newPin);
-                                                        } else if (idx > 0) {
-                                                            const prevInput = e.target.previousElementSibling;
-                                                            if (prevInput) {
-                                                                prevInput.focus();
-                                                                newPin[idx - 1] = '';
-                                                                setPinInput(newPin);
-                                                            }
-                                                        }
-                                                    }
-                                                }}
-                                                style={{
-                                                    width: '3rem',
-                                                    height: '3rem',
-                                                    textAlign: 'center',
-                                                    fontSize: '1.5rem',
-                                                    fontWeight: 'bold',
-                                                    background: 'var(--surface-color, #1e293b)',
-                                                    border: '1px solid var(--border-color)',
-                                                    borderRadius: '0.4rem',
-                                                    color: 'var(--text-main)',
-                                                    outline: 'none',
-                                                    transition: 'all 0.15s ease-out',
-                                                }}
-                                                onFocus={(e) => { e.target.style.borderColor = 'var(--primary-color)'; e.target.style.boxShadow = '0 0 0 2px var(--primary-glow)'; }}
-                                                onBlur={(e) => { e.target.style.borderColor = 'var(--border-color)'; e.target.style.boxShadow = 'none'; }}
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setShowPinConfirm(null);
-                                            setShowResetPinModal(true);
-                                        }}
-                                        className="btn-ghost text-xs"
-                                        style={{ color: 'var(--text-muted)', textDecoration: 'underline' }}
-                                    >
-                                        Esqueci meu PIN
-                                    </button>
-                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowPinConfirm(null)}
-                                            className="btn-secondary"
-                                            disabled={verifyingPin}
-                                            style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
-                                        >
-                                            Cancelar
-                                        </button>
-                                        <button
-                                            type="submit"
-                                            className="btn-gradient"
-                                            disabled={verifyingPin || pinInput.some(d => d === '')}
-                                            style={{ padding: '0.5rem 1.25rem', fontSize: '0.85rem' }}
-                                        >
-                                            {verifyingPin ? 'Verificando...' : 'Assinar Documento'}
-                                        </button>
-                                    </div>
-                                </div>
-                            </form>
-                        )}
-                    </div>
-                </div>
-            )}
+            <PinVerificationModal
+                isOpen={!!showPinConfirm}
+                onClose={() => setShowPinConfirm(null)}
+                onSuccess={async () => {
+                    const callback = showPinConfirm;
+                    setShowPinConfirm(null);
+                    if (callback) {
+                        await callback();
+                    }
+                }}
+                onForgotPin={() => {
+                    setShowPinConfirm(null);
+                    setShowResetPinModal(true);
+                }}
+                isPinBlocked={isPinBlocked}
+                setIsPinBlocked={setIsPinBlocked}
+            />
 
             {/* Reset Signature PIN Modal */}
             {showResetPinModal && (
@@ -1606,6 +960,22 @@ export default function Review() {
 
             <div id="bottom-sentinel" style={{ height: '1px', width: '100%' }} />
             <LegalFooter style={{ marginTop: '2rem' }} />
+
+            {/* First-time PIN setup — shown when user has no PIN and tries to sign */}
+            {showPinSetup && (
+                <SignaturePinSetupModal
+                    onSaved={() => {
+                        setShowPinSetup(false);
+                        setHasPinConfigured(true);
+                        // After PIN is created, proceed with the pending action via verification
+                        if (pendingPinCallback) {
+                            const cb = pendingPinCallback;
+                            setPendingPinCallback(null);
+                            setShowPinConfirm(() => cb);
+                        }
+                    }}
+                />
+            )}
         </div>
     );
 }

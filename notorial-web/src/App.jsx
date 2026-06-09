@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { supabase } from './services/supabase';
 import { checkIsAdmin } from './services/adminApi';
@@ -7,17 +7,17 @@ import ErrorBoundary from './components/ErrorBoundary';
 import OfflineBanner from './components/OfflineBanner';
 import ServiceStatusBanner from './components/ServiceStatusBanner';
 import CPFPromptModal from './components/CPFPromptModal';
-import SignaturePinPromptModal from './components/SignaturePinPromptModal';
-import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import Upload from './pages/Upload';
-import Review from './pages/Review';
-import AdminDashboard from './pages/AdminDashboard';
-import Credits from './pages/Credits';
-import Profile from './pages/Profile';
-import TermsOfUse from './pages/TermsOfUse';
-import PrivacyPolicy from './pages/PrivacyPolicy';
-import LandingPage from './pages/LandingPage';
+
+const Login = lazy(() => import('./pages/Login'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Upload = lazy(() => import('./pages/Upload'));
+const Review = lazy(() => import('./pages/Review'));
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const Credits = lazy(() => import('./pages/Credits'));
+const Profile = lazy(() => import('./pages/Profile'));
+const TermsOfUse = lazy(() => import('./pages/TermsOfUse'));
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
+const LandingPage = lazy(() => import('./pages/LandingPage'));
 
 import { useSessionTimeout } from './hooks/useSessionTimeout';
 
@@ -155,34 +155,41 @@ function App() {
               onSignOut={handleSignOut}
             />
           )}
-          {session && !needsCpf && needsPin && (
-            <SignaturePinPromptModal 
-              onSaved={() => setNeedsPin(false)} 
-            />
-          )}
-          <Routes>
-            {/* Rotas Públicas */}
-            <Route path="/" element={<LandingPage session={session} />} />
-            <Route path="/terms" element={<TermsOfUse />} />
-            <Route path="/privacy" element={<PrivacyPolicy />} />
+          {/* PIN setup is prompted organically in Review.jsx when the user tries to sign.
+              Do NOT block app entry here — only CPF is mandatory for onboarding. */}
+          <Suspense fallback={
+            <div style={{
+              minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexDirection: 'column', gap: '1rem',
+            }}>
+              <div className="sp-wave" style={{ width: 32, height: 32 }} />
+              <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Carregando...</span>
+            </div>
+          }>
+            <Routes>
+              {/* Rotas Públicas */}
+              <Route path="/" element={<LandingPage session={session} />} />
+              <Route path="/terms" element={<TermsOfUse />} />
+              <Route path="/privacy" element={<PrivacyPolicy />} />
 
-            {!session ? (
-              <>
-                <Route path="/login" element={<Login />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </>
-            ) : (
-              <>
-                <Route path="/dashboard" element={<Dashboard isAdmin={isAdmin} />} />
-                <Route path="/upload" element={<Upload />} />
-                <Route path="/review/:id" element={<Review />} />
-                <Route path="/credits" element={<Credits />} />
-                <Route path="/profile" element={<Profile />} />
-                <Route path="/admin" element={isAdmin ? <AdminDashboard /> : <Navigate to="/dashboard" replace />} />
-                <Route path="*" element={<Navigate to="/dashboard" replace />} />
-              </>
-            )}
-          </Routes>
+              {!session ? (
+                <>
+                  <Route path="/login" element={<Login />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </>
+              ) : (
+                <>
+                  <Route path="/dashboard" element={<Dashboard isAdmin={isAdmin} />} />
+                  <Route path="/upload" element={<Upload />} />
+                  <Route path="/review/:id" element={<Review />} />
+                  <Route path="/credits" element={<Credits />} />
+                  <Route path="/profile" element={<Profile />} />
+                  <Route path="/admin" element={isAdmin ? <AdminDashboard /> : <Navigate to="/dashboard" replace />} />
+                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                </>
+              )}
+            </Routes>
+          </Suspense>
         </BrowserRouter>
       </ToastProvider>
 
