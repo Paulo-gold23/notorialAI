@@ -35,11 +35,21 @@ Para tornar o uso da plataforma mais seguro e transparente, implementaremos:
 - **Description**: Atualizar as seguintes cláusulas:
   - **Seção 2.3 (Inexistência de Fé Pública)**: Adicionar que, de acordo com o Art. 425, IV, do CPC e legislação aplicável, cabe ao próprio advogado realizar a autenticação e validação do documento gerado sob sua fé profissional.
   - **Seção 4.4 (Guarda do Relatório)**: Explicitar que o usuário deve obrigatoriamente baixar e arquivar todas as mídias (áudios, imagens e arquivos) integradas à conversa.
-  - **Seção 8.2 (Responsabilidade de Armazenamento)**: Reforçar que, devido ao descarte irreversível em 24h, o download de todas as mídias vinculadas à conversa é de inteira responsabilidade do Usuário.
+  - **Seção 8.2 (Responsabilidade de Armazenamento)**: Reinforçar que, devido ao descarte irreversível em 24h, o download de todas as mídias vinculadas à conversa é de inteira responsabilidade do Usuário.
 - **Verification**: Acessar `/terms` e verificar se os novos textos estão corretos e legíveis.
 
+### Task 3: Otimização de Ressalvas (Sem Repetição de Trecho e com Contador)
+- **Agent**: `frontend-specialist` / `backend-specialist`
+- **Description**:
+  - Remover a exibição do trecho grifado (`r.excerpt`) nos cards de ressalva no desktop e mobile (`Review.jsx`), deixando apenas a referência (`RESSALVA [N]`) e a observação (`r.note`).
+  - Remover `ref. ao trecho: ...` do bloco de compilação de ressalvas no PDF (`pdf_generator.py`).
+  - Adicionar contagem dinâmica e exibição de `Total de ressalvas/observações inseridas` no painel de "Verificação final" do PDF (`pdf_generator.py`).
+- **Verification**: Gerar o PDF e verificar que a lista de ressalvas ao final de cada dia exibe apenas o índice e a observação, e que o contador no bloco final de auditoria bate exatamente com a quantidade de ressalvas inseridas.
+
 ## Phase X: Verification
-- [ ] Rodar `npm run lint` e verificar ausência de erros.
-- [ ] Rodar `npm run build` e certificar que a compilação ocorre com sucesso.
-- [ ] Testar renderização responsiva dos cartões de dicas da dashboard.
-- [ ] Validar a leitura e formatação dos textos atualizados nos Termos de Uso.
+- [x] Rodar `npm run lint` e verificar ausência de erros (Sucesso)
+- [x] Rodar `npm run build` e certificar que a compilação ocorre com sucesso (Sucesso)
+- [x] Testar renderização responsiva dos cartões de dicas da dashboard (Sucesso)
+- [x] Validar a leitura e formatação dos textos nos Termos de Uso (Sucesso)
+- [x] Verificar que a lista de ressalvas no PDF e na barra lateral não repete o trecho grifado (Sucesso)
+- [x] Confirmar exibição e precisão do contador de ressalvas na caixa de verificação final (Sucesso)

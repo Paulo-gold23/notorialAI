@@ -1072,7 +1072,6 @@ export default function Review() {
                                     RESSALVA [{idx + 1}]
                                 </span>
                             </div>
-                            <div className="ressalva-card-excerpt">"{r.excerpt}"</div>
                             <div className="ressalva-card-text">{r.note}</div>
                             <div className="ressalva-card-actions" onClick={(e) => e.stopPropagation()}>
                                 <button className="ressalva-card-btn" onClick={() => handleEditNote(idx)} title="Editar ressalva">
@@ -1199,7 +1198,6 @@ export default function Review() {
                                         RESSALVA [{idx + 1}]
                                     </span>
                                 </div>
-                                <div className="ressalva-card-excerpt">"{r.excerpt}"</div>
                                 <div className="ressalva-card-text">{r.note}</div>
                                 <div className="ressalva-card-actions" onClick={(e) => e.stopPropagation()}>
                                     <button className="ressalva-card-btn" onClick={() => handleEditNote(idx)}>

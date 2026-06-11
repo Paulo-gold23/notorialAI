@@ -129,7 +129,6 @@ def inject_ressalva_blocks_for_pdf(html_content: str) -> str:
                 f'<div class="pdf-ressalva-item">'
                 f'<span class="pdf-ressalva-num">[{n["index"]}]</span>'
                 f'<div class="pdf-ressalva-body">'
-                f'<span class="pdf-ressalva-ref">ref. ao trecho: "{n["excerpt"]}"</span>'
                 f'<span class="pdf-ressalva-text">{n["note"]}</span>'
                 f'</div>'
                 f'</div>'
@@ -205,6 +204,9 @@ def inject_final_verification_box(html_str: str) -> str:
     # 4. Contar documentos ("Documento Anexado")
     num_docs = len(re.findall(r'Documento Anexado', html_str))
 
+    # 5. Contar ressalvas/observações (tags <span> com classe user-note-wrapper)
+    num_ressalvas = len(re.findall(r'class="user-note-wrapper"|\buser-note-wrapper\b', html_str))
+
     # Formatar o texto de mídias de forma clara e elegante
     media_parts = []
     if num_images > 0:
@@ -224,6 +226,7 @@ def inject_final_verification_box(html_str: str) -> str:
     <li>Remetentes preservados sem alterações</li>
     <li>Mídias mantidas na ordem e quantidade exata ({media_desc})</li>
     <li>Ordem das mensagens idêntica ao input</li>
+    <li>Total de ressalvas/observações inseridas: {num_ressalvas}</li>
   </ul>
 </div>
 """
