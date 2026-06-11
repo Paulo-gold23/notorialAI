@@ -1,15 +1,14 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
-import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Heading from '@tiptap/extension-heading';
 import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
 import TextAlign from '@tiptap/extension-text-align';
-import { Mark, mergeAttributes } from '@tiptap/core';
 import { apiRequest } from '../services/api';
+import { UserNote, extractRessalvas } from '../extensions/UserNote';
 
 import BackButton from '../components/BackButton';
 import { Skeleton } from '../components/Skeleton';
@@ -19,8 +18,9 @@ import LegalFooter from '../components/LegalFooter';
 import {
     FileText, Save, Check, ArrowDown, ArrowUp,
     Users, MessageSquare, Mic, CalendarRange,
-    Coins, RefreshCw, X, PlusCircle, AlertTriangle, Phone,
-    AlignLeft, AlignCenter, AlignRight, AlignJustify, Lock
+    Coins, RefreshCw, X, AlertTriangle, Phone,
+    AlignLeft, AlignCenter, AlignRight, AlignJustify, Lock,
+    StickyNote, Pencil, Trash2
 } from 'lucide-react';
 import Logo from '../components/Logo';
 import { supabase } from '../services/supabase';
@@ -30,7 +30,6 @@ import TermsAcceptanceModal from '../components/review/TermsAcceptanceModal';
 import PinVerificationModal from '../components/review/PinVerificationModal';
 import CreditReportModal from '../components/review/CreditReportModal';
 import MissingNumbersModal from '../components/review/MissingNumbersModal';
-import { getDeviceFingerprint } from '../services/fingerprint';
 
 function normalizeEditorContent(value) {
     if (!value) return '<p>Conteúdo não disponível</p>';
@@ -39,51 +38,6 @@ function normalizeEditorContent(value) {
     return '<p>Conteúdo recebido em formato não suportado para edição.</p>';
 }
 
-
-const formatPhone = (val) => {
-    let v = val.replace(/\D/g, '').substring(0, 11);
-    if (v.length === 0) return '';
-    if (v.length <= 2) return `(${v}`;
-    if (v.length <= 6) return `(${v.slice(0, 2)}) ${v.slice(2)}`;
-    if (v.length <= 10) return `(${v.slice(0, 2)}) ${v.slice(2, 6)}-${v.slice(6)}`;
-    return `(${v.slice(0, 2)}) ${v.slice(2, 7)}-${v.slice(7)}`;
-};
-
-export const UserNote = Mark.create({
-    name: 'userNote',
-    
-    addAttributes() {
-        return {
-            note: {
-                default: null,
-            },
-        };
-    },
-
-    parseHTML() {
-        return [
-            {
-                tag: 'span[data-user-note]',
-            },
-        ];
-    },
-
-    renderHTML({ HTMLAttributes }) {
-        if (!HTMLAttributes.note) {
-            return ['span', mergeAttributes(HTMLAttributes, { 'data-user-note': '' }), 0];
-        }
-        return [
-            'span',
-            mergeAttributes(HTMLAttributes, { 
-                'data-user-note': HTMLAttributes.note,
-                class: 'user-note-wrapper', 
-                style: 'background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; padding: 2px 4px; display: inline; line-height: 1.6; margin: 2px 0;' 
-            }),
-            ['span', { class: 'user-note-content', style: 'text-decoration: underline; text-decoration-style: dashed; text-decoration-color: #d97706;' }, 0],
-            ['span', { class: 'user-note-label', style: 'color: #d97706; font-weight: bold; font-size: 0.85em; margin-left: 4px; user-select: none;' }, ` 📝 [Ressalva: ${HTMLAttributes.note}]`]
-        ];
-    },
-});
 
 
 export default function Review() {
@@ -115,6 +69,18 @@ export default function Review() {
     const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
     const [missingNumbersModal, setMissingNumbersModal] = useState({ isOpen: false, matches: [] });
 
+    // ── Ressalvas state ───────────────────────────────────────────────────────
+    const [ressalvas, setRessalvas] = useState([]);
+    const [activeRessalvaId, setActiveRessalvaId] = useState(null);
+    // noteForm: null | { mode: 'add'|'edit', excerpt: string, editId?: number }
+    const [noteForm, setNoteForm] = useState(null);
+    const [sheetOpen, setSheetOpen] = useState(false);
+    // annotationMode: when true, editor is temporarily editable and listens for mouse selection
+    const [annotationMode, setAnnotationMode] = useState(false);
+    const savedSelectionRef = useRef(null);
+    const [showConfirmButton, setShowConfirmButton] = useState(false);
+    const [buttonPosition, setButtonPosition] = useState({ top: 0, left: 0 });
+
     const tabsRef = useRef(null);
     // Callback ref that attaches copy-protection listeners as soon as the DOM node mounts.
     // A plain ref + useEffect won't work here because editorWrapperRef.current is not
@@ -141,9 +107,15 @@ export default function Review() {
         };
 
         // Prevent drag-to-clipboard bypass
-        const blockDrag = (e) => e.preventDefault();
+        const blockDrag = (e) => {
+            if (node.classList.contains('is-annotation-mode')) return;
+            e.preventDefault();
+        };
         // Prevent selection API bypass (selection via triple-click, etc.)
-        const blockSelect = (e) => e.preventDefault();
+        const blockSelect = (e) => {
+            if (node.classList.contains('is-annotation-mode')) return;
+            e.preventDefault();
+        };
 
         node.addEventListener('copy',        blockCopyAndCut);
         node.addEventListener('cut',         blockCopyAndCut);
@@ -248,21 +220,237 @@ export default function Review() {
         content: '<p>Carregando conteúdo...</p>',
     });
 
-    const handleAddNote = () => {
-        if (!editor || editor.state.selection.empty) return;
-        
-        const noteText = window.prompt("Digite sua nota de ressalva para o texto selecionado:");
-        if (noteText && noteText.trim() !== "") {
-            editor.setOptions({ editable: true });
-            
-            // Re-focus the editor to ensure the transaction originates correctly
-            editor.commands.focus();
-            
-            editor.chain().setMark('userNote', { note: noteText.trim() }).run();
-            
-            editor.setOptions({ editable: false });
-            toast.success("Ressalva adicionada com sucesso!");
+    // ── Sync ressalvas list whenever editor content changes ────────────────────
+    // Only listen to 'update' (when content/marks change) to prevent selectionUpdate lag in large documents
+    useEffect(() => {
+        if (!editor) return;
+        const update = () => setRessalvas(extractRessalvas(editor));
+        editor.on('update', update);
+        update();
+        return () => {
+            editor.off('update', update);
+        };
+    }, [editor]);
+
+    // ── Annotation mode: activate → user selects via mouse → form opens ────────
+    // Strategy: keep editor ALWAYS non-editable (no text editing allowed).
+    // Use CSS user-select:text to allow mouse selection, then read the native
+    // browser selection with window.getSelection() + view.posAtDOM to convert
+    // to TipTap positions. This avoids the "free editing" problem entirely.
+
+    const handleActivateAnnotationMode = () => {
+        if (!editor) return;
+        // Clear any leftover browser selection
+        window.getSelection()?.removeAllRanges();
+        setAnnotationMode(true);
+        setNoteForm(null);
+        savedSelectionRef.current = null;
+        setShowConfirmButton(false);
+        // Do NOT make editor editable — CSS handles selection
+    };
+
+    const handleCancelAnnotationMode = () => {
+        window.getSelection()?.removeAllRanges();
+        setAnnotationMode(false);
+        savedSelectionRef.current = null;
+        setShowConfirmButton(false);
+    };
+
+    // Automatically toggle contentEditable on ProseMirror DOM is removed to prevent
+    // browser-vs-ProseMirror selection fights and infinite focus redraw loops.
+    // CSS user-select: text handles selection, and contentEditable="false" natively blocks editing.
+
+    useEffect(() => {
+        if (!annotationMode || !editor) return;
+
+        let editorDom = null;
+        try {
+            editorDom = editor.view.dom;
+        } catch {
+            // View not ready/mounted yet - ignore silently
+            return;
         }
+        if (!editorDom) return;
+
+        let selectionTimeout = null;
+        let frameId = null;
+
+        const handleSelectionChange = () => {
+            if (selectionTimeout) clearTimeout(selectionTimeout);
+            selectionTimeout = setTimeout(() => {
+                const nativeSel = window.getSelection();
+                if (!nativeSel || nativeSel.isCollapsed || nativeSel.rangeCount === 0) {
+                    setShowConfirmButton(false);
+                    return;
+                }
+
+                const selectedText = nativeSel.toString().trim();
+                if (selectedText.length < 2) {
+                    setShowConfirmButton(false);
+                    return; // ignore accidental single-char clicks
+                }
+
+                // Make sure the selection is actually inside the editor
+                const range = nativeSel.getRangeAt(0);
+                if (!editorDom.contains(range.commonAncestorContainer)) {
+                    setShowConfirmButton(false);
+                    return;
+                }
+
+                // Convert native DOM range → TipTap document positions
+                let from, to;
+                try {
+                    from = editor.view.posAtDOM(range.startContainer, range.startOffset);
+                    to   = editor.view.posAtDOM(range.endContainer,   range.endOffset);
+                } catch {
+                    setShowConfirmButton(false);
+                    return; // DOM node not in the ProseMirror doc — ignore
+                }
+
+                if (from >= to) {
+                    setShowConfirmButton(false);
+                    return;
+                }
+
+                const bounds = range.getBoundingClientRect();
+                setButtonPosition({
+                    top: bounds.top - 8,
+                    left: bounds.left + (bounds.width / 2),
+                });
+
+                const excerpt = selectedText.slice(0, 80) + (selectedText.length > 80 ? '...' : '');
+                savedSelectionRef.current = { from, to, excerpt };
+                setShowConfirmButton(true);
+            }, 100);
+        };
+
+        const handleScrollOrResize = () => {
+            if (frameId) cancelAnimationFrame(frameId);
+            frameId = requestAnimationFrame(() => {
+                const nativeSel = window.getSelection();
+                if (!nativeSel || nativeSel.isCollapsed || nativeSel.rangeCount === 0) {
+                    setShowConfirmButton(false);
+                    return;
+                }
+                try {
+                    const range = nativeSel.getRangeAt(0);
+                    if (!editorDom.contains(range.commonAncestorContainer)) {
+                        setShowConfirmButton(false);
+                        return;
+                    }
+                    const bounds = range.getBoundingClientRect();
+                    // If selection is completely scrolled out of the viewport, hide the button
+                    if (bounds.bottom < 0 || bounds.top > window.innerHeight) {
+                        setShowConfirmButton(false);
+                        return;
+                    }
+                    setButtonPosition({
+                        top: bounds.top - 8,
+                        left: bounds.left + (bounds.width / 2),
+                    });
+                } catch {
+                    setShowConfirmButton(false);
+                }
+            });
+        };
+
+        document.addEventListener('selectionchange', handleSelectionChange);
+        window.addEventListener('scroll', handleScrollOrResize);
+        window.addEventListener('resize', handleScrollOrResize);
+        return () => {
+            if (selectionTimeout) clearTimeout(selectionTimeout);
+            if (frameId) cancelAnimationFrame(frameId);
+            document.removeEventListener('selectionchange', handleSelectionChange);
+            window.removeEventListener('scroll', handleScrollOrResize);
+            window.removeEventListener('resize', handleScrollOrResize);
+        };
+    }, [annotationMode, editor]);
+
+    const handleConfirmSelection = () => {
+        if (!savedSelectionRef.current) return;
+        const { excerpt } = savedSelectionRef.current;
+        setShowConfirmButton(false);
+        setNoteForm({ mode: 'add', excerpt });
+        setSheetOpen(true);
+    };
+
+
+    const handleSaveNote = (noteText) => {
+        if (!noteText || !noteText.trim() || !editor) return;
+        const trimmedNote = noteText.trim();
+        // Briefly enable editing, apply the mark, then lock again
+        editor.setOptions({ editable: true });
+        if (noteForm.mode === 'add' && savedSelectionRef.current) {
+            const { from, to } = savedSelectionRef.current;
+            editor.chain().focus().setTextSelection({ from, to }).setMark('userNote', { note: trimmedNote }).run();
+            savedSelectionRef.current = null;
+            toast.success('Ressalva adicionada com sucesso!');
+        } else if (noteForm.mode === 'edit' && noteForm.editId !== undefined) {
+            const r = ressalvas[noteForm.editId];
+            if (r) {
+                editor.chain().focus().setTextSelection({ from: r.pos, to: r.pos + r.nodeSize }).setMark('userNote', { note: trimmedNote }).run();
+            }
+            toast.success('Ressalva atualizada!');
+        }
+        editor.setOptions({ editable: false });
+        window.getSelection()?.removeAllRanges();
+        setNoteForm(null);
+    };
+
+    const handleEditNote = (idx) => {
+        const r = ressalvas[idx];
+        if (!r) return;
+        setNoteForm({ mode: 'edit', excerpt: r.excerpt, editId: idx });
+        setSheetOpen(true);
+    };
+
+    const handleDeleteNote = (idx) => {
+        const r = ressalvas[idx];
+        if (!r || !editor) return;
+        editor.setOptions({ editable: true });
+        editor.chain().focus().setTextSelection({ from: r.pos, to: r.pos + r.nodeSize }).unsetMark('userNote').run();
+        editor.setOptions({ editable: false });
+        setActiveRessalvaId(null);
+        toast.success('Ressalva removida.');
+    };
+
+    const handleRessalvaCardClick = (idx) => {
+        const r = ressalvas[idx];
+        if (!r || !editor) return;
+        setActiveRessalvaId(idx);
+        editor.commands.setTextSelection({ from: r.pos, to: r.pos + r.nodeSize });
+        const domNode = editor.view.domAtPos(r.pos)?.node;
+        if (domNode?.parentElement) {
+            domNode.parentElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    };
+
+    const handleRessalvaClickFromText = (idx) => {
+        setActiveRessalvaId(idx);
+        // Scroll desktop sidebar card into view
+        const desktopCard = document.getElementById(`ressalva-card-desktop-${idx}`);
+        if (desktopCard) {
+            desktopCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            desktopCard.classList.add('is-active-focus');
+            setTimeout(() => {
+                desktopCard.classList.remove('is-active-focus');
+            }, 1500);
+        }
+        // Scroll mobile bottom sheet card into view
+        const mobileCard = document.getElementById(`ressalva-card-mobile-${idx}`);
+        if (mobileCard) {
+            mobileCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            mobileCard.classList.add('is-active-focus');
+            setTimeout(() => {
+                mobileCard.classList.remove('is-active-focus');
+            }, 1500);
+        }
+    };
+
+    const handleCancelNoteForm = () => {
+        savedSelectionRef.current = null;
+        window.getSelection()?.removeAllRanges();
+        setNoteForm(null);
     };
 
     const handleFillNumbers = () => {
@@ -511,6 +699,8 @@ export default function Review() {
                         balanceAfter: data.balance_after,
                         pdfTipo: tipo,
                         pdfHash: data.pdf_hash || null,
+                        pdfUrl: blobUrl,
+                        id: id,
                     });
                 } else {
                     // Fallback: download PDF directly if no credit data
@@ -655,7 +845,12 @@ export default function Review() {
                 </button>
             </div>
 
-            {/* Editor */}
+            {/* ── Two-column layout: Editor + Sidebar ── */}
+            <div className="review-with-sidebar">
+
+            {/* ── Editor area ── */}
+            <div className="review-editor-area">
+            {/* Editor card */}
             <div className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                 {/* Minimal Toolbar since it's read-only */}
                 <div className="sticky-toolbar" style={{
@@ -668,7 +863,7 @@ export default function Review() {
                         <span>A edição livre está desativada para compliance.</span>
                     </div>
                     
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <div className="toolbar-actions-group" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                         <div style={{ display: 'flex', border: '1px solid var(--border-color)', borderRadius: '0.5rem', overflow: 'hidden' }}>
                             <button
                                 className="btn-secondary"
@@ -713,8 +908,68 @@ export default function Review() {
                             <Phone className="w-4 h-4" />
                             Preencher Números Faltantes
                         </button>
+
+                        {/* ── Ressalva button ── */}
+                        <button
+                            id="btn-adicionar-ressalva"
+                            className="btn-secondary"
+                            onClick={handleActivateAnnotationMode}
+                            disabled={annotationMode}
+                            style={{
+                                padding: '0.35rem 0.85rem',
+                                fontSize: '0.85rem',
+                                color: annotationMode ? '#fff' : '#d97706',
+                                borderColor: '#d97706',
+                                background: annotationMode ? '#d97706' : 'transparent',
+                                fontWeight: 600,
+                            }}
+                            title="Ativa o modo de anotação: selecione um trecho do documento para adicionar uma ressalva"
+                        >
+                            <StickyNote className="w-4 h-4" />
+                            {annotationMode ? 'Selecionando...' : '+ Adicionar Ressalva'}
+                        </button>
                     </div>
                 </div>
+
+                {/* ── Annotation mode banner ── */}
+                {annotationMode && (
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '0.6rem 1rem',
+                        background: 'rgba(217,119,6,0.1)',
+                        borderBottom: '1px solid rgba(217,119,6,0.3)',
+                        fontSize: '0.83rem',
+                        color: '#92400e',
+                        fontWeight: 500,
+                        gap: '1rem',
+                        animation: 'slideUp 0.2s ease-out',
+                    }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <StickyNote size={14} style={{ color: '#d97706', flexShrink: 0 }} />
+                            <strong>Modo de Anotação Ativo</strong> — Selecione o trecho no documento que deseja ressalvar
+                        </span>
+                        <button
+                            onClick={handleCancelAnnotationMode}
+                            style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#92400e',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.25rem',
+                                fontSize: '0.78rem',
+                                padding: '0.2rem 0.4rem',
+                                borderRadius: '0.3rem',
+                            }}
+                            title="Concluir e sair do modo de anotação (Esc)"
+                        >
+                            <Check size={13} /> Concluir (Sair)
+                        </button>
+                    </div>
+                )}
 
                 {/* Editor Content */}
                 <div
@@ -724,11 +979,31 @@ export default function Review() {
                         minHeight: '400px',
                         fontSize: '0.95rem',
                         lineHeight: 1.6,
-                        userSelect: 'none',
-                        WebkitUserSelect: 'none',
+                        // Allow text selection only during annotation mode
+                        userSelect: annotationMode ? 'text' : 'none',
+                        WebkitUserSelect: annotationMode ? 'text' : 'none',
+                        cursor: annotationMode ? 'text' : 'default',
                     }}
-                    className="ProseMirror-wrapper"
+                    className={`ProseMirror-wrapper${annotationMode ? ' is-annotation-mode' : ''}`}
                     onClick={(e) => {
+                        if (annotationMode) return; // let user select freely, don't navigate
+                        
+                        // Intercept clicks on userNote wrapper (ressalvas highlights)
+                        const userNote = e.target.closest('.user-note-wrapper');
+                        if (userNote) {
+                            e.preventDefault();
+                            try {
+                                const pos = editor.view.posAtDOM(userNote, 0);
+                                const matchIdx = ressalvas.findIndex(r => pos >= r.pos && pos <= r.pos + r.nodeSize);
+                                if (matchIdx !== -1) {
+                                    handleRessalvaClickFromText(matchIdx);
+                                }
+                            } catch (err) {
+                                console.error('Erro ao mapear clique na ressalva:', err);
+                            }
+                            return;
+                        }
+
                         // Intercept anchor clicks to handle internal (#) navigation
                         const anchor = e.target.closest('a[href]');
                         if (!anchor) return;
@@ -748,55 +1023,71 @@ export default function Review() {
                         }
                     }}
                 >
-                    {editor && (
-                        <BubbleMenu 
-                            editor={editor} 
-                            tippyOptions={{ duration: 100, placement: 'top' }}
-                            shouldShow={({ state, editor }) => {
-                                const { from, to } = state.selection;
-                                return from !== to && !editor.isActive('userNote');
-                            }}
-                        >
-                            <button
-                                onClick={handleAddNote}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.5rem',
-                                    background: 'var(--panel-bg)',
-                                    color: 'var(--text-main)',
-                                    border: '1px solid var(--border-color)',
-                                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                                    padding: '0.5rem 0.75rem',
-                                    borderRadius: '0.5rem',
-                                    fontSize: '0.85rem',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    transition: 'all 0.15s'
-                                }}
-                            >
-                                <PlusCircle size={16} style={{ color: 'var(--primary-color)' }} />
-                                Adicionar Ressalva
-                            </button>
-                        </BubbleMenu>
-                    )}
-
                     <div
-                        onCopy={(e) => {
-                            e.preventDefault();
-                            toast.error("Cópia de texto desativada por razões de segurança.");
-                        }}
-                        onCut={(e) => {
-                            e.preventDefault();
-                            toast.error("Corte de texto desativado por razões de segurança.");
-                        }}
-                        onContextMenu={(e) => e.preventDefault()}
+                        onCopy={(e) => { e.preventDefault(); toast.error("Cópia de texto desativada por razões de segurança."); }}
+                        onCut={(e) => { e.preventDefault(); toast.error("Corte de texto desativado por razões de segurança."); }}
+                        onContextMenu={(e) => { if (!annotationMode) e.preventDefault(); }}
                     >
                         <EditorContent editor={editor} />
                     </div>
                 </div>
-            </div>
+            </div>{/* .card */}
+            </div>{/* .review-editor-area */}
 
+            {/* ── Desktop Sidebar ── */}
+            <aside className="ressalvas-sidebar">
+                <div className="ressalvas-sidebar-header">
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <StickyNote size={14} /> Ressalvas
+                    </span>
+                    {ressalvas.length > 0 && (
+                        <span className="ressalvas-count-badge">{ressalvas.length}</span>
+                    )}
+                </div>
+
+                {noteForm && (
+                    <RessalvaForm
+                        excerpt={noteForm.excerpt}
+                        initialValue={noteForm.mode === 'edit' ? ressalvas[noteForm.editId]?.note : ''}
+                        onSave={handleSaveNote}
+                        onCancel={handleCancelNoteForm}
+                    />
+                )}
+
+                {ressalvas.length === 0 && !noteForm ? (
+                    <div className="ressalvas-sidebar-empty">
+                        <StickyNote size={20} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
+                        <p style={{ margin: 0 }}>Selecione um trecho no documento e toque em <strong>Adicionar Ressalva</strong>.</p>
+                    </div>
+                ) : (
+                    ressalvas.map((r, idx) => (
+                        <div
+                            key={idx}
+                            id={`ressalva-card-desktop-${idx}`}
+                            className={`ressalva-card${activeRessalvaId === idx ? ' is-highlighted' : ''}`}
+                            onClick={() => handleRessalvaCardClick(idx)}
+                        >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#d97706', background: 'rgba(217, 119, 6, 0.08)', padding: '0.1rem 0.35rem', borderRadius: '0.25rem', fontFamily: 'monospace' }}>
+                                    RESSALVA [{idx + 1}]
+                                </span>
+                            </div>
+                            <div className="ressalva-card-excerpt">"{r.excerpt}"</div>
+                            <div className="ressalva-card-text">{r.note}</div>
+                            <div className="ressalva-card-actions" onClick={(e) => e.stopPropagation()}>
+                                <button className="ressalva-card-btn" onClick={() => handleEditNote(idx)} title="Editar ressalva">
+                                    <Pencil size={11} /> Editar
+                                </button>
+                                <button className="ressalva-card-btn danger" onClick={() => handleDeleteNote(idx)} title="Excluir ressalva">
+                                    <Trash2 size={11} /> Excluir
+                                </button>
+                            </div>
+                        </div>
+                    ))
+                )}
+            </aside>
+
+            </div>{/* .review-with-sidebar */}
 
             {/* Actions */}
             <div style={{
@@ -841,6 +1132,105 @@ export default function Review() {
                     </span>
                 </button>
             </div>
+
+            {/* ── Mobile FAB ── */}
+            <button
+                className="ressalvas-fab"
+                onClick={() => setSheetOpen(true)}
+                title="Ver Ressalvas"
+                aria-label="Abrir painel de ressalvas"
+            >
+                <StickyNote size={22} />
+                {ressalvas.length > 0 && (
+                    <span className="ressalvas-fab-badge">{ressalvas.length}</span>
+                )}
+            </button>
+
+            {/* ── Mobile bottom-sheet backdrop ── */}
+            <div
+                className={`ressalvas-sheet-backdrop${sheetOpen ? ' is-open' : ''}`}
+                onClick={() => { setSheetOpen(false); handleCancelNoteForm(); }}
+            />
+
+            {/* ── Mobile bottom-sheet panel ── */}
+            <div className={`ressalvas-sheet${sheetOpen ? ' is-open' : ''}`}>
+                <div className="ressalvas-sheet-handle" />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                    <span style={{ fontWeight: 600, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <StickyNote size={15} style={{ color: '#d97706' }} /> Ressalvas
+                        {ressalvas.length > 0 && (
+                            <span style={{ background: '#d97706', color: '#fff', fontSize: '0.65rem', fontWeight: 700, minWidth: 18, height: 18, borderRadius: 9, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px' }}>
+                                {ressalvas.length}
+                            </span>
+                        )}
+                    </span>
+                    <button className="btn-ghost" onClick={() => { setSheetOpen(false); handleCancelNoteForm(); }}>
+                        <X size={16} />
+                    </button>
+                </div>
+
+                {noteForm && (
+                    <div style={{ marginBottom: '1rem' }}>
+                        <RessalvaForm
+                            excerpt={noteForm.excerpt}
+                            initialValue={noteForm.mode === 'edit' ? ressalvas[noteForm.editId]?.note : ''}
+                            onSave={handleSaveNote}
+                            onCancel={handleCancelNoteForm}
+                        />
+                    </div>
+                )}
+
+                {ressalvas.length === 0 && !noteForm ? (
+                    <div className="ressalvas-sidebar-empty">
+                        <StickyNote size={20} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
+                        <p style={{ margin: 0 }}>Selecione um trecho no documento e toque em <strong>Adicionar Ressalva</strong>.</p>
+                    </div>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                        {ressalvas.map((r, idx) => (
+                            <div
+                                key={idx}
+                                id={`ressalva-card-mobile-${idx}`}
+                                className={`ressalva-card${activeRessalvaId === idx ? ' is-highlighted' : ''}`}
+                                onClick={() => { handleRessalvaCardClick(idx); setSheetOpen(false); }}
+                            >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#d97706', background: 'rgba(217, 119, 6, 0.08)', padding: '0.1rem 0.35rem', borderRadius: '0.25rem', fontFamily: 'monospace' }}>
+                                        RESSALVA [{idx + 1}]
+                                    </span>
+                                </div>
+                                <div className="ressalva-card-excerpt">"{r.excerpt}"</div>
+                                <div className="ressalva-card-text">{r.note}</div>
+                                <div className="ressalva-card-actions" onClick={(e) => e.stopPropagation()}>
+                                    <button className="ressalva-card-btn" onClick={() => handleEditNote(idx)}>
+                                        <Pencil size={11} /> Editar
+                                    </button>
+                                    <button className="ressalva-card-btn danger" onClick={() => handleDeleteNote(idx)}>
+                                        <Trash2 size={11} /> Excluir
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {showConfirmButton && (
+                <button
+                    className="ressalva-confirm-btn"
+                    style={{
+                        top: buttonPosition.top,
+                        left: buttonPosition.left,
+                    }}
+                    onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }}
+                    onClick={handleConfirmSelection}
+                >
+                    <Check size={14} /> Confirmar Ressalva
+                </button>
+            )}
 
             <MissingNumbersModal
                 isOpen={missingNumbersModal.isOpen}
@@ -899,27 +1289,7 @@ export default function Review() {
             {hasScroll && (
                 <button
                     onClick={toggleScroll}
-                    style={{
-                        position: 'fixed',
-                        bottom: '2rem',
-                        right: '2rem',
-                        width: '2.75rem',
-                        height: '2.75rem',
-                        borderRadius: '50%',
-                        background: 'var(--primary-color)',
-                        color: '#fff',
-                        border: 'none',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        boxShadow: '0 4px 12px var(--primary-glow)',
-                        transition: 'all 0.25s',
-                        zIndex: 1000,
-                        animation: 'fadeIn 0.3s ease-out',
-                    }}
-                    onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 20px var(--primary-glow)'; }}
-                    onMouseOut={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 12px var(--primary-glow)'; }}
+                    className="scroll-to-top-bottom"
                     title={isAtBottom ? "Voltar ao topo" : "Ir para o final"}
                 >
                     {isAtBottom ? <ArrowUp size={20} /> : <ArrowDown size={20} />}
@@ -1013,5 +1383,43 @@ function ToolBtn({ icon, active, onClick, title }) {
         >
             {icon}
         </button>
+    );
+}
+
+function RessalvaForm({ excerpt, initialValue, onSave, onCancel }) {
+    const [input, setInput] = useState(initialValue || '');
+    
+    return (
+        <div className="ressalva-form">
+            <p className="ressalva-form-excerpt">"{excerpt}"</p>
+            <textarea
+                className="ressalva-form-textarea"
+                placeholder="Descreva a ressalva jurídica..."
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                autoFocus
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                        onSave(input);
+                    }
+                }}
+            />
+            <div className="ressalva-form-actions">
+                <button
+                    className="btn-primary"
+                    style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
+                    onClick={() => onSave(input)}
+                >
+                    <Check size={12} /> Salvar
+                </button>
+                <button
+                    className="btn-secondary"
+                    style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
+                    onClick={onCancel}
+                >
+                    <X size={12} /> Cancelar
+                </button>
+            </div>
+        </div>
     );
 }

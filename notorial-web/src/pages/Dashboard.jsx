@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, FileText, LogOut, Trash2, Plus, Settings, Upload, Sparkles, FileCheck, Shield, Edit2, Check, X, User, Clock } from 'lucide-react';
+import { Search, FileText, LogOut, Trash2, Plus, Settings, Upload, Sparkles, FileCheck, Shield, Edit2, Check, X, User, Clock, DownloadCloud, Scale } from 'lucide-react';
 import { listAtas, deleteAta, updateAtaTitle } from '../services/api';
 import { creditsApi } from '../services/creditsApi';
 import { supabase } from '../services/supabase';
@@ -80,7 +80,7 @@ export default function Dashboard({ isAdmin = false }) {
     };
 
     const handleLogout = async () => {
-        try { await supabase.auth.signOut(); } catch (e) { /* ignore */ }
+        try { await supabase.auth.signOut(); } catch { /* ignore */ }
         window.location.reload();
     };
 
@@ -434,6 +434,53 @@ export default function Dashboard({ isAdmin = false }) {
                 isOpen={isSettingsOpen}
                 onClose={() => setIsSettingsOpen(false)}
             />
+
+            {/* Dicas de Uso & Boas Práticas */}
+            <div className="mt-12 mb-8 border-t border-[var(--border-color)] pt-8">
+                <h3 className="text-xl font-serif mb-6 flex items-center gap-2" style={{ color: 'var(--text-main)' }}>
+                    <Sparkles size={20} className="text-[var(--gold-to)]" /> Dicas de Uso & Boas Práticas
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* Cartão 1: Download de Mídias */}
+                    <div className="card flex flex-col gap-3 p-5" style={{ background: 'var(--panel-bg)' }}>
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg text-blue-400 bg-blue-500/10" style={{ color: 'var(--primary-color)', background: 'var(--primary-glow)' }}>
+                                <DownloadCloud size={22} />
+                            </div>
+                            <h4 className="font-serif text-lg font-semibold" style={{ color: 'var(--text-main)' }}>Baixe suas Mídias</h4>
+                        </div>
+                        <p className="text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                            Lembre-se de baixar todas as mídias (áudios e imagens) que incorporam sua conversa para anexar ao seu processo.
+                        </p>
+                    </div>
+
+                    {/* Cartão 2: Autenticação pelo Advogado */}
+                    <div className="card flex flex-col gap-3 p-5" style={{ background: 'var(--panel-bg)' }}>
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg text-amber-500 bg-amber-500/10" style={{ color: 'var(--gold-to)', background: 'rgba(245, 158, 11, 0.1)' }}>
+                                <Scale size={22} />
+                            </div>
+                            <h4 className="font-serif text-lg font-semibold" style={{ color: 'var(--text-main)' }}>Autenticação pelo Advogado</h4>
+                        </div>
+                        <p className="text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                            O próprio advogado realiza a autenticação do documento gerado sob sua responsabilidade profissional (Art. 425, IV, CPC).
+                        </p>
+                    </div>
+
+                    {/* Cartão 3: Resumos e Compartilhamento */}
+                    <div className="card flex flex-col gap-3 p-5" style={{ background: 'var(--panel-bg)' }}>
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg text-green-400 bg-green-500/10" style={{ color: 'var(--success)', background: 'rgba(74, 222, 128, 0.1)' }}>
+                                <FileText size={22} />
+                            </div>
+                            <h4 className="font-serif text-lg font-semibold" style={{ color: 'var(--text-main)' }}>Resuma & Compartilhe</h4>
+                        </div>
+                        <p className="text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                            Use o programa para resumir a conversa com seu cliente e repassar o caso para outro advogado de forma ágil.
+                        </p>
+                    </div>
+                </div>
+            </div>
 
             <LegalFooter />
         </div>

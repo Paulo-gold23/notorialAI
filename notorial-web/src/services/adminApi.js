@@ -61,3 +61,22 @@ export async function getAtasByStatus() {
   if (error) throw new Error('Erro ao carregar status das atas: ' + error.message);
   return data || [];
 }
+
+export async function adjustCredits(targetId, amount, description) {
+  const { data, error } = await supabase.rpc('admin_adjust_credits', {
+    target_id: targetId,
+    amount_to_add: amount,
+    p_description: description,
+  });
+  if (error) throw new Error('Erro ao ajustar créditos: ' + error.message);
+  return data;
+}
+
+export async function getUserTransactions(targetId) {
+  const { data, error } = await supabase.rpc('admin_get_user_transactions', {
+    target_id: targetId,
+  });
+  if (error) throw new Error('Erro ao buscar transações do usuário: ' + error.message);
+  return data || [];
+}
+

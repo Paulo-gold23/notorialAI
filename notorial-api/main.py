@@ -26,15 +26,29 @@ register_heif_opener()
 _LOG_FILE = os.path.join(os.path.dirname(__file__), "app.log")
 _formatter = logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
 
-_file_handler = logging.handlers.TimedRotatingFileHandler(
-    _LOG_FILE, when="midnight", backupCount=7, encoding="utf-8"
-)
-_file_handler.setFormatter(_formatter)
+_handlers = []
+try:
+    _file_handler = logging.handlers.TimedRotatingFileHandler(
+        _LOG_FILE, when="midnight", backupCount=7, encoding="utf-8"
+    )
+    _file_handler.setFormatter(_formatter)
+    _handlers.append(_file_handler)
+except PermissionError:
+    try:
+        # Fallback para escrita simples sem rotação se o arquivo estiver bloqueado
+        _file_handler = logging.FileHandler(_LOG_FILE, encoding="utf-8")
+        _file_handler.setFormatter(_formatter)
+        _handlers.append(_file_handler)
+    except Exception:
+        pass
+except Exception:
+    pass
 
 _console_handler = logging.StreamHandler()
 _console_handler.setFormatter(_formatter)
+_handlers.append(_console_handler)
 
-logging.basicConfig(level=logging.INFO, handlers=[_file_handler, _console_handler])
+logging.basicConfig(level=logging.INFO, handlers=_handlers)
 logger = logging.getLogger(__name__)
 
 

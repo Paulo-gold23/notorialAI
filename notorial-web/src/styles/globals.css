@@ -1205,4 +1205,492 @@ input:focus, select:focus {
   box-shadow: 0 0 0 3px var(--primary-color), 0 0 12px var(--primary-glow);
 }
 
+/* ========================================
+   RESSALVAS — Editor mark (user-note-wrapper)
+   ======================================== */
+
+.user-note-wrapper {
+  border-bottom: 2px dashed #d97706;
+  background-color: rgba(217, 119, 6, 0.08);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  padding: 0 1px;
+}
+
+.user-note-wrapper:hover,
+.user-note-wrapper.is-active {
+  background-color: rgba(217, 119, 6, 0.18);
+}
+
+.ProseMirror-wrapper.is-annotation-mode {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  cursor: text !important;
+}
+
+/* Subtle static border to indicate annotation mode is active */
+.ProseMirror-wrapper.is-annotation-mode .ProseMirror {
+  outline: 2px dashed rgba(217, 119, 6, 0.5);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+/* Floating confirmation button for ressalva selection */
+.ressalva-confirm-btn {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  z-index: 9999;
+  background-color: #d97706;
+  color: white;
+  border: none;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.4);
+  transition: all 0.15s ease-in-out;
+  animation: slideUp 0.15s ease-out;
+}
+
+.ressalva-confirm-btn:hover {
+  background-color: #b45309;
+  transform: translate(-50%, -100%) scale(1.02);
+  box-shadow: 0 6px 16px rgba(217, 119, 6, 0.55);
+}
+
+.ressalva-confirm-btn:active {
+  transform: translate(-50%, -100%) scale(0.98);
+}
+
+
+/* ========================================
+   RESSALVAS — Sidebar (Desktop)
+   ======================================== */
+
+/* Outer wrapper: Editor + Sidebar side-by-side */
+.review-with-sidebar {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.review-editor-area {
+  flex: 1 1 0;
+  min-width: 0; /* prevent flex overflow */
+}
+
+/* ── Sidebar panel ── */
+.ressalvas-sidebar {
+  width: 300px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 80px; /* below sticky toolbar */
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  /* Hide scrollbar visually but keep functional */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+}
+
+.ressalvas-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.ressalvas-sidebar-header .ressalvas-count-badge {
+  background: #d97706;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+
+/* ── Sidebar empty state ── */
+.ressalvas-sidebar-empty {
+  padding: 1.25rem 1rem;
+  background: var(--panel-bg);
+  border: 1px dashed var(--border-color);
+  border-radius: 0.75rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+/* ── Individual ressalva card ── */
+.ressalva-card {
+  background: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid #d97706;
+  border-radius: 0.625rem;
+  padding: 0.75rem;
+  transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+  cursor: pointer;
+  animation: slideUp 0.25s ease-out both;
+}
+
+.ressalva-card:hover {
+  border-color: #d97706;
+  box-shadow: 0 2px 12px rgba(217, 119, 6, 0.12);
+}
+
+.ressalva-card.is-highlighted {
+  background-color: rgba(217, 119, 6, 0.06);
+  border-color: #d97706;
+  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.25);
+}
+
+@keyframes cardGlow {
+  0%, 100% { border-color: var(--border-color); box-shadow: none; }
+  50% { border-color: #d97706; box-shadow: 0 0 12px rgba(217, 119, 6, 0.4); }
+}
+
+.ressalva-card.is-active-focus {
+  animation: cardGlow 1.5s ease-in-out;
+}
+
+.ressalva-card-excerpt {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-bottom: 0.4rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-left: 2px solid var(--border-color);
+  padding-left: 0.5rem;
+}
+
+.ressalva-card-text {
+  font-size: 0.82rem;
+  color: var(--text-main);
+  line-height: 1.45;
+  margin-bottom: 0.5rem;
+}
+
+.ressalva-card-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.ressalva-card-btn {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.ressalva-card-btn:hover {
+  color: var(--text-main);
+  border-color: var(--border-hover);
+  background: var(--surface-color);
+}
+
+.ressalva-card-btn.danger:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* ── Add/Edit form inside sidebar ── */
+.ressalva-form {
+  background: var(--panel-bg);
+  border: 1px solid #d97706;
+  border-radius: 0.75rem;
+  padding: 0.85rem;
+  animation: scaleIn 0.2s ease-out both;
+  flex-shrink: 0;
+}
+
+.ressalva-form-excerpt {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-bottom: 0.5rem;
+  border-left: 2px solid #d97706;
+  padding-left: 0.5rem;
+  line-height: 1.4;
+}
+
+.ressalva-form-textarea {
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-color);
+  background: var(--bg-color);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.82rem;
+  resize: vertical;
+  min-height: 80px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
+}
+
+.ressalva-form-textarea:focus {
+  border-color: #d97706;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.15);
+}
+
+.ressalva-form-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+/* ========================================
+   RESSALVAS — Mobile bottom-sheet
+   ======================================== */
+
+/* FAB button (visible only on mobile) */
+.ressalvas-fab {
+  display: none; /* shown via media query */
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.25rem;
+  z-index: 300;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #d97706;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(217, 119, 6, 0.45);
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.ressalvas-fab:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 20px rgba(217, 119, 6, 0.55);
+}
+
+.ressalvas-fab:active {
+  transform: scale(0.95);
+}
+
+.ressalvas-fab-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  border: 2px solid var(--panel-bg);
+}
+
+/* Bottom sheet backdrop */
+.ressalvas-sheet-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: var(--backdrop-color);
+  z-index: 350;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.ressalvas-sheet-backdrop.is-open {
+  display: block;
+}
+
+/* Bottom sheet panel */
+.ressalvas-sheet {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 400;
+  background: var(--panel-bg);
+  border-top-left-radius: 1.25rem;
+  border-top-right-radius: 1.25rem;
+  border-top: 1px solid var(--border-color);
+  padding: 0 1rem 2rem;
+  max-height: 75vh;
+  overflow-y: auto;
+  animation: sheetSlideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.ressalvas-sheet.is-open {
+  display: block;
+}
+
+@keyframes sheetSlideUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.ressalvas-sheet-handle {
+  width: 40px;
+  height: 4px;
+  background: var(--border-hover);
+  border-radius: 2px;
+  margin: 0.75rem auto 1rem;
+}
+
+/* ── Mobile breakpoint: swap sidebar for FAB + bottom-sheet ── */
+@media (max-width: 900px) {
+  /* Hide the desktop sidebar */
+  .ressalvas-sidebar {
+    display: none;
+  }
+
+  /* Unset the two-column flex layout */
+  .review-with-sidebar {
+    display: block;
+  }
+
+  /* Show the FAB */
+  .ressalvas-fab {
+    display: flex;
+  }
+}
+
+/* ── Tablet: narrow sidebar ── */
+@media (min-width: 901px) and (max-width: 1100px) {
+  .ressalvas-sidebar {
+    width: 240px;
+  }
+}
+
+/* ── Mobile touch: larger tap targets on ressalva cards ── */
+@media (max-width: 640px) {
+  .ressalva-card {
+    padding: 0.9rem;
+  }
+
+  .ressalva-card-btn {
+    font-size: 0.72rem;
+    padding: 0.3rem 0.65rem;
+    min-height: 32px;
+  }
+
+  .ressalva-form-textarea {
+    font-size: 0.9rem; /* easier to type on mobile */
+    min-height: 100px;
+  }
+}
+
+/* ── Ressalvas CSS Counters for editor numbering ── */
+.ProseMirror {
+  counter-reset: ressalva-counter;
+}
+
+.user-note-wrapper {
+  counter-increment: ressalva-counter;
+  position: relative;
+}
+
+.user-note-wrapper::after {
+  content: '[' counter(ressalva-counter) ']';
+  font-size: 0.72em;
+  font-weight: bold;
+  vertical-align: super;
+  line-height: 0;
+  color: #d97706;
+  margin-left: 2px;
+  display: inline-block;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Scroll-to-top/bottom floating button */
+.scroll-to-top-bottom {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  background-color: var(--primary-color);
+  color: #fff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 12px var(--primary-glow);
+  transition: all 0.25s ease-in-out;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.scroll-to-top-bottom:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px var(--primary-glow);
+}
+
+.scroll-to-top-bottom:active {
+  transform: translateY(0);
+}
+
+/* On mobile (width <= 900px), shift scroll button up to avoid overlapping with ressalvas FAB */
+@media (max-width: 900px) {
+  .scroll-to-top-bottom {
+    bottom: 5.5rem;
+    right: 1.25rem;
+  }
+}
+
+/* Responsive group for toolbar buttons */
+.toolbar-actions-group {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .toolbar-actions-group {
+    width: 100%;
+    justify-content: space-between;
+    gap: 0.35rem;
+  }
+}
+
+
 

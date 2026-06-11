@@ -223,14 +223,33 @@ export default function CreditReportModal({ report, onClose, onDownload }) {
                     >
                         Fechar
                     </button>
-                    <button
-                        className="btn-gradient"
-                        onClick={onDownload}
-                        autoFocus
-                        style={{ flex: 2, justifyContent: 'center' }}
-                    >
-                        <FileText size={16} /> Baixar PDF
-                    </button>
+                    {report.pdfUrl ? (
+                        <a
+                            className="btn-gradient"
+                            href={report.pdfUrl}
+                            download={`legisvox_documento_${report.id || ''}.pdf`}
+                            onClick={onClose}
+                            style={{
+                                flex: 2,
+                                justifyContent: 'center',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.5rem',
+                                textDecoration: 'none',
+                            }}
+                        >
+                            <FileText size={16} /> Baixar PDF
+                        </a>
+                    ) : (
+                        <button
+                            className="btn-gradient"
+                            onClick={onDownload}
+                            autoFocus
+                            style={{ flex: 2, justifyContent: 'center' }}
+                        >
+                            <FileText size={16} /> Baixar PDF
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

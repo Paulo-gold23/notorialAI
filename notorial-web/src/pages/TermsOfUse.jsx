@@ -55,7 +55,7 @@ export default function TermsOfUse() {
                     <BulletList items={[
                         <><strong>2.1 Licenciamento de Software:</strong> A Legatus concede ao Usuário uma licença de uso temporária, revogável, não exclusiva e intransferível do software LegisVox, operado exclusivamente sob o modelo <em>Software as a Service</em> (SaaS).</>,
                         <><strong>2.2 Escopo Operacional:</strong> O LegisVox é uma ferramenta de suporte tecnológico destinada à organização, transcrição de áudio, estruturação de diálogos e referenciação contextual de arquivos exportados de aplicativos de mensagens instantâneas.</>,
-                        <><strong>2.3 Inexistência de Fé Pública:</strong> O Usuário reconhece e aceita que a LegisVox é uma ferramenta de auxílio técnico e organizacional. Os relatórios gerados pela plataforma <strong>não possuem fé pública notarial</strong> (Art. 384, CPC) e não substituem, em nenhuma hipótese, a perícia oficial, a ata notarial ou qualquer outro meio de prova que exija certificação por autoridade pública ou perito judicial.</>,
+                        <><strong>2.3 Inexistência de Fé Pública:</strong> O Usuário reconhece e aceita que a LegisVox é uma ferramenta de auxílio técnico e organizacional. Os relatórios gerados pela plataforma <strong>não possuem fé pública notarial</strong> (Art. 384, CPC) e não substituem, em nenhuma hipótese, a perícia oficial, a ata notarial ou qualquer outro meio de prova que exija certificação por autoridade pública ou perito judicial. O próprio advogado realiza a autenticação do documento gerado sob sua responsabilidade profissional e fé pública (Art. 425, IV, CPC).</>,
                     ]} />
                 </TermsSection>
 
@@ -74,7 +74,7 @@ export default function TermsOfUse() {
                         <><strong>4.1 Licitude dos Dados Submetidos:</strong> O Usuário declara e garante ser o proprietário, interlocutor ou possuidor de autorização legal e expressa de todos os participantes das comunicações contidas nos arquivos submetidos. O Usuário assume total e exclusiva responsabilidade civil e criminal pela origem, licitude e veracidade dos dados processados (Art. 186 e 927 do Código Civil).</>,
                         <><strong>4.2 Finalidade de Uso:</strong> O Usuário obriga-se a utilizar os relatórios gerados exclusivamente para fins lícitos. A Legatus não se responsabiliza pelo uso indevido, ilegal ou antiético das informações organizadas pela Plataforma.</>,
                         <><strong>4.3 Sigilo das Comunicações:</strong> O Usuário reconhece que a utilização de mensagens privadas como meio de prova em processos judiciais deve observar os preceitos constitucionais de sigilo e privacidade. A Legatus não oferece consultoria jurídica e não garante a admissibilidade judicial do relatório gerado.</>,
-                        <><strong>4.4 Guarda do Relatório:</strong> Em virtude da nossa <strong>Política de Custódia Zero</strong>, o Usuário é o único responsável por realizar o download e garantir a guarda segura do relatório final em PDF.</>,
+                        <><strong>4.4 Guarda do Relatório e de Mídias:</strong> Em virtude da nossa <strong>Política de Custódia Zero</strong>, o Usuário é o único responsável por realizar o download e garantir a guarda segura do relatório final em PDF, bem como de todas as mídias (como imagens e arquivos de áudio) que incorporam ou acompanham a sua conversa processada.</>,
                     ]} />
                 </TermsSection>
 
@@ -114,7 +114,7 @@ export default function TermsOfUse() {
                 <TermsSection title="8. Eliminação de Dados e Política de Custódia Zero">
                     <BulletList items={[
                         <><strong>8.1 Descarte Automático:</strong> Em cumprimento aos Artigos 15 e 16 da LGPD, a Legatus procederá à eliminação definitiva e irreversível de todos os arquivos brutos submetidos (.ZIP), arquivos de áudio, imagens e transcrições em até <strong>24 horas</strong> após o processamento.</>,
-                        <><strong>8.2 Responsabilidade de Armazenamento:</strong> A Legatus não atua como serviço de custódia ou backup de documentos. Uma vez concluído o descarte automático, é tecnicamente impossível a recuperação dos dados. O Usuário assume a responsabilidade integral pela guarda, integridade e armazenamento do relatório final em PDF.</>,
+                        <><strong>8.2 Responsabilidade de Armazenamento:</strong> A Legatus não atua como serviço de custódia ou backup de documentos ou arquivos de mídia. Uma vez concluído o descarte automático, é tecnicamente impossível a recuperação das transcrições, áudios e imagens. O Usuário assume a responsabilidade integral por realizar o download e garantir a guarda segura do relatório e de todas as mídias associadas à conversa.</>,
                     ]} />
                 </TermsSection>
 
