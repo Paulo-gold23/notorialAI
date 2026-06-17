@@ -298,9 +298,9 @@ export default function Profile() {
                                 </button>
                             </div>
 
-                            {/* Senha de Assinatura (PIN) */}
+                            {/* Senha de Assinatura */}
                             <div className="pt-4 border-t border-[var(--border-color)]">
-                                <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-main)' }}>Senha de Assinatura (PIN)</h3>
+                                <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-main)' }}>Senha de Assinatura</h3>
                                 <p className="text-sm mb-4" style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>
                                     Senha numérica de 4 dígitos exigida no momento da emissão ou alteração de documentos.
                                 </p>

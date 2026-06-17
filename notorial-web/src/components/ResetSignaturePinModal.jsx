@@ -436,7 +436,7 @@ export default function ResetSignaturePinModal({ onClose, onSuccess }) {
                                         className="btn-gradient"
                                         style={{ padding: '0.5rem 1.25rem', fontSize: '0.85rem' }}
                                     >
-                                        {loading ? 'Redefinindo...' : 'Redefinir PIN'}
+                                        {loading ? 'Redefinindo...' : 'Redefinir Senha'}
                                     </button>
                                 </div>
                             </div>

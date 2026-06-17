@@ -221,9 +221,9 @@ export default function SignaturePinPromptModal({ onSaved }) {
                         {step === 'done' ? (
                             'Sua senha de assinatura eletrônica de 4 dígitos foi configurada.'
                         ) : isConfirming ? (
-                            'Digite novamente o PIN numérico de 4 dígitos para confirmar.'
+                            'Digite novamente a senha numérica de 4 dígitos para confirmar.'
                         ) : (
-                            'Crie um PIN numérico de 4 dígitos. Esta senha será exigida sempre que você salvar ou emitir documentos finalizados.'
+                            'Crie uma senha numérica de 4 dígitos. Esta senha será exigida sempre que você salvar ou emitir documentos finalizados.'
                         )}
                     </p>
                 </div>
@@ -281,7 +281,7 @@ export default function SignaturePinPromptModal({ onSaved }) {
                                             onChange={(e) => handlePinChange(idx, e.target.value, false)}
                                             onKeyDown={(e) => handleKeyDown(idx, e, false)}
                                             onPaste={(e) => handlePaste(e, false)}
-                                            aria-label={`Dígito ${idx + 1} do PIN`}
+                                            aria-label={`Dígito ${idx + 1} da senha de assinatura`}
                                             style={{
                                                 width: '3.5rem',
                                                 height: '3.5rem',
@@ -312,7 +312,7 @@ export default function SignaturePinPromptModal({ onSaved }) {
                                             onChange={(e) => handlePinChange(idx, e.target.value, true)}
                                             onKeyDown={(e) => handleKeyDown(idx, e, true)}
                                             onPaste={(e) => handlePaste(e, true)}
-                                            aria-label={`Dígito ${idx + 1} da confirmação do PIN`}
+                                            aria-label={`Dígito ${idx + 1} da confirmação da senha de assinatura`}
                                             style={{
                                                 width: '3.5rem',
                                                 height: '3.5rem',

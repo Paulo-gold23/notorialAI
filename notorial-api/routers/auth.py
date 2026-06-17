@@ -67,7 +67,7 @@ def _send_reset_email(to_email: str, token: str) -> bool:
                 <hr style="border: 0; border-top: 1px solid #e5e7eb; margin-bottom: 20px;" />
                 <p style="color: #374151; font-size: 16px; line-height: 1.5;">Olá,</p>
                 <p style="color: #374151; font-size: 16px; line-height: 1.5;">Você solicitou a redefinição de sua senha de assinatura de 4 dígitos no LegisVox.</p>
-                <p style="color: #374151; font-size: 16px; line-height: 1.5;">Utilize o código de verificação abaixo para desbloquear e cadastrar um novo PIN:</p>
+                <p style="color: #374151; font-size: 16px; line-height: 1.5;">Utilize o código de verificação abaixo para desbloquear e cadastrar uma nova senha de assinatura:</p>
                 <div style="background-color: #f9fafb; border: 1px solid #d1d5db; padding: 15px; border-radius: 6px; text-align: center; margin: 25px 0;">
                     <span style="font-family: monospace; font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #1e3a8a;">{token}</span>
                 </div>
@@ -339,7 +339,7 @@ def set_signature_pin(req: SignaturePinSetRequest, request: Request, user_id: st
         raise HTTPException(status_code=401, detail="Unauthorized")
     
     if not req.pin.isdigit():
-        raise HTTPException(status_code=422, detail="O PIN deve conter apenas números.")
+        raise HTTPException(status_code=422, detail="A senha de assinatura deve conter apenas números.")
         
     hashed_pin = _hash_pin(req.pin, user_id)
     
@@ -529,7 +529,7 @@ def reset_signature_pin(req: SignaturePinResetRequest, request: Request, user_id
         raise HTTPException(status_code=401, detail="Unauthorized")
         
     if not req.new_pin.isdigit():
-        raise HTTPException(status_code=422, detail="O PIN deve conter apenas números.")
+        raise HTTPException(status_code=422, detail="A senha de assinatura deve conter apenas números.")
         
     real_ip = _get_real_ip(request)
     user_agent = request.headers.get("user-agent", "unknown")

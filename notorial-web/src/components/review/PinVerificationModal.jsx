@@ -39,7 +39,7 @@ export default function PinVerificationModal({
             const rawPin = pinInput.join('');
             
             if (rawPin.length !== 4) {
-                setPinError('O PIN deve ter 4 dígitos.');
+                setPinError('A senha de assinatura deve ter 4 dígitos.');
                 setVerifyingPin(false);
                 return;
             }
@@ -98,7 +98,7 @@ export default function PinVerificationModal({
                             Assinatura Eletrônica
                         </h2>
                         <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                            Confirme sua identidade com seu PIN
+                            Confirme sua identidade com sua senha de assinatura
                         </p>
                     </div>
                 </div>
@@ -130,7 +130,7 @@ export default function PinVerificationModal({
                                 onClick={onForgotPin}
                                 style={{ flex: 2 }}
                             >
-                                Redefinir PIN por E-mail
+                                Redefinir Senha por E-mail
                             </button>
                         </div>
                     </div>
@@ -155,7 +155,7 @@ export default function PinVerificationModal({
 
                         <div style={{ marginBottom: '1.25rem' }}>
                             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-main)' }}>
-                                PIN de 4 dígitos
+                                Senha de 4 dígitos
                             </label>
                             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
                                 {pinInput.map((digit, idx) => (
@@ -224,7 +224,7 @@ export default function PinVerificationModal({
                                 className="btn-ghost text-xs"
                                 style={{ color: 'var(--text-muted)', textDecoration: 'underline' }}
                             >
-                                Esqueci meu PIN
+                                Esqueci minha senha
                             </button>
                             <div style={{ display: 'flex', gap: '0.5rem' }}>
                                 <button
