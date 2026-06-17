@@ -443,6 +443,29 @@ def set_signature_pin(req: SignaturePinSetRequest, request: Request, user_id: st
     return {"status": "success", "message": "Senha de assinatura cadastrada com sucesso."}
 
 
+@router.get("/signature-pin/status")
+def get_signature_pin_status(user_id: str = Depends(get_current_user_id)):
+    """Returns whether the lawyer already has a signature PIN set and if it's locked.
+    Does NOT expose the hash itself — safe to call from the frontend."""
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    adv_resp = supabase_admin.table("advogados") \
+        .select("senha_assinatura_hash", "senha_assinatura_bloqueado", "senha_assinatura_erros") \
+        .eq("id", user_id) \
+        .execute()
+
+    if not adv_resp.data:
+        raise HTTPException(status_code=404, detail="Perfil não encontrado.")
+
+    advogado = adv_resp.data[0]
+    return {
+        "has_pin": bool(advogado.get("senha_assinatura_hash")),
+        "bloqueado": bool(advogado.get("senha_assinatura_bloqueado")),
+        "tentativas_restantes": max(0, 5 - (advogado.get("senha_assinatura_erros") or 0)),
+    }
+
+
 @router.post("/signature-pin/verify")
 @limiter.limit("5/minute")
 def verify_signature_pin(req: SignaturePinVerifyRequest, request: Request, user_id: str = Depends(get_current_user_id)):

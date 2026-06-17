@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabase';
 import { ArrowLeft, User, Mail, Briefcase, ShieldCheck, CreditCard, Lock, Sparkles, CheckCircle2, TrendingUp, Coins, ChevronRight, RefreshCw } from 'lucide-react';
 import { creditsApi } from '../services/creditsApi';
+import { apiRequest } from '../services/api';
 import { useToast } from '../components/ToastContext';
 import { Skeleton } from '../components/Skeleton';
 import LegalFooter from '../components/LegalFooter';
@@ -18,6 +19,8 @@ export default function Profile() {
     const [sendingReset, setSendingReset] = useState(false);
     const [showPinModal, setShowPinModal] = useState(false);
     const [showResetModal, setShowResetModal] = useState(false);
+    // True when user already has a signature PIN — drives isUpdate prop on modal
+    const [hasSignaturePin, setHasSignaturePin] = useState(false);
     
     // Credit States
     const [creditStats, setCreditStats] = useState({
@@ -68,6 +71,15 @@ export default function Profile() {
                 consumed: consumed,
                 balance: exactBalance
             });
+
+            // Fetch PIN status from secure backend endpoint (hash is never sent to frontend)
+            try {
+                const pinStatus = await apiRequest('/api/auth/signature-pin/status');
+                setHasSignaturePin(pinStatus?.has_pin === true);
+            } catch {
+                // Non-critical: if this fails, default to false (treats as first-time setup)
+                setHasSignaturePin(false);
+            }
 
         } catch (err) {
             console.error('Erro ao carregar perfil:', err);
@@ -450,7 +462,7 @@ export default function Profile() {
 
             {showPinModal && (
                 <SignaturePinPromptModal 
-                    isUpdate={true}
+                    isUpdate={hasSignaturePin}
                     onClose={() => setShowPinModal(false)}
                     onSaved={() => {
                         setShowPinModal(false);
