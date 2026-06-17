@@ -11,7 +11,7 @@ export default function SignaturePinPromptModal({ onSaved }) {
     const [isConfirming, setIsConfirming] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [step, setStep] = useState('input'); // 'input' | 'saving' | 'done'
+    const [step, setStep] = useState('info'); // 'info' | 'input' | 'saving' | 'done'
 
     const pinRefs = [useRef(null), useRef(null), useRef(null), useRef(null)];
     const confirmRefs = [useRef(null), useRef(null), useRef(null), useRef(null)];
@@ -207,18 +207,22 @@ export default function SignaturePinPromptModal({ onSaved }) {
                         margin: '0 0 0.25rem', fontSize: '1.2rem',
                         fontWeight: 700, color: 'var(--text-main)',
                     }}>
-                        {step === 'done' 
-                            ? 'Senha Cadastrada!' 
-                            : isConfirming 
-                                ? 'Confirme sua Senha de Assinatura' 
-                                : 'Nova Senha de Assinatura'
+                        {step === 'info'
+                            ? 'O que é a Senha de Assinatura?'
+                            : step === 'done' 
+                                ? 'Senha Cadastrada!' 
+                                : isConfirming 
+                                    ? 'Confirme sua Senha de Assinatura' 
+                                    : 'Nova Senha de Assinatura'
                         }
                     </h3>
                     <p style={{
                         margin: 0, fontSize: '0.82rem',
                         color: 'var(--text-muted)', lineHeight: 1.5,
                     }}>
-                        {step === 'done' ? (
+                        {step === 'info' ? (
+                            'Entenda como funciona esta medida de segurança para a sua atuação profissional.'
+                        ) : step === 'done' ? (
                             'Sua senha de assinatura eletrônica de 4 dígitos foi configurada.'
                         ) : isConfirming ? (
                             'Digite novamente a senha numérica de 4 dígitos para confirmar.'
@@ -230,7 +234,60 @@ export default function SignaturePinPromptModal({ onSaved }) {
 
                 {/* Body */}
                 <div style={{ padding: '0.75rem 1.5rem 1.75rem' }}>
-                    {step === 'done' ? (
+                    {step === 'info' ? (
+                        <div style={{ animation: 'scaleIn 0.25s ease-out' }}>
+                            <div style={{
+                                display: 'flex', flexDirection: 'column', gap: '1rem',
+                                color: 'var(--text-muted)', fontSize: '0.82rem', lineHeight: 1.45,
+                                marginBottom: '1.5rem', textAlign: 'left'
+                            }}>
+                                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+                                    <div style={{
+                                        background: 'rgba(59,130,246,0.1)', color: 'var(--primary-color)',
+                                        width: '24px', height: '24px', borderRadius: '50%',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        flexShrink: 0, fontWeight: 'bold', fontSize: '0.75rem', marginTop: '2px'
+                                    }}>1</div>
+                                    <div>
+                                        <strong style={{ color: 'var(--text-main)', display: 'block', marginBottom: '1px' }}>Exclusiva do LegisVox</strong>
+                                        <span>Esta é uma senha criada por você <strong>apenas para este aplicativo</strong>. Não é o PIN do chip do seu celular nem a senha de bloqueio do aparelho.</span>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+                                    <div style={{
+                                        background: 'rgba(59,130,246,0.1)', color: 'var(--primary-color)',
+                                        width: '24px', height: '24px', borderRadius: '50%',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        flexShrink: 0, fontWeight: 'bold', fontSize: '0.75rem', marginTop: '2px'
+                                    }}>2</div>
+                                    <div>
+                                        <strong style={{ color: 'var(--text-main)', display: 'block', marginBottom: '1px' }}>Fé Pública & Emissão</strong>
+                                        <span>Ela será exigida sempre que você salvar alterações, emitir relatórios ou gerar PDFs. Representa a sua chancela jurídica sobre as provas.</span>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+                                    <div style={{
+                                        background: 'rgba(59,130,246,0.1)', color: 'var(--primary-color)',
+                                        width: '24px', height: '24px', borderRadius: '50%',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        flexShrink: 0, fontWeight: 'bold', fontSize: '0.75rem', marginTop: '2px'
+                                    }}>3</div>
+                                    <div>
+                                        <strong style={{ color: 'var(--text-main)', display: 'block', marginBottom: '1px' }}>Proteção contra Abuso</strong>
+                                        <span>Errar a senha 5 vezes consecutivas bloqueia a assinatura por segurança, exigindo redefinição segura por e-mail.</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setStep('input')}
+                                className="btn-gradient"
+                                style={{ width: '100%', padding: '0.8rem', fontSize: '0.88rem', fontWeight: 600 }}
+                            >
+                                Entendi, Prosseguir para o Cadastro
+                            </button>
+                        </div>
+                    ) : step === 'done' ? (
                         <div style={{
                             textAlign: 'center', padding: '0.5rem 0',
                             animation: 'scaleIn 0.3s ease-out',

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Smartphone, Download, UploadCloud, CheckCircle2, ChevronRight, ChevronLeft } from 'lucide-react';
+import { X, Smartphone, Download, UploadCloud, CheckCircle2, ChevronRight, ChevronLeft, Lock } from 'lucide-react';
 
 export default function TutorialModal({ isOpen, onClose }) {
     const [step, setStep] = useState(0);
@@ -47,6 +47,21 @@ export default function TutorialModal({ isOpen, onClose }) {
                 <div className="space-y-3 text-sm" style={{ color: 'var(--text-muted)' }}>
                     <p>Com o pacote <code className="bg-black/5 dark:bg-white/5 py-0.5 px-1.5 rounded">.zip</code> em mãos, abra nossa plataforma clicando em <strong>Novo Documento</strong> no painel principal.</p>
                     <p>Arraste o arquivo para a área de envio. A ferramenta usará nossos créditos automáticos para prever o quantitativo de páginas (folhas notariais) e, assim que você confirmar o envio, o Robô de Orquestramento fará todo o processo: parsear a conversa, criar linha cronológica e embedar as imagens formatadas no Word/PDF.</p>
+                </div>
+            )
+        },
+        {
+            icon: <Lock size={40} className="mb-4 text-amber-500" />,
+            title: '4. Senha de Assinatura',
+            content: (
+                <div className="space-y-3 text-sm" style={{ color: 'var(--text-muted)' }}>
+                    <p>Para chancelar a integridade jurídica das mensagens e das mídias exportadas, o LegisVox exige a criação de uma <strong>Senha de Assinatura de 4 dígitos</strong>.</p>
+                    <p>Esta senha é de uso pessoal e exclusivo dentro da plataforma:</p>
+                    <ul className="list-disc pl-5 space-y-2 mt-2">
+                        <li><strong>Diferente do celular:</strong> Não confunda com o PIN de bloqueio do seu smartphone ou chip telefônico. Ela é definida por você no primeiro acesso.</li>
+                        <li><strong>Segurança Notarial:</strong> A senha será exigida sempre que você salvar alterações nas atas ou emitir relatórios finais em PDF.</li>
+                        <li><strong>Recuperação Segura:</strong> Caso esqueça, você pode redefinir a senha a qualquer momento enviando um código temporário para o seu e-mail cadastrado.</li>
+                    </ul>
                 </div>
             )
         }

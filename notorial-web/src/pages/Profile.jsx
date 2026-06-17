@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabase';
-import { ArrowLeft, User, Mail, Briefcase, ShieldCheck, CreditCard, Lock, Sparkles, CheckCircle2, TrendingUp, Coins, ChevronRight } from 'lucide-react';
+import { ArrowLeft, User, Mail, Briefcase, ShieldCheck, CreditCard, Lock, Sparkles, CheckCircle2, TrendingUp, Coins, ChevronRight, RefreshCw } from 'lucide-react';
 import { creditsApi } from '../services/creditsApi';
 import { useToast } from '../components/ToastContext';
 import { Skeleton } from '../components/Skeleton';
@@ -342,11 +342,12 @@ export default function Profile() {
                                         </button>
                                         
                                         {profile?.senha_assinatura_hash && (
-                                            <button
+                                            <button 
                                                 onClick={() => setShowResetModal(true)}
-                                                className="text-xs text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white transition-colors underline cursor-pointer"
+                                                className="btn-secondary px-5 py-2.5 flex items-center gap-2 group border border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-500"
                                             >
-                                                Esqueci minha senha
+                                                <RefreshCw size={16} className="text-gray-500 group-hover:text-gray-800 dark:text-gray-400 dark:group-hover:text-white transition-colors" />
+                                                <span>Redefinir Senha (E-mail)</span>
                                             </button>
                                         )}
                                     </div>
