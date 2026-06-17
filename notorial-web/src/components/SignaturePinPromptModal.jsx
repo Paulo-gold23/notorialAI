@@ -115,13 +115,34 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
         }
     };
 
-    const handleContinueFromCurrent = () => {
+    // Validates current PIN against the backend BEFORE advancing to new_pin step.
+    // This gives immediate feedback — wrong PIN = error right here, no UI advance.
+    const handleContinueFromCurrent = async () => {
         if (currentPin.join('').length !== 4) {
             setError('Por favor, digite todos os 4 dígitos da senha atual.');
             return;
         }
         setError('');
-        setStep('new_pin');
+        setLoading(true);
+
+        try {
+            const fingerprint = await getDeviceFingerprint();
+            await apiRequest('/api/auth/signature-pin/verify', {
+                method: 'POST',
+                body: JSON.stringify({
+                    pin: currentPin.join(''),
+                    device_fingerprint: fingerprint,
+                }),
+            });
+            // Verified ✓ — safe to advance
+            setStep('new_pin');
+        } catch (err) {
+            setCurrentPin(['', '', '', '']);
+            currentRefs[0].current?.focus();
+            setError(err.message || 'Senha de assinatura atual incorreta.');
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleContinueFromNew = () => {
@@ -170,6 +191,8 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
                 device_fingerprint: fingerprint,
             };
             if (isUpdate) {
+                // current_pin already verified in handleContinueFromCurrent,
+                // but sent again for the backend's double-check on save.
                 payload.current_pin = currentPinStr;
             }
 
@@ -514,11 +537,17 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
                                     <button
                                         type="button"
                                         onClick={handleContinueFromCurrent}
-                                        disabled={!isCurrentComplete}
+                                        disabled={!isCurrentComplete || loading}
                                         className="btn-gradient"
                                         style={{ width: '100%', padding: '0.8rem', fontSize: '0.88rem' }}
                                     >
-                                        Confirmar Senha Atual
+                                        {loading ? (
+                                            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                                                <div className="sp-wave" style={{ width: 14, height: 14 }} /> Verificando...
+                                            </span>
+                                        ) : (
+                                            'Confirmar Senha Atual'
+                                        )}
                                     </button>
                                 )}
                                 {step === 'new_pin' && (
