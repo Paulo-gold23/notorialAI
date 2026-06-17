@@ -343,3 +343,84 @@ def test_set_signature_pin_correct_current_pin_success(mock_supabase):
         "senha_assinatura_bloqueado": False
     })
 
+
+# ── Tests for GET /signature-pin/status ─────────────────────────────────────
+
+def test_get_signature_pin_status_no_pin(mock_supabase):
+    """User with no PIN: has_pin=False, bloqueado=False, 5 attempts remaining."""
+    mock_admin, mock_table, mock_execute = mock_supabase
+    mock_execute.data = [{
+        "senha_assinatura_hash": None,
+        "senha_assinatura_bloqueado": False,
+        "senha_assinatura_erros": 0,
+    }]
+
+    response = client.get("/api/auth/signature-pin/status")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["has_pin"] is False
+    assert body["bloqueado"] is False
+    assert body["tentativas_restantes"] == 5
+    # Hash must never be returned
+    assert "senha_assinatura_hash" not in body
+
+
+def test_get_signature_pin_status_with_pin(mock_supabase):
+    """User with a PIN: has_pin=True, bloqueado=False, full attempts remaining."""
+    mock_admin, mock_table, mock_execute = mock_supabase
+    mock_execute.data = [{
+        "senha_assinatura_hash": _hash_pin("1234", MOCK_USER_ID),
+        "senha_assinatura_bloqueado": False,
+        "senha_assinatura_erros": 0,
+    }]
+
+    response = client.get("/api/auth/signature-pin/status")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["has_pin"] is True
+    assert body["bloqueado"] is False
+    assert body["tentativas_restantes"] == 5
+    assert "senha_assinatura_hash" not in body
+
+
+def test_get_signature_pin_status_locked(mock_supabase):
+    """User with a locked account: has_pin=True, bloqueado=True, 0 attempts remaining."""
+    mock_admin, mock_table, mock_execute = mock_supabase
+    mock_execute.data = [{
+        "senha_assinatura_hash": _hash_pin("1234", MOCK_USER_ID),
+        "senha_assinatura_bloqueado": True,
+        "senha_assinatura_erros": 5,
+    }]
+
+    response = client.get("/api/auth/signature-pin/status")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["has_pin"] is True
+    assert body["bloqueado"] is True
+    assert body["tentativas_restantes"] == 0
+    assert "senha_assinatura_hash" not in body
+
+
+def test_get_signature_pin_status_partial_errors(mock_supabase):
+    """User with 3 failed attempts: 2 remaining."""
+    mock_admin, mock_table, mock_execute = mock_supabase
+    mock_execute.data = [{
+        "senha_assinatura_hash": _hash_pin("1234", MOCK_USER_ID),
+        "senha_assinatura_bloqueado": False,
+        "senha_assinatura_erros": 3,
+    }]
+
+    response = client.get("/api/auth/signature-pin/status")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["has_pin"] is True
+    assert body["tentativas_restantes"] == 2
+
+
+def test_get_signature_pin_status_not_found(mock_supabase):
+    """User not found in DB: 404."""
+    mock_admin, mock_table, mock_execute = mock_supabase
+    mock_execute.data = []
+
+    response = client.get("/api/auth/signature-pin/status")
+    assert response.status_code == 404
