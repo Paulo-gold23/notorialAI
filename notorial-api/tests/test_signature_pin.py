@@ -9,6 +9,10 @@ import hashlib
 MOCK_USER_ID = "test-user-uuid"
 app.dependency_overrides[get_current_user_id] = lambda: MOCK_USER_ID
 
+# Disable rate limiting for testing
+if hasattr(app.state, "limiter"):
+    app.state.limiter.enabled = False
+
 client = TestClient(app)
 
 # Helper function to compute hash for assertions
@@ -225,3 +229,117 @@ def test_reset_signature_pin_success(mock_supabase):
         "senha_assinatura_token_hash": None,
         "senha_assinatura_token_exp": None
     })
+
+
+def test_set_signature_pin_requires_current_pin_if_exists(mock_supabase):
+    mock_admin, mock_table, mock_execute = mock_supabase
+    
+    # Mock user having an existing PIN hash
+    existing_hash = _hash_pin("1234", MOCK_USER_ID)
+    mock_execute.data = [{
+        "email": "test@legisvox.com.br",
+        "senha_assinatura_hash": existing_hash,
+        "senha_assinatura_erros": 0,
+        "senha_assinatura_bloqueado": False
+    }]
+    
+    payload = {
+        "pin": "5678", # New PIN
+        "device_fingerprint": "mock-fingerprint-1"
+        # current_pin is missing!
+    }
+    
+    response = client.post("/api/auth/signature-pin/set", json=payload)
+    
+    assert response.status_code == 400
+    assert "atual é obrigatória" in response.json()["detail"]
+
+
+def test_set_signature_pin_wrong_current_pin(mock_supabase):
+    mock_admin, mock_table, mock_execute = mock_supabase
+    
+    existing_hash = _hash_pin("1234", MOCK_USER_ID)
+    mock_execute.data = [{
+        "email": "test@legisvox.com.br",
+        "senha_assinatura_hash": existing_hash,
+        "senha_assinatura_erros": 1,
+        "senha_assinatura_bloqueado": False
+    }]
+    
+    payload = {
+        "pin": "5678", # New PIN
+        "device_fingerprint": "mock-fingerprint-1",
+        "current_pin": "0000" # Wrong current PIN
+    }
+    
+    response = client.post("/api/auth/signature-pin/set", json=payload)
+    
+    assert response.status_code == 400
+    assert "atual incorreta" in response.json()["detail"]
+    
+    # Errors incremented to 2, blocked remains False
+    mock_table.update.assert_any_call({
+        "senha_assinatura_erros": 2,
+        "senha_assinatura_bloqueado": False
+    })
+
+
+def test_set_signature_pin_lockout(mock_supabase):
+    mock_admin, mock_table, mock_execute = mock_supabase
+    
+    existing_hash = _hash_pin("1234", MOCK_USER_ID)
+    mock_execute.data = [{
+        "email": "test@legisvox.com.br",
+        "senha_assinatura_hash": existing_hash,
+        "senha_assinatura_erros": 4, # 4 errors already
+        "senha_assinatura_bloqueado": False
+    }]
+    
+    payload = {
+        "pin": "5678", # New PIN
+        "device_fingerprint": "mock-fingerprint-1",
+        "current_pin": "0000" # 5th incorrect attempt
+    }
+    
+    response = client.post("/api/auth/signature-pin/set", json=payload)
+    
+    assert response.status_code == 403
+    assert "bloqueada" in response.json()["detail"]
+    
+    # Locked out
+    mock_table.update.assert_any_call({
+        "senha_assinatura_erros": 5,
+        "senha_assinatura_bloqueado": True
+    })
+
+
+def test_set_signature_pin_correct_current_pin_success(mock_supabase):
+    mock_admin, mock_table, mock_execute = mock_supabase
+    
+    existing_hash = _hash_pin("1234", MOCK_USER_ID)
+    mock_execute.data = [{
+        "email": "test@legisvox.com.br",
+        "senha_assinatura_hash": existing_hash,
+        "senha_assinatura_erros": 3,
+        "senha_assinatura_bloqueado": False
+    }]
+    
+    payload = {
+        "pin": "5678", # New PIN
+        "device_fingerprint": "mock-fingerprint-1",
+        "current_pin": "1234" # Correct current PIN
+    }
+    
+    response = client.post("/api/auth/signature-pin/set", json=payload)
+    
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+    
+    # Should update and reset all errors
+    expected_new_hash = _hash_pin("5678", MOCK_USER_ID)
+    mock_table.update.assert_any_call({
+        "senha_assinatura_hash": expected_new_hash,
+        "senha_assinatura_erros": 0,
+        "senha_assinatura_bloqueado": False
+    })
+

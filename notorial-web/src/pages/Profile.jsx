@@ -49,21 +49,22 @@ export default function Profile() {
             // Fetch credit statistics
             const txs = await creditsApi.getTransactions();
             let consumed = 0;
-            let added = 0;
             
             txs.forEach(tx => {
                 const amt = Number(tx.amount) || 0;
                 if (tx.type === 'debit') consumed += amt;
                 if (tx.type === 'refund') consumed = Math.max(0, consumed - amt);
-                if (tx.type === 'purchase' || tx.type === 'trial') added += amt;
             });
             
             // In a live system balance might go out of sync with tx history logic if manual changes happen,
             // so we also fetch the exact current balance to be sure:
             const exactBalance = await creditsApi.getBalance();
             
+            // O total acumulado que passou pela conta é o saldo disponível atual + o que já foi consumido
+            const totalAccumulated = exactBalance + consumed;
+            
             setCreditStats({
-                total: added,
+                total: totalAccumulated,
                 consumed: consumed,
                 balance: exactBalance
             });
@@ -449,6 +450,8 @@ export default function Profile() {
 
             {showPinModal && (
                 <SignaturePinPromptModal 
+                    isUpdate={true}
+                    onClose={() => setShowPinModal(false)}
                     onSaved={() => {
                         setShowPinModal(false);
                         loadProfile();

@@ -116,6 +116,7 @@ class AuditLogRequest(BaseModel):
 class SignaturePinSetRequest(BaseModel):
     pin: str = Field(..., min_length=4, max_length=4)
     device_fingerprint: str = Field(..., min_length=1)
+    current_pin: Optional[str] = Field(None, min_length=4, max_length=4)
 
 class SignaturePinVerifyRequest(BaseModel):
     pin: str = Field(..., min_length=4, max_length=4)
@@ -341,6 +342,73 @@ def set_signature_pin(req: SignaturePinSetRequest, request: Request, user_id: st
     if not req.pin.isdigit():
         raise HTTPException(status_code=422, detail="A senha de assinatura deve conter apenas números.")
         
+    # Check if lawyer already has a PIN
+    adv_resp = supabase_admin.table("advogados") \
+        .select("senha_assinatura_hash", "senha_assinatura_bloqueado", "senha_assinatura_erros", "email") \
+        .eq("id", user_id) \
+        .execute()
+        
+    if not adv_resp.data:
+        raise HTTPException(status_code=404, detail="Perfil não encontrado.")
+        
+    advogado = adv_resp.data[0]
+    email = advogado.get("email") or "unknown"
+    
+    if advogado.get("senha_assinatura_bloqueado"):
+        raise HTTPException(
+            status_code=403,
+            detail="Sua senha de assinatura está bloqueada devido a excesso de tentativas incorretas. Redefina-a por e-mail."
+        )
+        
+    has_existing_pin = bool(advogado.get("senha_assinatura_hash"))
+    
+    if has_existing_pin:
+        if not req.current_pin:
+            raise HTTPException(status_code=400, detail="A senha de assinatura atual é obrigatória para alteração.")
+            
+        if not req.current_pin.isdigit():
+            raise HTTPException(status_code=422, detail="A senha atual deve conter apenas números.")
+            
+        hashed_current = _hash_pin(req.current_pin, user_id)
+        if hashed_current != advogado["senha_assinatura_hash"]:
+            novos_erros = (advogado.get("senha_assinatura_erros") or 0) + 1
+            bloquear = (novos_erros >= 5)
+            
+            try:
+                supabase_admin.table("advogados") \
+                    .update({
+                        "senha_assinatura_erros": novos_erros,
+                        "senha_assinatura_bloqueado": bloquear
+                    }) \
+                    .eq("id", user_id) \
+                    .execute()
+            except Exception as e:
+                logger.error(f"Failed to update error count on PIN change (user {user_id}): {e}")
+                
+            real_ip = _get_real_ip(request)
+            user_agent = request.headers.get("user-agent", "unknown")
+            acao = "tentativa_assinatura_bloqueada" if bloquear else "tentativa_assinatura_falha"
+            try:
+                supabase_admin.table("audit_logs").insert({
+                    "advogado_id": user_id,
+                    "email": email,
+                    "acao": acao,
+                    "ip_address": real_ip,
+                    "user_agent": user_agent,
+                    "device_fingerprint": req.device_fingerprint,
+                    "payload": {"context": "change_password", "errors": novos_erros}
+                }).execute()
+            except Exception as audit_err:
+                logger.warning(f"Audit log failed for PIN change error (user {user_id}): {audit_err}")
+                
+            if bloquear:
+                raise HTTPException(
+                    status_code=403, 
+                    detail="Senha de assinatura bloqueada devido a excesso de tentativas incorretas. Redefina-a por e-mail."
+                )
+            else:
+                raise HTTPException(status_code=400, detail="Senha de assinatura atual incorreta.")
+                
     hashed_pin = _hash_pin(req.pin, user_id)
     
     try:
@@ -358,21 +426,19 @@ def set_signature_pin(req: SignaturePinSetRequest, request: Request, user_id: st
         
     real_ip = _get_real_ip(request)
     user_agent = request.headers.get("user-agent", "unknown")
-    user_resp = supabase_admin.table("advogados").select("email").eq("id", user_id).execute()
-    email = user_resp.data[0]["email"] if user_resp.data else "unknown"
     
     try:
         supabase_admin.table("audit_logs").insert({
             "advogado_id": user_id,
             "email": email,
-            "acao": "senha_assinatura_criada",
+            "acao": "senha_assinatura_redefinida" if has_existing_pin else "senha_assinatura_criada",
             "ip_address": real_ip,
             "user_agent": user_agent,
             "device_fingerprint": req.device_fingerprint,
-            "payload": {"status": "created"}
+            "payload": {"status": "updated" if has_existing_pin else "created"}
         }).execute()
     except Exception as e:
-        logger.warning(f"Audit log failed for PIN creation (user {user_id}): {e}")
+        logger.warning(f"Audit log failed for PIN creation/update (user {user_id}): {e}")
         
     return {"status": "success", "message": "Senha de assinatura cadastrada com sucesso."}
 
