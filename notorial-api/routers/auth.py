@@ -3,6 +3,7 @@ import logging
 import secrets
 import string
 import smtplib
+import httpx
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timezone, timedelta
@@ -45,7 +46,57 @@ def _is_expired(exp_str: Optional[str]) -> bool:
         return True
 
 def _send_reset_email(to_email: str, token: str) -> bool:
-    """Sends the 6-digit PIN reset token via SMTP."""
+    """Sends the 6-digit PIN reset token via SMTP or Resend API (HTTP)."""
+    html_content = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; background-color: #f3f4f6; padding: 20px;">
+        <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; padding: 30px; border-radius: 8px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h2 style="color: #111827; margin: 0;">LegisVox</h2>
+                <p style="color: #6b7280; font-size: 14px; margin: 5px 0 0 0;">Segurança e Compliance Notarial</p>
+            </div>
+            <hr style="border: 0; border-top: 1px solid #e5e7eb; margin-bottom: 20px;" />
+            <p style="color: #374151; font-size: 16px; line-height: 1.5;">Olá,</p>
+            <p style="color: #374151; font-size: 16px; line-height: 1.5;">Você solicitou a redefinição de sua senha de assinatura de 4 dígitos no LegisVox.</p>
+            <p style="color: #374151; font-size: 16px; line-height: 1.5;">Utilize o código de verificação abaixo para desbloquear e cadastrar uma nova senha de assinatura:</p>
+            <div style="background-color: #f9fafb; border: 1px solid #d1d5db; padding: 15px; border-radius: 6px; text-align: center; margin: 25px 0;">
+                <span style="font-family: monospace; font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #1e3a8a;">{token}</span>
+            </div>
+            <p style="color: #ef4444; font-size: 13px; line-height: 1.5; font-weight: 500;">Este código expira em 15 minutos.</p>
+            <hr style="border: 0; border-top: 1px solid #e5e7eb; margin-top: 25px; margin-bottom: 15px;" />
+            <p style="color: #9ca3af; font-size: 12px; line-height: 1.5; margin: 0;">Se você não solicitou esta alteração, desconsidere este e-mail.</p>
+        </div>
+    </body>
+    </html>
+    """
+
+    # If Resend API Key is configured, use the HTTP API to send the email (prevents Render's port blocks)
+    if settings.RESEND_API_KEY:
+        try:
+            url = "https://api.resend.com/emails"
+            headers = {
+                "Authorization": f"Bearer {settings.RESEND_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "from": settings.SMTP_FROM,
+                "to": [to_email],
+                "subject": "LegisVox - Redefinição de Senha de Assinatura",
+                "html": html_content
+            }
+            with httpx.Client(timeout=10) as client:
+                resp = client.post(url, json=payload, headers=headers)
+                if resp.status_code in [200, 201]:
+                    logger.info(f"Signature PIN reset email sent to {mask_email(to_email)} via Resend API")
+                    return True
+                else:
+                    logger.error(f"Resend API failed with status {resp.status_code}: {resp.text}")
+                    return False
+        except Exception as e:
+            logger.error(f"Failed to send signature reset email via Resend API to {mask_email(to_email)}: {e}")
+            return False
+
+    # Otherwise, fallback/default to classic SMTP
     if not settings.SMTP_USER or settings.SMTP_USER == "dummy-user":
         logger.warning("SMTP not configured or dummy user. Reset token email could not be sent.")
         return False
@@ -55,29 +106,6 @@ def _send_reset_email(to_email: str, token: str) -> bool:
         msg["Subject"] = "LegisVox - Redefinição de Senha de Assinatura"
         msg["From"] = settings.SMTP_FROM
         msg["To"] = to_email
-        
-        html_content = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; background-color: #f3f4f6; padding: 20px;">
-            <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; padding: 30px; border-radius: 8px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);">
-                <div style="text-align: center; margin-bottom: 20px;">
-                    <h2 style="color: #111827; margin: 0;">LegisVox</h2>
-                    <p style="color: #6b7280; font-size: 14px; margin: 5px 0 0 0;">Segurança e Compliance Notarial</p>
-                </div>
-                <hr style="border: 0; border-top: 1px solid #e5e7eb; margin-bottom: 20px;" />
-                <p style="color: #374151; font-size: 16px; line-height: 1.5;">Olá,</p>
-                <p style="color: #374151; font-size: 16px; line-height: 1.5;">Você solicitou a redefinição de sua senha de assinatura de 4 dígitos no LegisVox.</p>
-                <p style="color: #374151; font-size: 16px; line-height: 1.5;">Utilize o código de verificação abaixo para desbloquear e cadastrar uma nova senha de assinatura:</p>
-                <div style="background-color: #f9fafb; border: 1px solid #d1d5db; padding: 15px; border-radius: 6px; text-align: center; margin: 25px 0;">
-                    <span style="font-family: monospace; font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #1e3a8a;">{token}</span>
-                </div>
-                <p style="color: #ef4444; font-size: 13px; line-height: 1.5; font-weight: 500;">Este código expira em 15 minutos.</p>
-                <hr style="border: 0; border-top: 1px solid #e5e7eb; margin-top: 25px; margin-bottom: 15px;" />
-                <p style="color: #9ca3af; font-size: 12px; line-height: 1.5; margin: 0;">Se você não solicitou esta alteração, desconsidere este e-mail.</p>
-            </div>
-        </body>
-        </html>
-        """
         msg.attach(MIMEText(html_content, "html"))
         
         if settings.SMTP_PORT == 465:
@@ -92,7 +120,7 @@ def _send_reset_email(to_email: str, token: str) -> bool:
             
         server.sendmail(settings.SMTP_FROM, [to_email], msg.as_string())
         server.quit()
-        logger.info(f"Signature PIN reset email sent to {mask_email(to_email)}")
+        logger.info(f"Signature PIN reset email sent to {mask_email(to_email)} via SMTP")
         return True
     except Exception as e:
         logger.error(f"Failed to send signature reset email to {mask_email(to_email)}: {e}")

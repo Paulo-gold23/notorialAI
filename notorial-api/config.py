@@ -23,6 +23,7 @@ class Settings:
     SMTP_USER: str = os.getenv("SMTP_USER", "")
     SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
     SMTP_FROM: str = os.getenv("SMTP_FROM", "no-reply@legisvox.com.br")
+    RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
 
 settings = Settings()
 
