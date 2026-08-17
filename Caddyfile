@@ -4,7 +4,8 @@
     admin off
 }
 
-{$DOMAIN::80} {
+# Responde tanto em HTTP (:80) quanto em HTTPS (:443) pelo IP ou por qualquer domínio
+:80, :443 {
     # Security Headers recomendados por OWASP e Wilton
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
