@@ -1,0 +1,114 @@
+services:
+  # ── 1. Gateway / Reverse Proxy (Caddy) ──────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: legisvox_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3 (QUIC)
+    environment:
+      - DOMAIN=${DOMAIN:-:80}
+      - ACME_EMAIL=${ACME_EMAIL:-contato@legisvox.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - legisvox_network
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # ── 2. Backend API (FastAPI) ────────────────────────────────────────────────
+  api:
+    build:
+      context: ./notorial-api
+      dockerfile: Dockerfile
+    container_name: legisvox_api
+    restart: unless-stopped
+    env_file:
+      - ./notorial-api/.env
+    environment:
+      - GOTENBERG_URL=http://gotenberg:3000/forms/chromium/convert/html
+      - PORT=8000
+    networks:
+      - legisvox_network
+    depends_on:
+      - gotenberg
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # ── 3. PDF Generator (Gotenberg) ───────────────────────────────────────────
+  gotenberg:
+    image: gotenberg/gotenberg:7
+    container_name: legisvox_gotenberg
+    restart: unless-stopped
+    networks:
+      - legisvox_network
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── 4. Frontend SPA (Vite + Nginx) ──────────────────────────────────────────
+  web:
+    build:
+      context: ./notorial-web
+      dockerfile: Dockerfile
+      args:
+        - VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-https://wnzypjivefdsefrmghzf.supabase.co}
+        - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Induenlwaml2ZWZkc2Vmcm1naHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ4NTYwMDYsImV4cCI6MjA4MDQzMjAwNn0.BL2hzbxOZadJMKek-bSEnbbHzJ-9a0AkwHraUuupSww}
+        - VITE_API_URL=${VITE_API_URL:-}
+    container_name: legisvox_web
+    restart: unless-stopped
+    networks:
+      - legisvox_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── 5. Cloudflare Tunnel (Opcional - Ativado via Profile) ────────────────────
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: legisvox_tunnel
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - legisvox_network
+    depends_on:
+      - caddy
+
+networks:
+  legisvox_network:
+    name: legisvox_network
+    driver: bridge
+
+volumes:
+  caddy_data:
+    name: legisvox_caddy_data
+  caddy_config:
+    name: legisvox_caddy_config
