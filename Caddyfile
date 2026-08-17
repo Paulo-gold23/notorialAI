@@ -1,43 +1,11 @@
 {
     email {$ACME_EMAIL:contato@legisvox.com}
     admin off
+    auto_https disable_redirects
 }
 
-# ── Bloco HTTP (Porta 80) ───────────────────────────────────────────────────
-:80 {
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        X-Content-Type-Options "nosniff"
-        X-Frame-Options "DENY"
-        X-XSS-Protection "1; mode=block"
-        Referrer-Policy "strict-origin-when-cross-origin"
-        Permissions-Policy "camera=(), microphone=(self), geolocation=()"
-        -Server
-    }
-
-    encode zstd gzip
-
-    handle /api/* {
-        reverse_proxy api:8000 {
-            header_up Host {host}
-            header_up X-Real-IP {remote_host}
-            header_up X-Forwarded-For {remote_host}
-            header_up X-Forwarded-Proto {scheme}
-            header_up CF-Connecting-IP {header.CF-Connecting-IP}
-        }
-    }
-
-    handle /health {
-        reverse_proxy api:8000
-    }
-
-    handle {
-        reverse_proxy web:80
-    }
-}
-
-# ── Bloco HTTPS (Porta 443 com certificado para IP/Domínio) ─────────────────
-:443 {
+# Catch-all para qualquer IP ou Domínio em HTTP e HTTPS
+http://, https:// {
     tls internal
 
     header {
@@ -52,20 +20,17 @@
 
     encode zstd gzip
 
-    handle /api/* {
+    # Roteamento de API e Healthcheck -> FastAPI
+    @api path /api/* /health /health/*
+    handle @api {
         reverse_proxy api:8000 {
             header_up Host {host}
             header_up X-Real-IP {remote_host}
-            header_up X-Forwarded-For {remote_host}
-            header_up X-Forwarded-Proto {scheme}
             header_up CF-Connecting-IP {header.CF-Connecting-IP}
         }
     }
 
-    handle /health {
-        reverse_proxy api:8000
-    }
-
+    # Roteamento do Frontend SPA -> Nginx
     handle {
         reverse_proxy web:80
     }
