@@ -1,12 +1,10 @@
 {
-    # Global options
     email {$ACME_EMAIL:contato@legisvox.com}
     admin off
 }
 
-# Responde tanto em HTTP (:80) quanto em HTTPS (:443) pelo IP ou por qualquer domínio
-:80, :443 {
-    # Security Headers recomendados por OWASP e Wilton
+# ── Bloco HTTP (Porta 80) ───────────────────────────────────────────────────
+:80 {
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
         X-Content-Type-Options "nosniff"
@@ -17,10 +15,8 @@
         -Server
     }
 
-    # Compressão automática (Gzip e Zstandard)
     encode zstd gzip
 
-    # Roteamento para a API FastAPI interna
     handle /api/* {
         reverse_proxy api:8000 {
             header_up Host {host}
@@ -31,12 +27,45 @@
         }
     }
 
-    # Health check direto para monitoramento / uptime
     handle /health {
         reverse_proxy api:8000
     }
 
-    # Frontend SPA (Nginx)
+    handle {
+        reverse_proxy web:80
+    }
+}
+
+# ── Bloco HTTPS (Porta 443 com certificado para IP/Domínio) ─────────────────
+:443 {
+    tls internal
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(self), geolocation=()"
+        -Server
+    }
+
+    encode zstd gzip
+
+    handle /api/* {
+        reverse_proxy api:8000 {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up CF-Connecting-IP {header.CF-Connecting-IP}
+        }
+    }
+
+    handle /health {
+        reverse_proxy api:8000
+    }
+
     handle {
         reverse_proxy web:80
     }
