@@ -96,7 +96,7 @@ services:
     container_name: legisvox_tunnel
     restart: unless-stopped
     profiles: ["tunnel"]
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:-none}
     networks:
       - legisvox_network
     depends_on:
