@@ -852,9 +852,8 @@ async def generate_pdf(
         # Fallback: guardar bytes em memória (bypass / Storage indisponível).
         pdf_cache[pdf_id] = {"ts": time.time(), "owner": owner_id, "bytes": pdf_bytes}
 
-    api_url = str(request.base_url).rstrip('/')
     return {
-        "pdf_url": f"{api_url}/api/atas/download/{pdf_id}",
+        "pdf_url": f"/api/atas/download/{pdf_id}",
         "pdf_hash": pdf_hash,
         "actual_pages": actual_pages,
         "estimated_pages": estimated_pages,
