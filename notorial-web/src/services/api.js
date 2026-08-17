@@ -1,9 +1,11 @@
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL !== undefined
+    ? import.meta.env.VITE_API_URL
+    : (import.meta.env.DEV ? 'http://localhost:8000' : '');
 
 function mapNetworkError(error) {
     const message = String(error?.message || '');
     if (message.includes('Failed to fetch') || message.includes('NetworkError')) {
-        return new Error(`Nao foi possivel conectar ao backend (${API_BASE}). Verifique se a API esta rodando na porta 8000.`);
+        return new Error(`Não foi possível conectar ao servidor (${API_BASE || 'mesma origem'}). Verifique se a API está online.`);
     }
     return error;
 }

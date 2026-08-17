@@ -143,7 +143,9 @@ export default function AdminDashboard() {
       
       // Conceder 50 créditos de boas-vindas automaticamente
       try {
-        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+        const API_URL = import.meta.env.VITE_API_URL !== undefined
+          ? import.meta.env.VITE_API_URL
+          : (import.meta.env.DEV ? 'http://localhost:8000' : '');
         const { data: sessionData } = await supabase.auth.getSession();
         const token = sessionData?.session?.access_token;
         if (token) {
