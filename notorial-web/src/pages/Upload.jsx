@@ -536,35 +536,35 @@ export default function Upload() {
                         </p>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
                         <div style={{
-                            background: 'var(--surface-color)', padding: '1.25rem',
+                            background: 'var(--surface-color)', padding: '1rem',
                             borderRadius: '0.75rem', border: '1px solid var(--border-color)',
                             textAlign: 'center'
                         }}>
-                            <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
                                 Estimativa de Uso
                             </div>
-                            <div style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                            <div style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--text-main)' }}>
                                 {estimationData.estimated_pages}
                             </div>
-                            <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>créditos</div>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>créditos</div>
                         </div>
                         <div style={{
-                            background: 'var(--surface-color)', padding: '1.25rem',
+                            background: 'var(--surface-color)', padding: '1rem',
                             borderRadius: '0.75rem', border: '1px solid var(--border-color)',
                             textAlign: 'center'
                         }}>
-                            <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
                                 Seu Saldo Atual
                             </div>
                             <div style={{
-                                fontSize: '2rem', fontWeight: 700,
+                                fontSize: '1.75rem', fontWeight: 700,
                                 color: estimationData.has_credits ? 'var(--success)' : 'var(--danger)'
                             }}>
                                 {Math.floor(estimationData.balance)}
                             </div>
-                            <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>créditos disponíveis</div>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>créditos disponíveis</div>
                         </div>
                     </div>
 
@@ -573,15 +573,15 @@ export default function Upload() {
                             <div style={{
                                 background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)',
                                 borderRadius: '0.5rem', padding: '0.75rem 1rem', marginBottom: '1rem',
-                                fontSize: '0.85rem', color: 'var(--primary-color)', textAlign: 'center'
+                                fontSize: '0.82rem', color: 'var(--primary-color)', textAlign: 'center', lineHeight: 1.45
                             }}>
                                 💡 Após a geração do PDF, faremos o <strong>ajuste exato</strong> do saldo: você pagará apenas pelo número real de páginas geradas (1 página = 1 crédito).
                             </div>
-                            <div style={{ display: 'flex', gap: '0.75rem' }}>
-                                <button onClick={handleCancel} className="btn-secondary" style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                                <button onClick={handleCancel} className="btn-secondary" style={{ flex: '1 1 120px', minHeight: '40px', justifyContent: 'center' }}>
                                     Cancelar
                                 </button>
-                                <button onClick={handleConfirm} className="btn-gradient" style={{ flex: 2 }}>
+                                <button onClick={handleConfirm} className="btn-gradient" style={{ flex: '2 1 200px', minHeight: '40px', justifyContent: 'center' }}>
                                     <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
                                         <Coins size={18} /> Reservar {estimationData.estimated_pages} créditos e Processar
                                     </span>
@@ -593,16 +593,16 @@ export default function Upload() {
                             <div style={{
                                 background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)',
                                 borderRadius: '0.5rem', padding: '0.75rem 1rem', marginBottom: '1rem',
-                                fontSize: '0.85rem', color: 'var(--danger)', textAlign: 'center'
+                                fontSize: '0.82rem', color: 'var(--danger)', textAlign: 'center', lineHeight: 1.45
                             }}>
                                 ⚠️ Saldo insuficiente para iniciar. Você precisa reservar {estimationData.estimated_pages} créditos, mas possui apenas {Math.floor(estimationData.balance)}.
                             </div>
 
-                            <div style={{ display: 'flex', gap: '0.75rem' }}>
-                                <button onClick={handleCancel} className="btn-secondary" style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                                <button onClick={handleCancel} className="btn-secondary" style={{ flex: '1 1 120px', minHeight: '40px', justifyContent: 'center' }}>
                                     Cancelar
                                 </button>
-                                <button onClick={() => navigate('/credits')} className="btn-gradient" style={{ flex: 2 }}>
+                                <button onClick={() => navigate('/credits')} className="btn-gradient" style={{ flex: '2 1 200px', minHeight: '40px', justifyContent: 'center' }}>
                                     <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
                                         <Coins size={18} /> Adquirir Créditos
                                     </span>

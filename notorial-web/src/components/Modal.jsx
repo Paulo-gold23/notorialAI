@@ -16,51 +16,27 @@ export default function Modal({ isOpen, onClose, title, children }) {
     if (!isOpen) return null;
 
     return (
-        <div style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 50,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '1rem',
-        }}>
-            {/* Backdrop */}
-            <div
-                onClick={onClose}
-                style={{
-                    position: 'absolute',
-                    inset: 0,
-                    background: 'var(--backdrop-color, rgba(0,0,0,0.5))',
-                    backdropFilter: 'blur(4px)',
-                    WebkitBackdropFilter: 'blur(4px)',
-                }}
-            />
-            {/* Modal card */}
-            <div style={{
-                position: 'relative',
-                background: 'var(--panel-bg)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '0.75rem',
-                boxShadow: '0 20px 50px rgba(0,0,0,0.3)',
-                width: '100%',
-                maxWidth: '28rem',
-                overflow: 'hidden',
-                animation: 'scaleIn 0.2s ease-out',
-            }}>
+        <div 
+            className="modal-backdrop-responsive"
+            onClick={(e) => {
+                if (e.target === e.currentTarget) onClose();
+            }}
+        >
+            <div 
+                className="modal-dialog-responsive"
+                style={{ maxWidth: '30rem' }}
+                onClick={(e) => e.stopPropagation()}
+            >
                 {/* Header */}
-                <div style={{
-                    padding: '1.25rem 1.5rem',
-                    borderBottom: '1px solid var(--border-color)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                }}>
+                <div className="modal-dialog-header">
                     <h3 style={{
                         margin: 0,
-                        fontSize: '1.1rem',
+                        fontSize: '1.05rem',
                         fontWeight: 600,
                         color: 'var(--text-main)',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
                     }}>{title}</h3>
                     <button
                         onClick={onClose}
@@ -68,25 +44,24 @@ export default function Modal({ isOpen, onClose, title, children }) {
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            padding: '0.25rem',
-                            border: 'none',
-                            borderRadius: '0.375rem',
-                            background: 'transparent',
+                            padding: '0.35rem',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '0.5rem',
+                            background: 'var(--surface-color)',
                             color: 'var(--text-muted)',
                             cursor: 'pointer',
-                            transition: 'color 0.15s',
+                            transition: 'all 0.15s',
+                            flexShrink: 0,
                         }}
-                        onMouseOver={(e) => e.currentTarget.style.color = 'var(--text-main)'}
-                        onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
+                        onMouseOver={(e) => { e.currentTarget.style.color = 'var(--text-main)'; e.currentTarget.style.borderColor = 'var(--text-muted)'; }}
+                        onMouseOut={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+                        aria-label="Fechar"
                     >
-                        <X size={20} />
+                        <X size={16} />
                     </button>
                 </div>
                 {/* Body */}
-                <div style={{
-                    padding: '1.5rem',
-                    color: 'var(--text-main)',
-                }}>
+                <div className="modal-dialog-body">
                     {children}
                 </div>
             </div>

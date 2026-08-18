@@ -440,110 +440,99 @@ export default function Credits() {
       <LegalFooter style={{ marginTop: '3rem' }} />
 
       {showCpfPrompt && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 9999,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: '1rem',
-        }}>
-          {/* Backdrop */}
+        <div 
+          className="modal-backdrop-responsive"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowCpfPrompt(false);
+          }}
+        >
           <div 
-            onClick={() => setShowCpfPrompt(false)}
-            style={{
-              position: 'absolute', inset: 0,
-              background: 'rgba(0,0,0,0.65)',
-              backdropFilter: 'blur(8px)',
-              WebkitBackdropFilter: 'blur(8px)',
-            }} 
-          />
-          {/* Card */}
-          <div className="card animate-scale-in" style={{
-            position: 'relative',
-            width: '100%',
-            maxWidth: '26rem',
-            padding: '2rem',
-            boxShadow: '0 25px 60px rgba(0,0,0,0.4)',
-            zIndex: 10000,
-          }}>
-            <div className="text-center mb-6">
-              <div className="inline-flex items-center justify-center rounded-full p-3 mb-3" style={{ background: 'var(--primary-glow)', color: 'var(--primary-color)' }}>
-                <Shield size={24} />
+            className="modal-dialog-responsive"
+            style={{ maxWidth: '26rem' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-dialog-body" style={{ padding: '1.75rem 1.5rem' }}>
+              <div className="text-center mb-5">
+                <div className="inline-flex items-center justify-center rounded-full p-3 mb-3" style={{ background: 'var(--primary-glow)', color: 'var(--primary-color)' }}>
+                  <Shield size={24} />
+                </div>
+                <h3 className="text-lg font-serif font-bold" style={{ color: 'var(--text-main)' }}>Confirmar Identidade</h3>
+                <p className="text-xs mt-1" style={{ color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                  Informe seu CPF ou CNPJ para emissão da nota fiscal e QR Code do PIX.
+                </p>
               </div>
-              <h3 className="text-xl font-serif font-bold" style={{ color: 'var(--text-main)' }}>Confirmar Identidade</h3>
-              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-                Informe seu CPF ou CNPJ para emissão da nota fiscal e QR Code do PIX.
-              </p>
-            </div>
 
-            {cpfError && (
-              <div className="mb-4 p-3 rounded-lg border border-red-500/20 bg-red-500/10 text-red-400 text-xs flex items-center gap-2">
-                <AlertCircle size={14} className="shrink-0" />
-                {cpfError}
+              {cpfError && (
+                <div className="mb-4 p-3 rounded-lg border border-red-500/20 bg-red-500/10 text-red-400 text-xs flex items-center gap-2">
+                  <AlertCircle size={14} className="shrink-0" />
+                  {cpfError}
+                </div>
+              )}
+
+              <div className="mb-5">
+                <label className="block text-xs uppercase tracking-wider font-semibold mb-2" style={{ color: 'var(--text-muted)' }}>
+                  CPF ou CNPJ
+                </label>
+                <input
+                  type="text"
+                  placeholder="000.000.000-00 ou 00.000.000/0000-00"
+                  value={cpfForCheckout}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const digits = val.replace(/\D/g, '').slice(0, 14);
+                    let formatted = digits;
+                    if (digits.length <= 11) {
+                      formatted = digits
+                        .replace(/(\d{3})(\d)/, '$1.$2')
+                        .replace(/(\d{3})(\d)/, '$1.$2')
+                        .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+                    } else {
+                      formatted = digits
+                        .replace(/(\d{2})(\d)/, '$1.$2')
+                        .replace(/(\d{3})(\d)/, '$1.$2')
+                        .replace(/(\d{3})(\d)/, '$1/$2')
+                        .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
+                    }
+                    setCpfForCheckout(formatted);
+                  }}
+                  className="input-base w-full"
+                  style={{ fontSize: '1rem', textAlign: 'center' }}
+                  autoFocus
+                />
               </div>
-            )}
 
-            <div className="mb-6">
-              <label className="block text-xs uppercase tracking-wider font-semibold mb-2" style={{ color: 'var(--text-muted)' }}>
-                CPF ou CNPJ
-              </label>
-              <input
-                type="text"
-                placeholder="000.000.000-00 ou 00.000.000/0000-00"
-                value={cpfForCheckout}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  const digits = val.replace(/\D/g, '').slice(0, 14);
-                  let formatted = digits;
-                  if (digits.length <= 11) {
-                    formatted = digits
-                      .replace(/(\d{3})(\d)/, '$1.$2')
-                      .replace(/(\d{3})(\d)/, '$1.$2')
-                      .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
-                  } else {
-                    formatted = digits
-                      .replace(/(\d{2})(\d)/, '$1.$2')
-                      .replace(/(\d{3})(\d)/, '$1.$2')
-                      .replace(/(\d{3})(\d)/, '$1/$2')
-                      .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
-                  }
-                  setCpfForCheckout(formatted);
-                }}
-                className="input-base w-full"
-                style={{ fontSize: '1.1rem', textAlign: 'center' }}
-                autoFocus
-              />
-            </div>
-
-            <div className="flex flex-col gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  const clean = cpfForCheckout.replace(/\D/g, '');
-                  if (clean.length === 11 && !isValidCpf(clean)) {
-                    setCpfError('CPF inválido. Verifique os dígitos.');
-                    return;
-                  }
-                  if (clean.length === 14 && !isValidCnpj(clean)) {
-                    setCpfError('CNPJ inválido. Verifique os dígitos.');
-                    return;
-                  }
-                  if (clean.length !== 11 && clean.length !== 14) {
-                    setCpfError('Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.');
-                    return;
-                  }
-                  setShowCpfPrompt(false);
-                  handlePurchase(customPkg, customCredits, clean);
-                }}
-                className="btn-gradient w-full py-3 rounded-xl font-semibold text-sm cursor-pointer"
-              >
-                Gerar PIX
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowCpfPrompt(false)}
-                className="btn-ghost w-full py-2.5 text-sm"
-              >
-                Cancelar
-              </button>
+              <div className="flex flex-col gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const clean = cpfForCheckout.replace(/\D/g, '');
+                    if (clean.length === 11 && !isValidCpf(clean)) {
+                      setCpfError('CPF inválido. Verifique os dígitos.');
+                      return;
+                    }
+                    if (clean.length === 14 && !isValidCnpj(clean)) {
+                      setCpfError('CNPJ inválido. Verifique os dígitos.');
+                      return;
+                    }
+                    if (clean.length !== 11 && clean.length !== 14) {
+                      setCpfError('Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.');
+                      return;
+                    }
+                    setShowCpfPrompt(false);
+                    handlePurchase(customPkg, customCredits, clean);
+                  }}
+                  className="btn-gradient w-full py-3 rounded-xl font-semibold text-sm cursor-pointer"
+                >
+                  Gerar PIX
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCpfPrompt(false)}
+                  className="btn-ghost w-full py-2 text-sm"
+                >
+                  Cancelar
+                </button>
+              </div>
             </div>
           </div>
         </div>
