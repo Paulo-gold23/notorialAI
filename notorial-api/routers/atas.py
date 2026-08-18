@@ -1,7 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status, Request
 from pydantic import BaseModel
 from middleware.auth import get_current_user_id
-from database import get_supabase_client, get_supabase_admin_client
+from database import get_supabase_client, get_supabase_admin_client, create_user_client
 from services.whatsapp_parser import parse_whatsapp_zip
 from services.pipeline_orchestrator import local_results, _process_pipeline
 from services.pdf_generator import generate_pdf_from_html, PdfGenerationError
@@ -55,10 +55,13 @@ class AuthContext:
 
 def get_auth_context(request: Request, advogado_id: str = Depends(get_current_user_id)):
     token = request.headers.get("Authorization", "").replace("Bearer ", "") if request.headers.get("Authorization") else ""
-    client = get_supabase_client()
     is_bypass = _ALLOW_BYPASS and token == "bypass_admin"
-    if client and token and not is_bypass:
-        client.postgrest.auth(token)
+    if is_bypass or not token:
+        # Bypass/no-token: use shared singleton (no auth mutation)
+        client = get_supabase_client()
+    else:
+        # Normal user: create isolated client with user's JWT
+        client = create_user_client(token)
     return AuthContext(client, advogado_id, token)
 
 

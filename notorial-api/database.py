@@ -1,12 +1,21 @@
 from supabase import create_client, Client
 from config import settings
 import httpx
+import logging
+
+logger = logging.getLogger(__name__)
 
 _cached_supabase = None
 _cached_supabase_admin = None
 
 def get_supabase_client() -> Client:
-    """Anon key client — used for Supabase Auth operations (JWT validation)."""
+    """Anon key client — used for internal operations (pipeline, cleanup).
+    
+    WARNING: Do NOT call .postgrest.auth(token) on this client.
+    It is a singleton shared across all requests. Mutating its auth header
+    will cause cross-user data leakage under concurrent load.
+    For user-scoped queries, use create_user_client() instead.
+    """
     global _cached_supabase
     if _cached_supabase is not None:
         return _cached_supabase
@@ -17,6 +26,25 @@ def get_supabase_client() -> Client:
         return _cached_supabase
     except Exception as e:
         print(f"\n[ALERTA] Erro ao conectar ao Supabase (anon): {e}")
+        return None
+
+def create_user_client(token: str) -> Client:
+    """Create a NEW isolated Supabase client scoped to a specific user's JWT.
+    
+    This client is created per-request to prevent cross-user data leakage.
+    Each request gets its own client instance with its own auth header,
+    ensuring Row Level Security (RLS) correctly isolates tenant data
+    even under concurrent async request processing.
+    """
+    if not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
+        return None
+    try:
+        client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        if token:
+            client.postgrest.auth(token)
+        return client
+    except Exception as e:
+        logger.error(f"Failed to create user-scoped Supabase client: {e}")
         return None
 
 def get_supabase_admin_client() -> Client:

@@ -95,7 +95,7 @@ export default function Credits() {
       const res = await creditsApi.purchasePackage(pkg.id, 'PIX', overrideCredits, cleanCpf);
       if (res.status === 'success' && res.payment) {
         if (cleanCpf) {
-          localStorage.setItem('user_cpf_raw', cleanCpf);
+          sessionStorage.setItem('user_cpf_raw', cleanCpf);
         }
         setPaymentData({
           ...res.payment,
@@ -125,7 +125,7 @@ export default function Credits() {
   };
 
   const handlePurchaseClick = (pkg, overrideCredits = null) => {
-    const cachedCpf = localStorage.getItem('user_cpf_raw') || '';
+    const cachedCpf = sessionStorage.getItem('user_cpf_raw') || '';
     if (cachedCpf && cachedCpf.length >= 11) {
       handlePurchase(pkg, overrideCredits, cachedCpf);
     } else {

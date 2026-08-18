@@ -57,14 +57,45 @@ sudo ufw --force enable
 sudo ufw status verbose
 echo "✅ Firewall UFW ativo e configurado com portas mínimas necessárias!"
 
-# 4. Configurar Fail2ban para proteção contra Brute-Force no SSH
-echo "🔒 4/5 - Configurando Fail2ban..."
+# 4. Hardening SSH — Forçar autenticação por chave (elimina brute-force estruturalmente)
+echo "🔐 4/6 - Hardening do SSH Daemon..."
+SSHD_CONFIG="/etc/ssh/sshd_config"
+
+# Disable password authentication (key-only access)
+sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' "$SSHD_CONFIG"
+sudo sed -i 's/^#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' "$SSHD_CONFIG"
+
+# Disable root login (use regular user + sudo)
+sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' "$SSHD_CONFIG"
+
+# Limit max authentication attempts
+sudo sed -i 's/^#\?MaxAuthTries.*/MaxAuthTries 3/' "$SSHD_CONFIG"
+
+# Restart SSH daemon to apply changes
+sudo systemctl restart sshd
+echo "✅ SSH hardened: senha desabilitada, apenas chave SSH aceita!"
+
+# 5. Configurar Fail2ban para proteção contra Brute-Force no SSH
+echo "🔒 5/6 - Configurando Fail2ban..."
+
+# Create custom jail for aggressive SSH protection
+sudo tee /etc/fail2ban/jail.d/legisvox.conf > /dev/null <<'EOF'
+[sshd]
+enabled  = true
+port     = ssh
+filter   = sshd
+logpath  = /var/log/auth.log
+maxretry = 3
+bantime  = 3600
+findtime = 600
+EOF
+
 sudo systemctl enable fail2ban
 sudo systemctl restart fail2ban
-echo "✅ Fail2ban ativo!"
+echo "✅ Fail2ban ativo com ban de 1h após 3 tentativas!"
 
 # 5. Criar arquivo de variáveis de ambiente base se não existir
-echo "⚙️ 5/5 - Verificando estrutura de arquivos .env..."
+echo "⚙️ 6/6 - Verificando estrutura de arquivos .env..."
 if [ ! -f "notorial-api/.env" ]; then
     if [ -f "notorial-api/.env.example" ]; then
         cp notorial-api/.env.example notorial-api/.env

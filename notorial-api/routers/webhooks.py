@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Request, HTTPException, Header
 import json
+import hmac
 from datetime import datetime, timezone
 
 from config import settings
@@ -10,7 +11,7 @@ router = APIRouter(prefix="/api/webhooks", tags=["Webhooks"])
 
 @router.post("/asaas")
 async def asaas_webhook(request: Request, asaas_access_token: str = Header(None)):
-    if not settings.ASAAS_WEBHOOK_TOKEN or asaas_access_token != settings.ASAAS_WEBHOOK_TOKEN:
+    if not settings.ASAAS_WEBHOOK_TOKEN or not asaas_access_token or not hmac.compare_digest(asaas_access_token, settings.ASAAS_WEBHOOK_TOKEN):
         raise HTTPException(status_code=401, detail="Invalid webhook token or unconfigured system")
         
     try:

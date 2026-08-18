@@ -26,8 +26,8 @@ ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL \
 # Executar build de produção do Vite
 RUN npm run build
 
-# ── Stage 2: Production Server (Nginx Alpine) ─────────────────────────────────
-FROM nginx:alpine-slim
+# ── Stage 2: Production Server (Nginx Unprivileged — non-root) ─────────────────
+FROM nginxinc/nginx-unprivileged:alpine
 
 # Copiar configuração customizada do Nginx
 COPY nginx.conf /etc/nginx/conf.d/default.conf
@@ -35,6 +35,6 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # Copiar bundle compilado da etapa anterior
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 8080
 
 CMD ["nginx", "-g", "daemon off;"]

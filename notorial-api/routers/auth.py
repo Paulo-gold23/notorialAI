@@ -1,9 +1,11 @@
 import hashlib
+import hmac
 import logging
 import secrets
 import string
 import smtplib
 import httpx
+import bcrypt
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timezone, timedelta
@@ -25,8 +27,21 @@ router = APIRouter(prefix="/api/auth", tags=["Auth"])
 # ── Helpers for Signature PIN ───────────────────────────────────────────────
 
 def _hash_pin(pin: str, salt: str) -> str:
-    """Salted SHA-256 hash of a 4-digit PIN."""
-    return hashlib.sha256((pin + salt).encode("utf-8")).hexdigest()
+    """Hash a PIN using bcrypt (computationally expensive, brute-force resistant).
+    The salt parameter is ignored for bcrypt (it generates its own), 
+    but kept for API compatibility."""
+    return bcrypt.hashpw(pin.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+def _verify_pin(pin: str, stored_hash: str, salt: str) -> bool:
+    """Verify a PIN against its stored hash.
+    Supports both bcrypt (new) and SHA-256 (legacy) hashes for gradual migration.
+    """
+    # Try bcrypt first (new format starts with $2b$)
+    if stored_hash.startswith("$2b$") or stored_hash.startswith("$2a$"):
+        return bcrypt.checkpw(pin.encode("utf-8"), stored_hash.encode("utf-8"))
+    # Fallback: legacy SHA-256 hash
+    legacy_hash = hashlib.sha256((pin + salt).encode("utf-8")).hexdigest()
+    return hmac.compare_digest(legacy_hash, stored_hash)
 
 def _hash_token(token: str) -> str:
     """SHA-256 hash of a 6-digit email verification token."""
@@ -397,8 +412,7 @@ def set_signature_pin(req: SignaturePinSetRequest, request: Request, user_id: st
         if not req.current_pin.isdigit():
             raise HTTPException(status_code=422, detail="A senha atual deve conter apenas números.")
             
-        hashed_current = _hash_pin(req.current_pin, user_id)
-        if hashed_current != advogado["senha_assinatura_hash"]:
+        if not _verify_pin(req.current_pin, advogado["senha_assinatura_hash"], user_id):
             novos_erros = (advogado.get("senha_assinatura_erros") or 0) + 1
             bloquear = (novos_erros >= 5)
             
@@ -520,8 +534,7 @@ def verify_signature_pin(req: SignaturePinVerifyRequest, request: Request, user_
     if not advogado["senha_assinatura_hash"]:
         raise HTTPException(status_code=400, detail="Senha de assinatura não cadastrada.")
         
-    hashed_input = _hash_pin(req.pin, user_id)
-    is_correct = (hashed_input == advogado["senha_assinatura_hash"])
+    is_correct = _verify_pin(req.pin, advogado["senha_assinatura_hash"], user_id)
     
     if is_correct:
         try:

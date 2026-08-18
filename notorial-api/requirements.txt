@@ -13,4 +13,5 @@ pypdf
 pillow-heif
 nh3
 slowapi
+bcrypt
 sentry-sdk[fastapi]

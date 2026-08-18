@@ -22,6 +22,10 @@ services:
         condition: service_healthy
       web:
         condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     logging:
       driver: "json-file"
       options:
@@ -71,19 +75,30 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ── 4. Frontend SPA (Vite + Nginx) ──────────────────────────────────────────
+  # ── 4. Frontend SPA (Vite + Nginx Unprivileged) ─────────────────────────────
   web:
     build:
       context: ./notorial-web
       dockerfile: Dockerfile
       args:
-        - VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-https://wnzypjivefdsefrmghzf.supabase.co}
-        - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Induenlwaml2ZWZkc2Vmcm1naHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ4NTYwMDYsImV4cCI6MjA4MDQzMjAwNn0.BL2hzbxOZadJMKek-bSEnbbHzJ-9a0AkwHraUuupSww}
+        - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+        - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
         - VITE_API_URL=${VITE_API_URL:-}
     container_name: legisvox_web
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    security_opt:
+      - no-new-privileges:true
     networks:
       - legisvox_network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     logging:
       driver: "json-file"
       options:

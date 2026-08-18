@@ -5,11 +5,14 @@
 
 # ── Bloco Principal HTTP (Porta 80) para IP e Domínio ───────────────────────
 :80 {
-    # Headers de Segurança
+    # Headers de Segurança (HSTS + CSP + hardening)
     header {
+        # HSTS — força HTTPS por 1 ano, previne SSL stripping
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        # CSP — controla quais recursos o navegador pode carregar
+        Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.supabase.co https://status.supabase.com https://accounts.google.com; img-src 'self' data: blob:; frame-src https://accounts.google.com; object-src 'none'; base-uri 'self';"
         X-Content-Type-Options "nosniff"
         X-Frame-Options "DENY"
-        X-XSS-Protection "1; mode=block"
         Referrer-Policy "strict-origin-when-cross-origin"
         Permissions-Policy "camera=(), microphone=(self), geolocation=()"
         -Server
@@ -30,6 +33,6 @@
 
     # Roteamento do Frontend SPA
     handle {
-        reverse_proxy web:80
+        reverse_proxy web:8080
     }
 }
