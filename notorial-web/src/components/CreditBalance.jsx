@@ -4,16 +4,35 @@ import { creditsApi } from '../services/creditsApi';
 import { Coins, Plus } from 'lucide-react';
 
 export default function CreditBalance() {
-  const [balance, setBalance] = useState(0);
+  const [balance, setBalance] = useState(null);
+  const [error, setError] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const fetchBalance = () => creditsApi.getBalance().then(bal => setBalance(bal)).catch(console.error);
+    let isMounted = true;
+    const fetchBalance = () => {
+      creditsApi.getBalance()
+        .then(bal => {
+          if (isMounted) {
+            setBalance(bal);
+            setError(false);
+          }
+        })
+        .catch(err => {
+          if (isMounted) {
+            console.error('Failed to fetch credit balance:', err);
+            setError(true);
+          }
+        });
+    };
     fetchBalance();
     
     // Listen for custom event indicating balance might have changed
     window.addEventListener('creditsUpdated', fetchBalance);
-    return () => window.removeEventListener('creditsUpdated', fetchBalance);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('creditsUpdated', fetchBalance);
+    };
   }, []);
 
   return (
@@ -25,7 +44,7 @@ export default function CreditBalance() {
     >
       <Coins size={16} style={{ color: 'var(--gold-main)' }} />
       <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
-        {Math.floor(balance)} <span style={{ color: 'var(--text-muted)' }}>créditos</span>
+        {error ? '--' : (balance === null ? '...' : Math.floor(balance))} <span style={{ color: 'var(--text-muted)' }}>créditos</span>
       </span>
       <div 
         className="ml-1 rounded-full p-0.5 flex items-center justify-center"

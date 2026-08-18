@@ -520,3 +520,28 @@ ALTER TABLE public.atas_pdfs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY advogados_own_pdfs ON public.atas_pdfs FOR ALL USING (
     ata_id IN (SELECT id FROM public.atas WHERE advogado_id = auth.uid())
 );
+
+-- Financial tables RLS
+ALTER TABLE public.credit_balances ENABLE ROW LEVEL SECURITY;
+CREATE POLICY credit_balances_own_data ON public.credit_balances FOR ALL USING (advogado_id = auth.uid());
+CREATE POLICY credit_balances_service ON public.credit_balances FOR ALL USING (auth.role() = 'service_role');
+
+ALTER TABLE public.credit_transactions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY credit_transactions_own_data ON public.credit_transactions FOR SELECT USING (advogado_id = auth.uid());
+CREATE POLICY credit_transactions_service ON public.credit_transactions FOR ALL USING (auth.role() = 'service_role');
+
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY payments_own_data ON public.payments FOR SELECT USING (advogado_id = auth.uid());
+CREATE POLICY payments_service ON public.payments FOR ALL USING (auth.role() = 'service_role');
+
+ALTER TABLE public.credit_packages ENABLE ROW LEVEL SECURITY;
+CREATE POLICY credit_packages_read ON public.credit_packages FOR SELECT USING (true);
+CREATE POLICY credit_packages_service ON public.credit_packages FOR ALL USING (auth.role() = 'service_role');
+
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY audit_logs_own_data ON public.audit_logs FOR SELECT USING (advogado_id = auth.uid());
+CREATE POLICY audit_logs_service ON public.audit_logs FOR ALL USING (auth.role() = 'service_role');
+
+ALTER TABLE public.asaas_customers ENABLE ROW LEVEL SECURITY;
+CREATE POLICY asaas_customers_own_data ON public.asaas_customers FOR SELECT USING (advogado_id = auth.uid());
+CREATE POLICY asaas_customers_service ON public.asaas_customers FOR ALL USING (auth.role() = 'service_role');

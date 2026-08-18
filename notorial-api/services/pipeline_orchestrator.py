@@ -10,8 +10,6 @@ from services.ai_organizer import organize_chat_with_ai
 
 logger = logging.getLogger(__name__)
 
-_ALLOW_BYPASS = settings.ALLOW_TEST_BYPASS
-
 # In-memory cache for locally-processed results (when no Supabase)
 local_results = {}
 
@@ -45,7 +43,6 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
     # (transcription + AI can take 5-15 mins) causing "JWT expired" errors.
     # RLS policies already allow anon access via "Service can manage" policies.
     supabase = get_supabase_client()
-    is_bypass = _ALLOW_BYPASS and token == "bypass_admin"
 
     def update(status_name, message="", progress=0):
         _update_status(ata_id, is_local, supabase, status_name, progress=progress, message=message)
@@ -304,30 +301,46 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
             except Exception as e:
                 logger.error(f"Erro ao remover arquivo temporario do pipeline: {e}")
 
+_MAX_CONCURRENT_PIPELINES = int(os.getenv("MAX_CONCURRENT_PIPELINES", "5"))
+_pipeline_semaphore: asyncio.Semaphore | None = None
+
+def _get_pipeline_semaphore() -> asyncio.Semaphore:
+    global _pipeline_semaphore
+    if _pipeline_semaphore is None:
+        _pipeline_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_PIPELINES)
+    return _pipeline_semaphore
+
 async def _process_pipeline(ata_id: str, is_local: bool, start_date: str = None, end_date: str = None, token: str = None, advogado_id: str = None, zip_bytes: bytes = None, temp_path: str = None):
-    try:
-        await asyncio.wait_for(
-            _inner_process_pipeline(ata_id, is_local, start_date, end_date, token, advogado_id, zip_bytes, temp_path),
-            timeout=1200.0
-        )
-    except asyncio.TimeoutError:
-        logger.error(f"[{ata_id}] Pipeline excedeu o tempo limite de 20 minutos.")
+    sem = _get_pipeline_semaphore()
+    if sem.locked():
+        logger.info(f"[{ata_id}] Pipeline aguardando na fila (concorrência máxima: {_MAX_CONCURRENT_PIPELINES})")
         supabase = get_supabase_client()
-        err_msg = 'O processamento demorou mais do que o esperado (limite de 20 minutos) e foi cancelado. Tente arquivos menores.'
-        if supabase and not is_local:
-            try:
-                supabase.table('atas').update({
-                    'status': 'error',
-                    'status_message': err_msg,
-                    'error_message': err_msg
-                }).eq('id', ata_id).execute()
-            except Exception:
-                pass
-        if is_local:
-            if ata_id not in local_results:
-                local_results[ata_id] = {}
-            local_results[ata_id].update({
-                'status': 'error', 'progress': 0,
-                'status_message': err_msg, 'error_message': err_msg,
-                'error_category': 'API_TIMEOUT'
-            })
+        _update_status(ata_id, is_local, supabase, "uploading", progress=0, message="Aguardando liberação na fila de processamento...")
+
+    async with sem:
+        try:
+            await asyncio.wait_for(
+                _inner_process_pipeline(ata_id, is_local, start_date, end_date, token, advogado_id, zip_bytes, temp_path),
+                timeout=1200.0
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"[{ata_id}] Pipeline excedeu o tempo limite de 20 minutos.")
+            supabase = get_supabase_client()
+            err_msg = 'O processamento demorou mais do que o esperado (limite de 20 minutos) e foi cancelado. Tente arquivos menores.'
+            if supabase and not is_local:
+                try:
+                    supabase.table('atas').update({
+                        'status': 'error',
+                        'status_message': err_msg,
+                        'error_message': err_msg
+                    }).eq('id', ata_id).execute()
+                except Exception:
+                    pass
+            if is_local:
+                if ata_id not in local_results:
+                    local_results[ata_id] = {}
+                local_results[ata_id].update({
+                    'status': 'error', 'progress': 0,
+                    'status_message': err_msg, 'error_message': err_msg,
+                    'error_category': 'API_TIMEOUT'
+                })

@@ -1,5 +1,6 @@
 import React, { Component } from 'react';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
+import * as Sentry from '@sentry/react';
 
 export default class ErrorBoundary extends Component {
     constructor(props) {
@@ -13,6 +14,11 @@ export default class ErrorBoundary extends Component {
 
     componentDidCatch(error, errorInfo) {
         console.error('ErrorBoundary caught an error:', error, errorInfo);
+        try {
+            Sentry.captureException(error, { extra: errorInfo });
+        } catch (e) {
+            // Sentry might not be initialized in dev mode
+        }
     }
 
     handleRetry = () => {

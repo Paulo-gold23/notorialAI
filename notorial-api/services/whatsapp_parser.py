@@ -295,28 +295,47 @@ def _list_image_files(all_files: list[str]) -> list[str]:
     ]
 
 
+MAX_SINGLE_MEDIA_BYTES = 50 * 1024 * 1024  # 50 MB max per media file
+MAX_TOTAL_CATEGORY_BYTES = 250 * 1024 * 1024  # 250 MB max per media category
+
 def _extract_selected_files(
     z: zipfile.ZipFile,
     all_files: list[str],
     selected_files: set[str],
-    extensions_filter: tuple[str, ...]
+    extensions_filter: tuple[str, ...],
+    max_total_bytes: int = MAX_TOTAL_CATEGORY_BYTES
 ) -> dict[str, bytes]:
     """
     Extrai do ZIP somente os arquivos (áudio ou imagem) referenciados.
     Evita carregamento desnecessário na memória e filtra __MACOSX.
+    Protegido contra Zip Bomb e esgotamento de memória (OOM).
     """
     if not selected_files:
         return {}
 
     selected_basenames = {os.path.basename(f) for f in selected_files}
     extracted = {}
+    total_bytes = 0
 
     for name in all_files:
         if not name.lower().endswith(extensions_filter) or '__MACOSX' in name:
             continue
 
         if name in selected_files or os.path.basename(name) in selected_basenames:
-            extracted[name] = z.read(name)
+            try:
+                info = z.getinfo(name)
+                # Zip bomb / oversize single file check
+                if info.file_size > MAX_SINGLE_MEDIA_BYTES:
+                    logger.warning(f"[PARSER] Arquivo {name} excede o limite individual ({info.file_size} bytes). Ignorado para proteger memória.")
+                    continue
+                if total_bytes + info.file_size > max_total_bytes:
+                    logger.warning(f"[PARSER] Limite total de extração de mídia atingido ({max_total_bytes} bytes).")
+                    break
+                data = z.read(name)
+                extracted[name] = data
+                total_bytes += len(data)
+            except Exception as e:
+                logger.warning(f"[PARSER] Erro ao extrair {name}: {e}")
 
     return extracted
 
@@ -493,19 +512,27 @@ def _extract_phone_map(chat_content: str, participantes: set, all_files: list = 
                             result[sem_numero[0]] = found_phone
                 break  # Encontrou o n├║mero do arquivo, sai do loop
 
-    # --- Estrategia 3: mensagens de sistema de grupo ---
+    # --- Estrategia 3: mensagens de sistema de grupo (O(N) pre-indexed lookup) ---
     system_re = re.compile(
         r'(?:adicionou|added|deixou o grupo|left|entrou|joined|removed|removeu)[^\n]*?(\+\d{1,3}[\s\-]?[\d\s\-]{8,})',
         re.IGNORECASE
     )
+    p_digit_map = {}
+    for p in participantes:
+        if p not in result:
+            p_dig = re.sub(r'\D', '', p)
+            if len(p_dig) >= 8:
+                p_digit_map[p_dig[-8:]] = p
+
     for m in system_re.finditer(chat_content):
         num = m.group(1).strip()
         num_digits = re.sub(r'\D', '', num)
-        for p in participantes:
-            if p not in result:
-                p_digits = re.sub(r'\D', '', p)
-                if len(p_digits) >= 8 and p_digits[-8:] == num_digits[-8:]:
-                    result[p] = num
+        if len(num_digits) >= 8:
+            suffix = num_digits[-8:]
+            if suffix in p_digit_map:
+                matched_p = p_digit_map.pop(suffix)
+                if matched_p not in result:
+                    result[matched_p] = num
                     
     # --- Estrategia 4: Header do documento de texto exportado ---
     header_re = re.compile(r'(?:Conversa do WhatsApp com|WhatsApp Chat with)[\s:]*(\+\d{1,3}[\s\-]?\(?\d{2,3}\)?[\s\-]?\d{4,5}[\s\-]?\d{4})', re.IGNORECASE)

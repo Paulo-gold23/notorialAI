@@ -49,10 +49,7 @@ export default function ResetSignaturePinModal({ onClose, onSuccess }) {
                 tokenRefs[0].current?.focus();
             }, 150);
 
-            // In test bypass mode, show token in console
-            if (data.test_token_bypass) {
-                console.log(`[TEST BYPASS] Token de redefinição: ${data.test_token_bypass}`);
-            }
+
         } catch (err) {
             setError(err.message || 'Erro ao enviar código de redefinição.');
         } finally {

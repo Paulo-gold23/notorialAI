@@ -185,13 +185,11 @@ def test_forgot_signature_pin_generates_token(mock_supabase):
     }
     
     with patch("routers.auth.settings") as mock_settings:
-        mock_settings.ALLOW_TEST_BYPASS = True
-        
         response = client.post("/api/auth/signature-pin/forgot", json=payload)
         
         assert response.status_code == 200
-        assert "test_token_bypass" in response.json()
-        assert len(response.json()["test_token_bypass"]) == 6
+        assert "test_token_bypass" not in response.json()
+        assert response.json()["status"] == "success"
         
         # Verify token hash update was called
         mock_table.update.assert_called()

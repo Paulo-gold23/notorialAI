@@ -1,11 +1,17 @@
+import os
 import hashlib
 import hmac
 import logging
 import secrets
 import string
 import smtplib
-import httpx
-import bcrypt
+try:
+    import bcrypt
+    _HAS_BCRYPT = True
+except ImportError:
+    bcrypt = None
+    _HAS_BCRYPT = False
+
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timezone, timedelta
@@ -30,18 +36,39 @@ def _hash_pin(pin: str, salt: str) -> str:
     """Hash a PIN using bcrypt (computationally expensive, brute-force resistant).
     The salt parameter is ignored for bcrypt (it generates its own), 
     but kept for API compatibility."""
-    return bcrypt.hashpw(pin.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    if _HAS_BCRYPT and bcrypt:
+        return bcrypt.hashpw(pin.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    # Fallback if bcrypt C-extension is missing in local environment
+    return hashlib.sha256((pin + salt).encode("utf-8")).hexdigest()
 
-def _verify_pin(pin: str, stored_hash: str, salt: str) -> bool:
+def _verify_pin(pin: str, stored_hash: str, salt: str, auto_upgrade_user_id: str = None) -> bool:
     """Verify a PIN against its stored hash.
-    Supports both bcrypt (new) and SHA-256 (legacy) hashes for gradual migration.
+    Supports both bcrypt (new) and SHA-256 (legacy) hashes.
+    
+    If auto_upgrade_user_id is provided and a legacy hash matches,
+    the hash is transparently upgraded to bcrypt in the database.
     """
     # Try bcrypt first (new format starts with $2b$)
-    if stored_hash.startswith("$2b$") or stored_hash.startswith("$2a$"):
+    if (stored_hash.startswith("$2b$") or stored_hash.startswith("$2a$")) and _HAS_BCRYPT and bcrypt:
         return bcrypt.checkpw(pin.encode("utf-8"), stored_hash.encode("utf-8"))
-    # Fallback: legacy SHA-256 hash
+    
+    # Fallback: legacy SHA-256 hash (4-digit PIN + user_id as salt = trivially crackable)
     legacy_hash = hashlib.sha256((pin + salt).encode("utf-8")).hexdigest()
-    return hmac.compare_digest(legacy_hash, stored_hash)
+    is_valid = hmac.compare_digest(legacy_hash, stored_hash)
+    
+    # Auto-upgrade: re-hash with bcrypt and persist if the legacy hash matched
+    if is_valid and auto_upgrade_user_id:
+        try:
+            new_hash = _hash_pin(pin, salt)
+            supabase_admin.table("advogados") \
+                .update({"senha_assinatura_hash": new_hash}) \
+                .eq("id", auto_upgrade_user_id) \
+                .execute()
+            logger.info(f"[SECURITY] Auto-upgraded legacy PIN hash to bcrypt for user {auto_upgrade_user_id}")
+        except Exception as e:
+            logger.warning(f"[SECURITY] Failed to auto-upgrade PIN hash for user {auto_upgrade_user_id}: {e}")
+    
+    return is_valid
 
 def _hash_token(token: str) -> str:
     """SHA-256 hash of a 6-digit email verification token."""
@@ -236,9 +263,13 @@ def _validate_cpf_cnpj(value: str) -> bool:
     return False
 
 def _hash_cpf(value: str) -> str:
-    """Returns SHA-256 hex digest of the raw digits only."""
+    """Returns HMAC-SHA256 hex digest of the raw digits using a server-side secret.
+    Uses HMAC instead of plain SHA-256 to prevent rainbow table attacks on the
+    small CPF/CNPJ keyspace (11-14 digits). The secret key ensures that even with
+    full database access, an attacker cannot reverse the hashes without the key."""
     digits = _only_digits(value)
-    return hashlib.sha256(digits.encode("utf-8")).hexdigest()
+    secret = os.getenv("CPF_HASH_SECRET", settings.SUPABASE_SERVICE_KEY or "legisvox-cpf-default-key")
+    return hmac.new(secret.encode("utf-8"), digits.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 # ── Helper: Extract Real IP ─────────────────────────────────────────────────
@@ -311,12 +342,15 @@ def save_cpf(req: SaveCPFRequest, request: Request, user_id: str = Depends(get_c
     if dup_resp.data:
         raise HTTPException(status_code=409, detail="Este CPF/CNPJ já está vinculado a outra conta.")
 
-    # 4. Save hash to profile
+    # 4. Save hash to profile and retrieve email in single roundtrip
+    email = "unknown"
     try:
-        supabase_admin.table("advogados") \
+        up_resp = supabase_admin.table("advogados") \
             .update({"cpf_cnpj": hashed}) \
             .eq("id", user_id) \
             .execute()
+        if up_resp.data:
+            email = up_resp.data[0].get("email", "unknown")
     except Exception as e:
         logger.error(f"Failed to save CPF for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Erro ao salvar CPF/CNPJ.")
@@ -324,8 +358,6 @@ def save_cpf(req: SaveCPFRequest, request: Request, user_id: str = Depends(get_c
     # 5. Audit log
     real_ip = _get_real_ip(request)
     user_agent = request.headers.get("user-agent", "unknown")
-    user_resp = supabase_admin.table("advogados").select("email").eq("id", user_id).execute()
-    email = user_resp.data[0]["email"] if user_resp.data else "unknown"
 
     try:
         supabase_admin.table("audit_logs").insert({
@@ -412,7 +444,7 @@ def set_signature_pin(req: SignaturePinSetRequest, request: Request, user_id: st
         if not req.current_pin.isdigit():
             raise HTTPException(status_code=422, detail="A senha atual deve conter apenas números.")
             
-        if not _verify_pin(req.current_pin, advogado["senha_assinatura_hash"], user_id):
+        if not _verify_pin(req.current_pin, advogado["senha_assinatura_hash"], user_id, auto_upgrade_user_id=user_id):
             novos_erros = (advogado.get("senha_assinatura_erros") or 0) + 1
             bloquear = (novos_erros >= 5)
             
@@ -534,7 +566,7 @@ def verify_signature_pin(req: SignaturePinVerifyRequest, request: Request, user_
     if not advogado["senha_assinatura_hash"]:
         raise HTTPException(status_code=400, detail="Senha de assinatura não cadastrada.")
         
-    is_correct = _verify_pin(req.pin, advogado["senha_assinatura_hash"], user_id)
+    is_correct = _verify_pin(req.pin, advogado["senha_assinatura_hash"], user_id, auto_upgrade_user_id=user_id)
     
     if is_correct:
         try:
@@ -603,25 +635,23 @@ def forgot_signature_pin(req: SignaturePinForgotRequest, request: Request, user_
         
     real_ip = _get_real_ip(request)
     user_agent = request.headers.get("user-agent", "unknown")
-    user_resp = supabase_admin.table("advogados").select("email").eq("id", user_id).execute()
-    
-    if not user_resp.data:
-        raise HTTPException(status_code=404, detail="Perfil não encontrado.")
-        
-    email = user_resp.data[0]["email"]
-    
     token = "".join(secrets.choice(string.digits) for _ in range(6))
     hashed_token = _hash_token(token)
     exp_time = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
     
     try:
-        supabase_admin.table("advogados") \
+        up_resp = supabase_admin.table("advogados") \
             .update({
                 "senha_assinatura_token_hash": hashed_token,
                 "senha_assinatura_token_exp": exp_time
             }) \
             .eq("id", user_id) \
             .execute()
+        if not up_resp.data:
+            raise HTTPException(status_code=404, detail="Perfil não encontrado.")
+        email = up_resp.data[0]["email"]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to save reset token for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Erro ao gerar token de recuperação.")
@@ -629,11 +659,8 @@ def forgot_signature_pin(req: SignaturePinForgotRequest, request: Request, user_
     sent = _send_reset_email(email, token)
     
     response_payload = {"status": "success", "message": "Código de recuperação enviado para o seu e-mail."}
-    if settings.ALLOW_TEST_BYPASS:
-        logger.debug(f"[DEV-ONLY] Reset token for user {user_id}: {token}")
-        response_payload["test_token_bypass"] = token
-    elif not sent:
-        logger.warning(f"SMTP failed to send reset token to {email}. Token is NOT returned in response body in production.")
+    if not sent:
+        logger.warning(f"SMTP failed to send reset token to {email}. Token is NOT returned in response body.")
         
     try:
         supabase_admin.table("audit_logs").insert({

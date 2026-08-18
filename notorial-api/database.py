@@ -28,24 +28,49 @@ def get_supabase_client() -> Client:
         print(f"\n[ALERTA] Erro ao conectar ao Supabase (anon): {e}")
         return None
 
+import time
+from collections import OrderedDict
+import threading
+
+_user_clients_cache: OrderedDict[str, tuple[Client, float]] = OrderedDict()
+_user_clients_lock = threading.Lock()
+_USER_CLIENT_TTL = 600  # 10 minutes cache per user JWT
+_MAX_USER_CLIENTS = 100  # Maximum pooled user clients
+
 def create_user_client(token: str) -> Client:
-    """Create a NEW isolated Supabase client scoped to a specific user's JWT.
+    """Gets or creates a cached Supabase client scoped to a specific user's JWT.
     
-    This client is created per-request to prevent cross-user data leakage.
-    Each request gets its own client instance with its own auth header,
-    ensuring Row Level Security (RLS) correctly isolates tenant data
-    even under concurrent async request processing.
+    Re-uses existing clients per token to prevent socket leaks and connection exhaustion,
+    while maintaining strict per-user RLS isolation.
     """
     if not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
         return None
-    try:
-        client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
-        if token:
+    if not token:
+        return get_supabase_client()
+        
+    now = time.time()
+    with _user_clients_lock:
+        # Check cache
+        if token in _user_clients_cache:
+            client, ts = _user_clients_cache[token]
+            if now - ts < _USER_CLIENT_TTL:
+                _user_clients_cache.move_to_end(token)
+                return client
+            else:
+                del _user_clients_cache[token]
+
+        # Evict oldest entries if capacity reached
+        while len(_user_clients_cache) >= _MAX_USER_CLIENTS:
+            _user_clients_cache.popitem(last=False)
+
+        try:
+            client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
             client.postgrest.auth(token)
-        return client
-    except Exception as e:
-        logger.error(f"Failed to create user-scoped Supabase client: {e}")
-        return None
+            _user_clients_cache[token] = (client, now)
+            return client
+        except Exception as e:
+            logger.error(f"Failed to create user-scoped Supabase client: {e}")
+            return None
 
 def get_supabase_admin_client() -> Client:
     """Service role client — bypasses RLS for backend data queries.

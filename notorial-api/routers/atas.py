@@ -6,6 +6,7 @@ from services.whatsapp_parser import parse_whatsapp_zip
 from services.pipeline_orchestrator import local_results, _process_pipeline
 from services.pdf_generator import generate_pdf_from_html, PdfGenerationError
 from services.credits import credits_service
+from services.limiter import limiter
 from services.upload_service import save_upload_file_with_limit_and_hash
 from services.estimate_service import estimate_cache, ESTIMATE_CACHE_TTL, cleanup_estimate_cache
 from services.pdf_cache_service import pdf_cache, PDF_CACHE_TTL, _PDF_STORAGE_BUCKET, cleanup_pdf_cache
@@ -25,7 +26,6 @@ logger = logging.getLogger(__name__)
 
 # ── Security constants ──
 MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500 MB max upload
-_ALLOW_BYPASS = os.getenv("ALLOW_TEST_BYPASS", "false").lower() == "true"
 
 class AtaContentUpdate(BaseModel):
     tipo: str
@@ -55,9 +55,7 @@ class AuthContext:
 
 def get_auth_context(request: Request, advogado_id: str = Depends(get_current_user_id)):
     token = request.headers.get("Authorization", "").replace("Bearer ", "") if request.headers.get("Authorization") else ""
-    is_bypass = _ALLOW_BYPASS and token == "bypass_admin"
-    if is_bypass or not token:
-        # Bypass/no-token: use shared singleton (no auth mutation)
+    if not token:
         client = get_supabase_client()
     else:
         # Normal user: create isolated client with user's JWT
@@ -156,7 +154,9 @@ async def delete_ata(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_conte
     return {"status": "success"}
 
 @router.post("/upload")
+@limiter.limit("5/minute")
 async def upload_whatsapp_zip(
+    request: Request,
     file: UploadFile = File(...),
     startDate: str = Form(None),
     endDate: str = Form(None),
@@ -192,9 +192,7 @@ async def upload_whatsapp_zip(
     supabase = auth_ctx.client
     advogado_id = auth_ctx.advogado_id
     token = auth_ctx.token
-    is_bypass_user = _ALLOW_BYPASS and advogado_id == "bypass-admin-id"
-    
-    if supabase and not is_bypass_user:
+    if supabase:
         try:
             response = supabase.table('atas').insert({
                 'advogado_id': advogado_id,
@@ -250,7 +248,9 @@ class ConfirmUploadRequest(BaseModel):
 
 
 @router.post("/upload/estimate")
+@limiter.limit("10/minute")
 async def estimate_upload(
+    request: Request,
     file: UploadFile = File(...),
     startDate: str = Form(None),
     endDate: str = Form(None),
@@ -309,8 +309,7 @@ async def estimate_upload(
     estimated_pages = credits_service.estimate_pages(parsed_data, audio_file_sizes)
 
     # Credit check depends on Supabase being available
-    is_bypass = _ALLOW_BYPASS and advogado_id == "bypass-admin-id"
-    if is_bypass or not auth_ctx.client:
+    if not auth_ctx.client:
         balance = 999
         has_credits = True
     else:
@@ -322,9 +321,7 @@ async def estimate_upload(
     cleanup_estimate_cache()
 
     supabase = auth_ctx.client
-    is_bypass = _ALLOW_BYPASS and advogado_id == "bypass-admin-id"
-
-    if supabase and not is_bypass:
+    if supabase:
         # Persist to DB so any worker can pick up the confirm
         try:
             supabase.table('atas').insert({
@@ -372,7 +369,9 @@ async def estimate_upload(
 
 
 @router.post("/upload/confirm")
+@limiter.limit("5/minute")
 async def confirm_upload(
+    request: Request,
     req: ConfirmUploadRequest,
     auth_ctx: AuthContext = Depends(get_auth_context)
 ):
@@ -381,12 +380,11 @@ async def confirm_upload(
     advogado_id = auth_ctx.advogado_id
 
     supabase = auth_ctx.client
-    is_bypass = _ALLOW_BYPASS and advogado_id == "bypass-admin-id"
     
     # Load from DB or fallback to local memory cache
     cached = estimate_cache.get(ata_id)
 
-    if not cached and supabase and not is_bypass:
+    if not cached and supabase:
         try:
             res = supabase.table('atas').select('status, status_message, advogado_id, zip_filename, estimated_pages').eq('id', ata_id).is_('deleted_at', 'null').execute()
             if res.data:
@@ -431,7 +429,7 @@ async def confirm_upload(
     zip_bytes = None  # no longer stored in memory
 
     # Check credits first (without debiting yet)
-    if not is_bypass and supabase:
+    if supabase:
         if not credits_service.has_sufficient_credits(advogado_id, estimated_pages):
             raise HTTPException(status_code=402, detail=f"Saldo insuficiente. Necessário: {estimated_pages} créditos.")
 
@@ -450,7 +448,7 @@ async def confirm_upload(
 
     # Step 1: Create ata record FIRST (FK on credit_transactions.ata_id requires this)
     ata_record = None
-    if supabase and not is_bypass:
+    if supabase:
         try:
             zip_filename = cached.get("zip_filename", "upload.zip")
             response = supabase.table('atas').upsert({
@@ -469,7 +467,7 @@ async def confirm_upload(
             logger.warning(f"Supabase insert ata failed (using local mode): {e}")
 
     # Step 2: Debit credits AFTER ata exists (so FK ata_id is valid)
-    if not is_bypass and supabase:
+    if supabase:
         if not credits_service.debit_credits(advogado_id, ata_id, estimated_pages):
             logger.error(f"[CONFIRM] Failed to debit credits for {ata_id}")
             # Don't block processing — credits were verified above
@@ -736,6 +734,7 @@ async def update_ata_title(
 
 
 @router.post("/{ata_id}/generate-pdf")
+@limiter.limit("10/minute")
 async def generate_pdf(
     ata_id: str,
     req_data: PdfGenerateRequest,
@@ -881,8 +880,8 @@ async def download_pdf(pdf_id: str, auth_ctx: AuthContext = Depends(get_auth_con
 
     owner_id = meta["owner"]
 
-    # Ownership check (bypass user can access any).
-    if owner_id != auth_ctx.advogado_id and not (_ALLOW_BYPASS and auth_ctx.advogado_id == "bypass-admin-id"):
+    # Ownership check
+    if owner_id != auth_ctx.advogado_id:
         raise HTTPException(status_code=403, detail="Acesso não autorizado a este PDF")
 
     # Try to get bytes: from Storage first, then in-memory fallback.

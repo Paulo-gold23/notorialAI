@@ -21,6 +21,10 @@
     # Compressão de alta performance
     encode zstd gzip
 
+    # Cache agressivo para assets estáticos com hashes imutáveis do Vite
+    @static path /assets/* *.js *.css *.png *.svg *.ico *.woff2 *.woff
+    header @static Cache-Control "public, max-age=31536000, immutable"
+
     # Roteamento da API FastAPI e Healthcheck
     @api path /api/* /health /health/*
     handle @api {

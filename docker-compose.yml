@@ -44,6 +44,14 @@ services:
     environment:
       - GOTENBERG_URL=http://gotenberg:3000/forms/chromium/convert/html
       - PORT=8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
     networks:
       - legisvox_network
     depends_on:
@@ -116,6 +124,15 @@ services:
       - legisvox_network
     depends_on:
       - caddy
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   legisvox_network:

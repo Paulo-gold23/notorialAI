@@ -1,4 +1,3 @@
-import os
 from fastapi import Request, HTTPException, status
 from fastapi.security import HTTPBearer
 from database import supabase, get_supabase_admin_client
@@ -9,8 +8,6 @@ logger = logging.getLogger(__name__)
 # Define the security scheme for swagger documentation
 security = HTTPBearer()
 
-# Test bypass is ONLY allowed if explicitly enabled via environment variable
-_ALLOW_BYPASS = os.getenv("ALLOW_TEST_BYPASS", "false").lower() == "true"
 
 def get_current_user_id(request: Request) -> str:
     """
@@ -28,10 +25,6 @@ def get_current_user_id(request: Request) -> str:
     token = auth_header.split(" ")[1]
     
     try:
-        # Development-only bypass (disabled by default, requires ALLOW_TEST_BYPASS=true)
-        if _ALLOW_BYPASS and token == "bypass_admin":
-            return "bypass-admin-id"
-
         # Validate token with Supabase Auth (server-side validation)
         user_response = supabase.auth.get_user(token)
         if not user_response or not user_response.user:

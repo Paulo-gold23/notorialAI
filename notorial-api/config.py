@@ -15,7 +15,6 @@ class Settings:
     ASAAS_API_KEY: str = os.getenv("ASAAS_API_KEY", "")
     ASAAS_ENVIRONMENT: str = os.getenv("ASAAS_ENVIRONMENT", "sandbox")
     ASAAS_WEBHOOK_TOKEN: str = os.getenv("ASAAS_WEBHOOK_TOKEN", "")
-    ALLOW_TEST_BYPASS: bool = os.getenv("ALLOW_TEST_BYPASS", "false").lower() == "true"
     
     # SMTP/E-mail Configuration
     SMTP_HOST: str = os.getenv("SMTP_HOST", "sandbox.smtp.mailtrap.io")

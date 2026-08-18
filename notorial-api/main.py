@@ -33,16 +33,16 @@ try:
     )
     _file_handler.setFormatter(_formatter)
     _handlers.append(_file_handler)
-except PermissionError:
+except Exception:
     try:
-        # Fallback para escrita simples sem rotação se o arquivo estiver bloqueado
-        _file_handler = logging.FileHandler(_LOG_FILE, encoding="utf-8")
+        # Fallback para rotação baseada em tamanho (10MB max, 5 backups) se TimedRotating falhar
+        _file_handler = logging.handlers.RotatingFileHandler(
+            _LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
+        )
         _file_handler.setFormatter(_formatter)
         _handlers.append(_file_handler)
     except Exception:
         pass
-except Exception:
-    pass
 
 _console_handler = logging.StreamHandler()
 _console_handler.setFormatter(_formatter)
@@ -76,18 +76,23 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS must be registered BEFORE routers — FastAPI applies middleware in reverse order
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        # Production
-        "https://legisvox.com",
-        "https://www.legisvox.com",
-        # Development
+_cors_origins = [
+    # Production
+    "https://legisvox.com",
+    "https://www.legisvox.com",
+]
+# Only allow localhost origins in non-production environments
+if os.getenv("ENVIRONMENT", "production").lower() != "production":
+    _cors_origins += [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5174",
-    ],
+    ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["Authorization", "Content-Type", "advogado_id", "asaas_access_token", "asaas-access-token"],
@@ -98,9 +103,9 @@ async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=()"
     return response
 
 # Import and include routers AFTER middleware

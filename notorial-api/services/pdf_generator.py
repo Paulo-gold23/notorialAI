@@ -8,6 +8,9 @@ import secrets
 import nh3
 from config import settings
 
+import ipaddress
+from urllib.parse import urlparse
+
 ALLOWED_TAGS = {
     "p", "b", "i", "u", "strong", "em", "h1", "h2", "h3", "h4", "h5", "h6",
     "ul", "ol", "li", "span", "img", "div", "br", "a"
@@ -24,16 +27,58 @@ ALLOWED_ATTRIBUTES = {
     "h3": {"id"}
 }
 
+_BLOCKED_SSRF_HOSTS = {
+    "localhost", "127.0.0.1", "0.0.0.0", "::1",
+    "api", "caddy", "web", "gotenberg", "db", "postgres", "supabase", "redis"
+}
+
+def _is_safe_ssrf_url(url: str) -> bool:
+    """Validates that a URL does not target internal services, loopbacks, or cloud metadata."""
+    if not url:
+        return False
+    if url.startswith("data:image/"):
+        return True  # Safe base64 image
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        hostname = (parsed.hostname or "").lower().strip()
+        if not hostname:
+            return False
+        if hostname in _BLOCKED_SSRF_HOSTS:
+            return False
+        if hostname.endswith(".local") or hostname.endswith(".internal") or hostname.endswith(".localhost"):
+            return False
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return False
+        except ValueError:
+            pass  # Normal domain name
+        return True
+    except Exception:
+        return False
+
 def sanitize_user_html(html_content: str) -> str:
     """
-    Sanitizes HTML content to prevent XSS and SSRF (Gotenberg local file reads).
+    Sanitizes HTML content to prevent XSS and SSRF (Gotenberg internal network / cloud metadata reads).
     """
-    return nh3.clean(
+    cleaned = nh3.clean(
         html_content,
         tags=ALLOWED_TAGS,
         attributes=ALLOWED_ATTRIBUTES,
         url_schemes={"http", "https", "data"} # Blocks file:// scheme
     )
+    # Post-process to remove unsafe SSRF URLs from img src and a href
+    def _sanitize_src(match):
+        attr = match.group(1)
+        url = match.group(2)
+        if not _is_safe_ssrf_url(url):
+            return ""
+        return f'{attr}="{url}"'
+
+    cleaned = re.sub(r'(src|href)\s*=\s*["\']([^"\']+)["\']', _sanitize_src, cleaned, flags=re.IGNORECASE)
+    return cleaned
 
 logger = logging.getLogger(__name__)
 
@@ -445,6 +490,30 @@ class PdfGenerationError(Exception):
     pass
 
 
+def _protect_and_hash_pdf_sync(pdf_content: bytes) -> tuple[bytes, str]:
+    """CPU-bound encryption and cloning of PDF. Executed in a thread pool to avoid blocking asyncio."""
+    protected_content = pdf_content
+    try:
+        from pypdf import PdfReader, PdfWriter
+        reader = PdfReader(io.BytesIO(pdf_content))
+        writer = PdfWriter()
+        writer.clone_reader_document_root(reader)
+        owner_pass = secrets.token_hex(16)
+        writer.encrypt(
+            user_password="",
+            owner_password=owner_pass,
+            permissions_flag=0b0000000000100
+        )
+        out = io.BytesIO()
+        writer.write(out)
+        protected_content = out.getvalue()
+    except Exception as e:
+        logger.warning(f"Erro ao proteger PDF com pypdf, continuando com original: {e}")
+
+    pdf_hash = hashlib.sha256(protected_content).hexdigest()
+    return protected_content, pdf_hash
+
+
 async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_hash: str = "") -> tuple[bytes, str] | tuple[None, None]:
     """
     Consome a API do Gotenberg via URL do Env.
@@ -542,31 +611,13 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_has
                     logger.info(f"Gotenberg PDF gerado com sucesso na tentativa {attempt}")
                 
                 pdf_content = response.content
-                # Protect PDF (Immutable restrictions)
-                # NOTE: pypdf writer.add_page() does NOT copy /Annots (link annotations).
-                # We must clone the document to preserve internal hyperlinks from the index.
-                try:
-                    from pypdf import PdfReader, PdfWriter
-                    reader = PdfReader(io.BytesIO(pdf_content))
-                    writer = PdfWriter()
-                    # clone_reader_document_root preserves all annotations including
-                    # internal anchor links (Link annotations used by the index)
-                    writer.clone_reader_document_root(reader)
-                    owner_pass = secrets.token_hex(16)
-                    writer.encrypt(
-                        user_password="",
-                        owner_password=owner_pass,
-                        permissions_flag=0b0000000000100
-                    )
-                    out = io.BytesIO()
-                    writer.write(out)
-                    pdf_content = out.getvalue()
-                except Exception as e:
-                    logger.warning(f"Erro ao proteger PDF com pypdf, continuando: {e}")
-
-                # Compute SHA-256 of the final protected PDF
-                pdf_hash = hashlib.sha256(pdf_content).hexdigest()
-                logger.info(f"PDF gerado — SHA-256: {pdf_hash[:16]}...")
+                
+                # Offload CPU-bound PDF protection/encryption to thread pool (avoids blocking asyncio)
+                loop = asyncio.get_running_loop()
+                pdf_content, pdf_hash = await loop.run_in_executor(
+                    None, _protect_and_hash_pdf_sync, pdf_content
+                )
+                logger.info(f"PDF gerado e protegido — SHA-256: {pdf_hash[:16]}...")
                 return pdf_content, pdf_hash
 
             # Server error — worth retrying
