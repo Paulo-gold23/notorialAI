@@ -55,7 +55,7 @@ export default function TermsOfUse() {
                     <BulletList items={[
                         <><strong>2.1 Licenciamento de Software:</strong> A Legatus concede ao Usuário uma licença de uso temporária, revogável, não exclusiva e intransferível do software LegisVox, operado exclusivamente sob o modelo <em>Software as a Service</em> (SaaS).</>,
                         <><strong>2.2 Escopo Operacional:</strong> O LegisVox é uma ferramenta de suporte tecnológico destinada à organização, transcrição de áudio, estruturação de diálogos e referenciação contextual de arquivos exportados de aplicativos de mensagens instantâneas.</>,
-                        <><strong>2.3 Inexistência de Fé Pública:</strong> O Usuário reconhece e aceita que a LegisVox é uma ferramenta de auxílio técnico e organizacional. Os relatórios gerados pela plataforma <strong>não possuem fé pública notarial</strong> (Art. 384, CPC) e não substituem, em nenhuma hipótese, a perícia oficial, a ata notarial ou qualquer outro meio de prova que exija certificação por autoridade pública ou perito judicial. O próprio advogado realiza a autenticação do documento gerado sob sua responsabilidade profissional e fé pública (Art. 425, IV, CPC).</>,
+                        <><strong>2.3 Inexistência de Fé Pública:</strong> O Usuário reconhece e aceita que a LegisVox é uma ferramenta de auxílio técnico e organizacional. Os relatórios gerados pela plataforma <strong>não possuem fé pública notarial</strong> (Art. 384, CPC) e não substituem, em nenhuma hipótese, a perícia oficial, a ata notarial ou qualquer outro meio de prova que exija certificação por autoridade pública ou perito judicial. A juntada ou utilização do relatório pelo advogado não lhe confere fé pública nem certifica a veracidade das comunicações. O valor probatório do documento será apreciado pela autoridade competente em conjunto com os arquivos originais e as demais provas.</>,
                     ]} />
                 </TermsSection>
 
@@ -87,11 +87,11 @@ export default function TermsOfUse() {
                     ]} />
                 </TermsSection>
 
-                <TermsSection title="6. Integridade da Prova e Cadeia de Custódia (Sistema Hash)">
+                <TermsSection title="6. Integridade e Verificação por Hash">
                     <BulletList items={[
-                        <><strong>6.1 Protocolo de Autenticidade:</strong> A Plataforma gera automaticamente dois códigos identificadores únicos (Hash SHA-256): o <em>Hash do Arquivo Fonte</em>, que identifica a integridade do arquivo .ZIP original, e o <em>Hash do Relatório</em>, que identifica a integridade do documento final em PDF.</>,
+                        <><strong>6.1 Resumo Criptográfico:</strong> A Plataforma gera automaticamente dois resumos criptográficos (Hash SHA-256): o <em>Hash do Arquivo Fonte</em>, que permite verificar se o arquivo .ZIP original sofreu alterações após o processamento, e o <em>Hash do Relatório</em>, que permite verificar a integridade do documento final em PDF. O hash não certifica autoria, veracidade, completude, origem ou admissibilidade judicial do conteúdo.</>,
                         <><strong>6.2 Veto à Edição e Adulteração:</strong> Visando a preservação da fidedignidade e a prevenção de fraudes processuais (Art. 299 do Código Penal), o sistema <strong>não permite a edição direta</strong> do conteúdo transcrito pela Inteligência Artificial. O Usuário poderá inserir notas de ressalva, que constarão de forma segregada no relatório, identificadas claramente como manifestações unilaterais do Usuário.</>,
-                        <><strong>6.3 Guarda de Metadados:</strong> O Usuário concorda que a Legatus armazenará os referidos códigos Hash em seus registros de auditoria, mesmo após a exclusão do conteúdo das mensagens, para fins de conferência de autenticidade em eventuais perícias judiciais.</>,
+                        <><strong>6.3 Guarda de Metadados:</strong> O Usuário concorda que a Legatus armazenará os referidos códigos Hash em seus registros de auditoria, mesmo após a exclusão do conteúdo das mensagens, para fins de verificação de integridade. O valor probatório do documento será apreciado pela autoridade competente em conjunto com os arquivos originais e as demais provas.</>,
                     ]} />
                 </TermsSection>
 

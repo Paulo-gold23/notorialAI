@@ -39,7 +39,7 @@ export default function PinVerificationModal({
             const rawPin = pinInput.join('');
             
             if (rawPin.length !== 4) {
-                setPinError('A senha de assinatura deve ter 4 dígitos.');
+                setPinError('O PIN de confirmação deve ter 4 dígitos.');
                 setVerifyingPin(false);
                 return;
             }
@@ -55,7 +55,7 @@ export default function PinVerificationModal({
             // If success, call onSuccess callback
             onSuccess();
         } catch (err) {
-            setPinError(err.message || 'Senha de assinatura incorreta.');
+            setPinError(err.message || 'PIN de confirmação incorreto.');
             setPinInput(['', '', '', '']);
             if (err.message && err.message.includes('bloqueada')) {
                 setIsPinBlocked(true);
@@ -94,7 +94,7 @@ export default function PinVerificationModal({
                                 Assinatura Eletrônica
                             </h2>
                             <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                Confirme com sua senha de 4 dígitos
+                                Confirme com seu PIN de 4 dígitos
                             </p>
                         </div>
                     </div>
@@ -114,7 +114,7 @@ export default function PinVerificationModal({
                                 lineHeight: 1.45,
                                 marginBottom: '1.25rem',
                             }}>
-                                ⚠️ Sua senha de assinatura está bloqueada por excesso de tentativas incorretas. Por favor, redefina-a por e-mail para continuar.
+                                ⚠️ Seu PIN de confirmação está bloqueado por excesso de tentativas incorretas. Por favor, redefina-a por e-mail para continuar.
                             </div>
                             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
                                 <button

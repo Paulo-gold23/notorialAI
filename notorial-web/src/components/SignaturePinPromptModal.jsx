@@ -139,7 +139,7 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
         } catch (err) {
             setCurrentPin(['', '', '', '']);
             currentRefs[0].current?.focus();
-            setError(err.message || 'Senha de assinatura atual incorreta.');
+            setError(err.message || 'PIN de confirmação atual incorreto.');
         } finally {
             setLoading(false);
         }
@@ -204,15 +204,15 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
             setStep('done');
             toast.success(
                 isUpdate 
-                    ? 'Senha de assinatura alterada com sucesso!' 
-                    : 'Senha de assinatura cadastrada com sucesso!'
+                    ? 'PIN de confirmação alterado com sucesso!' 
+                    : 'PIN de confirmação cadastrado com sucesso!'
             );
             setTimeout(() => {
                 onSaved();
             }, 1200);
 
         } catch (err) {
-            setError(err.message || 'Erro ao salvar senha de assinatura.');
+            setError(err.message || 'Erro ao salvar PIN de confirmação.');
             setStep(isUpdate ? 'current_pin' : 'new_pin');
             setPin(['', '', '', '']);
             setConfirmPin(['', '', '', '']);
@@ -327,14 +327,14 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
                         fontWeight: 700, color: 'var(--text-main)',
                     }}>
                         {step === 'info'
-                            ? 'O que é a Senha de Assinatura?'
+                            ? 'O que é o PIN de Confirmação?'
                             : step === 'done' 
                                 ? (isUpdate ? 'Senha Alterada!' : 'Senha Cadastrada!')
                                 : step === 'current_pin'
-                                    ? 'Senha de Assinatura Atual'
+                                    ? 'PIN de Confirmação Atual'
                                     : step === 'confirm_pin' 
-                                        ? 'Confirme sua Senha de Assinatura' 
-                                        : 'Nova Senha de Assinatura'
+                                        ? 'Confirme seu PIN de Confirmação' 
+                                        : 'Novo PIN de Confirmação'
                         }
                     </h3>
                     <p style={{
@@ -345,10 +345,10 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
                             'Entenda como funciona esta medida de segurança para a sua atuação profissional.'
                         ) : step === 'done' ? (
                             isUpdate 
-                                ? 'Sua nova senha de assinatura eletrônica foi configurada com sucesso.'
-                                : 'Sua senha de assinatura eletrônica de 4 dígitos foi configurada.'
+                                ? 'Seu novo PIN de confirmação e assinatura eletrônica foi configurado com sucesso.'
+                                : 'Seu PIN de confirmação e assinatura eletrônica de 4 dígitos foi configurado.'
                         ) : step === 'current_pin' ? (
-                            'Para prosseguir, digite sua senha de assinatura de 4 dígitos atual.'
+                            'Para prosseguir, digite seu PIN de confirmação de 4 dígitos atual.'
                         ) : step === 'confirm_pin' ? (
                             'Digite novamente a senha numérica de 4 dígitos para confirmar.'
                         ) : (
@@ -388,8 +388,8 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
                                         flexShrink: 0, fontWeight: 'bold', fontSize: '0.75rem', marginTop: '2px'
                                     }}>2</div>
                                     <div>
-                                        <strong style={{ color: 'var(--text-main)', display: 'block', marginBottom: '1px' }}>Fé Pública & Emissão</strong>
-                                        <span>Ela será exigida sempre que você salvar alterações, emitir relatórios ou gerar PDFs. Representa a sua chancela jurídica sobre as provas.</span>
+                                        <strong style={{ color: 'var(--text-main)', display: 'block', marginBottom: '1px' }}>Confirmação & Emissão</strong>
+                                        <span>Ela será exigida sempre que você salvar alterações, emitir relatórios ou gerar PDFs. Representa a sua conferência eletrônica sobre o documento.</span>
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
@@ -596,7 +596,7 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
                                                     <div className="sp-wave" style={{ width: 14, height: 14 }} /> Alterando...
                                                 </span>
                                             ) : (
-                                                isUpdate ? 'Alterar Senha de Assinatura' : 'Confirmar e Cadastrar'
+                                                isUpdate ? 'Alterar PIN de Confirmação' : 'Confirmar e Cadastrar'
                                             )}
                                         </button>
                                     </>

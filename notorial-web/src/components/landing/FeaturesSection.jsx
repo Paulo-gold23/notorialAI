@@ -6,25 +6,25 @@ export default function FeaturesSection() {
     {
       icon: <Icon.Mic />,
       title: 'Transcrição Precisa de Áudios',
-      desc: 'Groq Whisper-v3 com 97%+ de precisão. Identifica cada participante e mapeia falas ao contexto correto da conversa.',
+      desc: 'Groq Whisper transcreve áudios com alta precisão. Identifica cada participante e mapeia falas ao contexto correto da conversa. Resultados podem variar conforme qualidade do áudio.',
       tag: 'IA Avançada',
     },
     {
       icon: <Icon.FileText />,
       title: 'Linguagem Jurídica Técnica',
-      desc: 'GPT-4o estrutura o conteúdo em duas versões: preparatória (clareza) e formal (técnica), prontas para protocolo.',
+      desc: 'IA de última geração estrutura o conteúdo em duas versões: preparatória (clareza) e formal (técnica), prontas para revisão e eventual utilização profissional.',
       tag: 'Dual Output',
     },
     {
       icon: <Icon.Shield />,
       title: 'Integridade Documental',
-      desc: 'Hash SHA-256 gerado automaticamente para cada documento. Rastreabilidade e autenticidade garantidas.',
+      desc: 'Resumo criptográfico SHA-256 gerado automaticamente para cada documento. Integridade verificável a qualquer momento.',
       tag: 'Segurança',
     },
     {
       icon: <Icon.Clock />,
       title: 'Processamento em Minutos',
-      desc: 'Áudios processados em paralelo com asyncio. Documentos entregues em menos de 5 minutos, independente do volume.',
+      desc: 'Áudios processados em paralelo com asyncio. O tempo de processamento pode variar conforme volume, qualidade dos áudios e disponibilidade dos fornecedores tecnológicos.',
       tag: 'Velocidade',
     },
     {

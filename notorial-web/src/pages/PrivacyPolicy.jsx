@@ -68,9 +68,9 @@ export default function PrivacyPolicy() {
 
                     <SubHeading>1.1. Caso você visite nosso site</SubHeading>
                     <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                        Se você apenas navegar em nosso site, coletaremos dados de navegação. É inserido um <em>cookie</em> no seu navegador
-                        por meio de softwares de análise (como Google Analytics e PostHog) para identificar métricas de retorno e comportamento.
-                        São coletados: endereço IP, localização geográfica aproximada, fonte de referência, tipo de navegador, duração da visita
+                        Se você apenas navegar em nosso site, poderemos coletar dados de navegação por meio de ferramentas de monitoramento
+                        de erros e desempenho (como Sentry) para garantir a estabilidade do serviço.
+                        Poderão ser coletados: endereço IP, tipo de navegador, duração da visita
                         e páginas visitadas.
                     </p>
 
@@ -132,13 +132,13 @@ export default function PrivacyPolicy() {
                 <PolicySection title="4. Segurança das Informações">
                     <SubHeading>4.1. Criptografia e Armazenamento</SubHeading>
                     <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                        Todos os dados coletados e processados pelo LegisVox são criptografados tanto em repouso (armazenamento) quanto em
-                        trânsito (transmissão), utilizando protocolos de segurança avançados (SSL/TLS e AES-256).
+                        Todos os dados coletados e processados pelo LegisVox são protegidos por medidas técnicas de segurança tanto em repouso
+                        (armazenamento) quanto em trânsito (transmissão), utilizando protocolos como SSL/TLS.
                     </p>
 
-                    <SubHeading>4.2. Cadeia de Custódia e Integridade — Protocolo de Duplo Hash</SubHeading>
+                    <SubHeading>4.2. Verificação de Integridade — Resumo Criptográfico Duplo</SubHeading>
                     <BulletList items={[
-                        <><strong>Hash do Arquivo Fonte:</strong> No momento do upload do arquivo .ZIP, o sistema gera uma assinatura digital única (SHA-256) que identifica o conteúdo bruto original.</>,
+                        <><strong>Hash do Arquivo Fonte:</strong> No momento do upload do arquivo .ZIP, o sistema gera um resumo criptográfico único (SHA-256) que permite verificar se o conteúdo original sofreu alterações.</>,
                         <><strong>Hash do Relatório Final:</strong> Após o processamento e inserção de eventuais ressalvas, um segundo código Hash é gerado para o arquivo PDF final.</>,
                         <><strong>Imutabilidade:</strong> Ambos os códigos são impressos no rodapé de todas as páginas do relatório, permitindo rastreabilidade total em ambientes de auditoria ou processos judiciais.</>,
                     ]} />

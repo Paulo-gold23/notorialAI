@@ -13,19 +13,19 @@ export default function HowItWorks() {
       num: '02',
       icon: <Icon.Mic />,
       title: 'Transcrição automática via IA',
-      desc: 'O LegisVox transcreve todos os áudios com alta precisão usando Groq Whisper, identificando cada participante da conversa.',
+      desc: 'O LegisVox transcreve todos os áudios utilizando IA de última geração, identificando cada participante da conversa. A precisão pode variar conforme a qualidade do áudio.',
     },
     {
       num: '03',
       icon: <Icon.FileText />,
-      title: 'Estruturação inteligente com GPT-4o',
-      desc: 'A IA organiza o conteúdo em material preparatório claro, com versão narrativa e versão técnica para análise do advogado.',
+      title: 'Estruturação inteligente com IA',
+      desc: 'A IA organiza o conteúdo em material preparatório claro, com versão narrativa e versão técnica para revisão pelo profissional responsável.',
     },
     {
       num: '04',
       icon: <Icon.Award />,
       title: 'Revisão e exportação em PDF',
-      desc: 'O material é editável antes do export. O PDF final conta com hash SHA-256 para rastreabilidade e integridade.',
+      desc: 'O material é revisável antes do export. O PDF final conta com resumo criptográfico SHA-256 para verificação de integridade.',
     },
   ];
 

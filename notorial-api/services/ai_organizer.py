@@ -1245,13 +1245,13 @@ async def transform_content_with_ai(content: str, action: str, client: httpx.Asy
     Ações suportadas: resumir, formalizar, corrigir, extrair_datas.
     """
     prompts = {
-        "resumir": "Você é um assistente notarial. Sua tarefa é criar um resumo executivo e conciso do texto fornecido, destacando os pontos principais e os participantes envolvidos.",
-        "formalize": "Você é um revisor jurídico experiente. Sua tarefa é reescrever o texto fornecido utilizando uma linguagem formal, clara e adequada para documentos notariais brasileiros, mantendo fielmente o sentido original.",
+        "resumir": "Você é um assistente jurídico de organização documental. Sua tarefa é criar um resumo executivo e conciso do texto fornecido, destacando os pontos principais e os participantes envolvidos.",
+        "formalize": "Você é um revisor jurídico experiente. Sua tarefa é reescrever o texto fornecido utilizando uma linguagem formal, clara e adequada para documentos jurídicos brasileiros, mantendo fielmente o sentido original.",
         "corrigir": "Você é um revisor de textos profissional. Sua tarefa é corrigir erros de ortografia, gramática e concordância do texto fornecido, sem alterar substancialmente o estilo ou o sentido.",
         "extrair_datas": "Você é um assistente de organização. Sua tarefa é extrair todas as datas e horários mencionados no texto e listá-los em ordem cronológica com uma breve menção ao evento associado."
     }
     
-    system_prompt = prompts.get(action, "Você é um assistente notarial prestativo e especializado em documentos digitais.")
+    system_prompt = prompts.get(action, "Você é um assistente jurídico prestativo e especializado em organização documental digital.")
     user_content = f"TRANSFORMAÇÃO SOLICITADA: {action}\n\nCONTEÚDO:\n{content}"
     
     try:

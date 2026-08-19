@@ -95,12 +95,12 @@ def _send_reset_email(to_email: str, token: str) -> bool:
         <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; padding: 30px; border-radius: 8px; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);">
             <div style="text-align: center; margin-bottom: 20px;">
                 <h2 style="color: #111827; margin: 0;">LegisVox</h2>
-                <p style="color: #6b7280; font-size: 14px; margin: 5px 0 0 0;">Segurança e Compliance Notarial</p>
+                <p style="color: #6b7280; font-size: 14px; margin: 5px 0 0 0;">Segurança e Compliance</p>
             </div>
             <hr style="border: 0; border-top: 1px solid #e5e7eb; margin-bottom: 20px;" />
             <p style="color: #374151; font-size: 16px; line-height: 1.5;">Olá,</p>
-            <p style="color: #374151; font-size: 16px; line-height: 1.5;">Você solicitou a redefinição de sua senha de assinatura de 4 dígitos no LegisVox.</p>
-            <p style="color: #374151; font-size: 16px; line-height: 1.5;">Utilize o código de verificação abaixo para desbloquear e cadastrar uma nova senha de assinatura:</p>
+            <p style="color: #374151; font-size: 16px; line-height: 1.5;">Você solicitou a redefinição de seu PIN de confirmação de 4 dígitos no LegisVox.</p>
+            <p style="color: #374151; font-size: 16px; line-height: 1.5;">Utilize o código de verificação abaixo para desbloquear e cadastrar um novo PIN de confirmação:</p>
             <div style="background-color: #f9fafb; border: 1px solid #d1d5db; padding: 15px; border-radius: 6px; text-align: center; margin: 25px 0;">
                 <span style="font-family: monospace; font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #1e3a8a;">{token}</span>
             </div>
@@ -123,7 +123,7 @@ def _send_reset_email(to_email: str, token: str) -> bool:
             payload = {
                 "from": settings.SMTP_FROM,
                 "to": [to_email],
-                "subject": "LegisVox - Redefinição de Senha de Assinatura",
+                "subject": "LegisVox - Redefinição de PIN de Confirmação",
                 "html": html_content
             }
             with httpx.Client(timeout=10) as client:
@@ -145,7 +145,7 @@ def _send_reset_email(to_email: str, token: str) -> bool:
         
     try:
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = "LegisVox - Redefinição de Senha de Assinatura"
+        msg["Subject"] = "LegisVox - Redefinição de PIN de Confirmação"
         msg["From"] = settings.SMTP_FROM
         msg["To"] = to_email
         msg.attach(MIMEText(html_content, "html"))
@@ -415,7 +415,7 @@ def set_signature_pin(req: SignaturePinSetRequest, request: Request, user_id: st
         raise HTTPException(status_code=401, detail="Unauthorized")
     
     if not req.pin.isdigit():
-        raise HTTPException(status_code=422, detail="A senha de assinatura deve conter apenas números.")
+        raise HTTPException(status_code=422, detail="O PIN de confirmação deve conter apenas números.")
         
     # Check if lawyer already has a PIN
     adv_resp = supabase_admin.table("advogados") \
@@ -432,14 +432,14 @@ def set_signature_pin(req: SignaturePinSetRequest, request: Request, user_id: st
     if advogado.get("senha_assinatura_bloqueado"):
         raise HTTPException(
             status_code=403,
-            detail="Sua senha de assinatura está bloqueada devido a excesso de tentativas incorretas. Redefina-a por e-mail."
+            detail="Seu PIN de confirmação está bloqueado devido a excesso de tentativas incorretas. Redefina-o por e-mail."
         )
         
     has_existing_pin = bool(advogado.get("senha_assinatura_hash"))
     
     if has_existing_pin:
         if not req.current_pin:
-            raise HTTPException(status_code=400, detail="A senha de assinatura atual é obrigatória para alteração.")
+            raise HTTPException(status_code=400, detail="O PIN de confirmação atual é obrigatório para alteração.")
             
         if not req.current_pin.isdigit():
             raise HTTPException(status_code=422, detail="A senha atual deve conter apenas números.")
@@ -478,10 +478,10 @@ def set_signature_pin(req: SignaturePinSetRequest, request: Request, user_id: st
             if bloquear:
                 raise HTTPException(
                     status_code=403, 
-                    detail="Senha de assinatura bloqueada devido a excesso de tentativas incorretas. Redefina-a por e-mail."
+                    detail="PIN de confirmação bloqueado devido a excesso de tentativas incorretas. Redefina-o por e-mail."
                 )
             else:
-                raise HTTPException(status_code=400, detail="Senha de assinatura atual incorreta.")
+                raise HTTPException(status_code=400, detail="PIN de confirmação atual incorreto.")
                 
     hashed_pin = _hash_pin(req.pin, user_id)
     
@@ -496,7 +496,7 @@ def set_signature_pin(req: SignaturePinSetRequest, request: Request, user_id: st
             .execute()
     except Exception as e:
         logger.error(f"Failed to set signature PIN for user {user_id}: {e}")
-        raise HTTPException(status_code=500, detail="Erro ao salvar senha de assinatura.")
+        raise HTTPException(status_code=500, detail="Erro ao salvar PIN de confirmação.")
         
     real_ip = _get_real_ip(request)
     user_agent = request.headers.get("user-agent", "unknown")
@@ -514,7 +514,7 @@ def set_signature_pin(req: SignaturePinSetRequest, request: Request, user_id: st
     except Exception as e:
         logger.warning(f"Audit log failed for PIN creation/update (user {user_id}): {e}")
         
-    return {"status": "success", "message": "Senha de assinatura cadastrada com sucesso."}
+    return {"status": "success", "message": "PIN de confirmação cadastrado com sucesso."}
 
 
 @router.get("/signature-pin/status")
@@ -561,10 +561,10 @@ def verify_signature_pin(req: SignaturePinVerifyRequest, request: Request, user_
     email = advogado["email"]
     
     if advogado["senha_assinatura_bloqueado"]:
-        raise HTTPException(status_code=403, detail="Senha de assinatura bloqueada. Redefina-a por e-mail.")
+        raise HTTPException(status_code=403, detail="PIN de confirmação bloqueado. Redefina-o por e-mail.")
         
     if not advogado["senha_assinatura_hash"]:
-        raise HTTPException(status_code=400, detail="Senha de assinatura não cadastrada.")
+        raise HTTPException(status_code=400, detail="PIN de confirmação não cadastrado.")
         
     is_correct = _verify_pin(req.pin, advogado["senha_assinatura_hash"], user_id, auto_upgrade_user_id=user_id)
     
@@ -590,7 +590,7 @@ def verify_signature_pin(req: SignaturePinVerifyRequest, request: Request, user_
         except Exception as e:
             logger.warning(f"Audit log failed for document signing (user {user_id}): {e}")
             
-        return {"status": "success", "message": "Senha de assinatura validada."}
+        return {"status": "success", "message": "PIN de confirmação validado."}
     else:
         novos_erros = advogado["senha_assinatura_erros"] + 1
         bloquear = (novos_erros >= 5)
@@ -621,9 +621,9 @@ def verify_signature_pin(req: SignaturePinVerifyRequest, request: Request, user_
             logger.warning(f"Audit log failed for failed signature attempt (user {user_id}): {e}")
             
         if bloquear:
-            raise HTTPException(status_code=403, detail="Senha de assinatura bloqueada por excesso de tentativas incorretas. Por favor, redefina-a por e-mail.")
+            raise HTTPException(status_code=403, detail="PIN de confirmação bloqueado por excesso de tentativas incorretas. Por favor, redefina-a por e-mail.")
             
-        raise HTTPException(status_code=401, detail=f"Senha de assinatura incorreta. Você tem mais {5 - novos_erros} tentativa(s) antes do bloqueio.")
+        raise HTTPException(status_code=401, detail=f"PIN de confirmação incorreto. Você tem mais {5 - novos_erros} tentativa(s) antes do bloqueio.")
 
 
 @router.post("/signature-pin/forgot")
@@ -686,7 +686,7 @@ def reset_signature_pin(req: SignaturePinResetRequest, request: Request, user_id
         raise HTTPException(status_code=401, detail="Unauthorized")
         
     if not req.new_pin.isdigit():
-        raise HTTPException(status_code=422, detail="A senha de assinatura deve conter apenas números.")
+        raise HTTPException(status_code=422, detail="O PIN de confirmação deve conter apenas números.")
         
     real_ip = _get_real_ip(request)
     user_agent = request.headers.get("user-agent", "unknown")
@@ -726,7 +726,7 @@ def reset_signature_pin(req: SignaturePinResetRequest, request: Request, user_id
             .execute()
     except Exception as e:
         logger.error(f"Failed to reset signature PIN for user {user_id}: {e}")
-        raise HTTPException(status_code=500, detail="Erro ao redefinir a senha de assinatura.")
+        raise HTTPException(status_code=500, detail="Erro ao redefinir o PIN de confirmação.")
         
     try:
         supabase_admin.table("audit_logs").insert({
@@ -741,7 +741,7 @@ def reset_signature_pin(req: SignaturePinResetRequest, request: Request, user_id
     except Exception as e:
         logger.warning(f"Audit log failed for PIN reset (user {user_id}): {e}")
         
-    return {"status": "success", "message": "Senha de assinatura redefinida com sucesso e conta desbloqueada."}
+    return {"status": "success", "message": "PIN de confirmação redefinido com sucesso e conta desbloqueada."}
 
 
 @router.post("/accept-terms")

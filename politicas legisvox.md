@@ -21,7 +21,7 @@ Nós coletamos informações para fornecer serviços melhores a todos os usuári
 1.  **Caso você visite nosso site** 
     
 
-Se você apenas navegar em nosso site, coletaremos dados de navegação. Quando você visita nosso portal, é inserido um ‘cookie’ no seu navegador por meio de softwares de análise (como Google Analytics e PostHog), para identificar métricas de retorno e comportamento de navegação. São coletadas informações como endereço IP, localização geográfica aproximada, fonte de referência, tipo de navegador, duração da visita e páginas visitadas. Tais dados são utilizados para otimizar a experiência do usuário e mensurar a eficácia de nossas campanhas de comunicação.
+Se você apenas navegar em nosso site, poderemos coletar dados de navegação por meio de ferramentas de monitoramento de erros e desempenho (como Sentry) para garantir a estabilidade do serviço. Poderão ser coletadas informações como endereço IP, tipo de navegador, duração da visita e páginas visitadas.
 
 **1.2. Informações que você nos fornece**
 
@@ -96,11 +96,11 @@ A Legatus garante a você, na qualidade de titular de dados pessoais, o pleno ex
 
 A segurança da informação é a espinha dorsal da confiança entre a Legatus e seus usuários. Empregamos medidas técnicas, administrativas e organizacionais para proteger seus dados contra acessos não autorizados e situações acidentais ou ilícitas de destruição, perda, alteração ou difusão.
 
-**4.1. Criptografia e Armazenamento:** Todos os dados coletados e processados pelo LegisVox são criptografados tanto em repouso (armazenamento) quanto em trânsito (transmissão), utilizando protocolos de segurança avançados (como SSL/TLS e AES-256).
+**4.1. Criptografia e Armazenamento:** Todos os dados coletados e processados pelo LegisVox são protegidos por medidas técnicas de segurança tanto em repouso (armazenamento) quanto em trânsito (transmissão), utilizando protocolos como SSL/TLS.
 
-**4.2. Cadeia de Custódia e Integridade (O Diferencial LegisVox):** Para assegurar a integridade do material processado e evitar alegações de adulteração, a Legatus implementa o protocolo de **Duplo Hash**:
+**4.2. Verificação de Integridade (Resumo Criptográfico Duplo):** Para permitir a verificação da integridade do material processado, a Legatus implementa o protocolo de **Duplo Hash**:
 
-*   **Hash do Arquivo Fonte:** No momento do upload do arquivo .ZIP, o sistema gera uma assinatura digital única (SHA-256) que identifica o conteúdo bruto original.
+*   **Hash do Arquivo Fonte:** No momento do upload do arquivo .ZIP, o sistema gera um resumo criptográfico único (SHA-256) que permite verificar se o conteúdo original sofreu alterações após o processamento.
     
 *   **Hash do Relatório Final:** Após o processamento e a inserção de eventuais ressalvas do usuário, um segundo código Hash é gerado para o arquivo PDF final.
     
@@ -119,7 +119,7 @@ Em estrito cumprimento aos princípios da necessidade e da minimização (Art. 6
     
     *   **Obrigação Legal:** Registros de acesso (IP, data e hora) pelo prazo de 6 meses, conforme o Art. 15 do Marco Civil da Internet, além de dados fiscais e de faturamento vinculados à plataforma **Asaas**.
         
-    *   **Segurança e Auditoria (Hashes):** Os registros de integridade (códigos **Hash SHA-256** do arquivo fonte e do relatório final). A conservação destes metadados fundamenta-se no exercício regular de direitos e na proteção da cadeia de custódia, servindo como prova de autenticidade em eventuais perícias. Estes códigos possuem natureza meramente matemática e são mantidos de forma isolada, sendo tecnicamente impossível a reconstituição do conteúdo original das mensagens a partir deles.
+    *   **Segurança e Auditoria (Hashes):** Os registros de integridade (códigos **Hash SHA-256** do arquivo fonte e do relatório final). A conservação destes metadados fundamenta-se no exercício regular de direitos e na verificação de integridade, servindo como evidência de não adulteração. Estes códigos possuem natureza meramente matemática e são mantidos de forma isolada, sendo tecnicamente impossível a reconstituição do conteúdo original das mensagens a partir deles.
         
 
 **4.4. Notificação de Incidentes:** Embora utilizemos padrões de segurança de excelência (como a infraestrutura AWS), a Legatus se compromete a comunicar ao Usuário e à Autoridade Nacional de Proteção de Dados (ANPD) a ocorrência de qualquer incidente de segurança que possa acarretar risco ou dano relevante aos seus dados pessoais.
@@ -197,9 +197,9 @@ A **Legatus Tecnologia e Portais de Conteúdo Ltda.** (“Legatus”), sociedade
 
 5.4. **Lucros Cessantes e Danos Indiretos:** Em nenhuma hipótese a Legatus será responsabilizada por danos indiretos, lucros cessantes, perda de chances de negócio ou danos morais decorrentes do uso da Plataforma, sendo eventual responsabilidade limitada ao valor efetivamente pago pelo Usuário no último processamento realizado.
 
-### 6\. INTEGRIDADE DA PROVA E CADEIA DE CUSTÓDIA (SISTEMA HASH)
+### 6\. INTEGRIDADE E VERIFICAÇÃO POR HASH
 
-6.1. **Protocolo de Autenticidade:** Para assegurar a integridade do processamento, a Plataforma gera automaticamente dois códigos identificadores únicos (**Hash SHA-256**):
+6.1. **Resumo Criptográfico:** Para permitir a verificação da integridade do processamento, a Plataforma gera automaticamente dois resumos criptográficos (**Hash SHA-256**):
 
 *   **Hash do Arquivo Fonte:** Identifica a integridade do arquivo .ZIP original submetido;
     
@@ -211,7 +211,7 @@ A **Legatus Tecnologia e Portais de Conteúdo Ltda.** (“Legatus”), sociedade
 *   **Ressalvas do Usuário:** O Usuário poderá, por sua conta e risco, inserir notas de observação ou ressalvas. Tais notas constarão de forma segregada no relatório, identificadas claramente como manifestações unilaterais do Usuário.
     
 
-6.3. **Guarda de Metadados:** O Usuário concorda que a Legatus armazenará os referidos códigos _Hash_ em seus registros de auditoria, mesmo após a exclusão do conteúdo das mensagens, para fins de conferência de autenticidade em eventuais perícias judiciais.
+6.3. **Guarda de Metadados:** O Usuário concorda que a Legatus armazenará os referidos códigos _Hash_ em seus registros de auditoria, mesmo após a exclusão do conteúdo das mensagens, para fins de verificação de integridade. O valor probatório do documento será apreciado pela autoridade competente em conjunto com os arquivos originais e as demais provas.
 
 ### 7\. PROPRIEDADE INTELECTUAL E RESTRIÇÕES
 

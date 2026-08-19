@@ -9,9 +9,9 @@ LegisVox é uma plataforma inovadora baseada em Inteligência Artificial projeta
 - **Upload Simples:** Aceita arquivos `.zip` exportados nativamente pelo WhatsApp (iOS e Android).
 - **Extração Inteligente (`whatsapp_parser`):** Lida com arquivos de texto (`_chat.txt`), limpando metadados nativos e identificando as partes envolvidas na conversa.
 - **Transcrição de Áudio (Whisper):** Extrai arquivos `.m4a` e `.ogg` do zip e realiza a transcrição paralela de alta velocidade utilizando o modelo Whisper-v3 através da API da Groq.
-- **Organização Contextual com IA (GPT-4o):**
+- **Organização Contextual com IA:**
   - **Versão Preparatória:** Um resumo claro e focado nos fatos e evidências da conversa, ideal para construção de argumento por advogados.
-  - **Versão Cartorária (Formal):** Um documento refinado com linguagem jurídica e técnica, pré-estruturado do modo  como a formalidade notarial exige.
+  - **Versão Formal (Técnica):** Um documento refinado com linguagem jurídica e técnica, estruturado para revisão e eventual utilização profissional.
 - **Geração de PDF:** Converte a edição final feita no sistema (via editor TipTap integrado na UI) diretamente para um formato PDF elegante utilizando o Gotenberg.
 - **Autenticação e Segurança:** Protegido pelo Supabase (PostgreSQL + Auth), garantindo rígido controle de acesso e sigilo das informações processadas.
 
@@ -31,7 +31,7 @@ LegisVox é uma plataforma inovadora baseada em Inteligência Artificial projeta
 
 **Inteligência Artificial & APIs Externas**
 - Groq API (Transcrição de Áudio hiperveloz via Whisper)
-- OpenAI API (GPT-4o para sumarização técnica e formatação jurídica)
+- OpenAI API (IA de última geração para sumarização técnica e formatação jurídica)
 - Gotenberg (Geração e renderização de PDF em container Docker)
 
 **Infraestrutura & Banco de Dados**

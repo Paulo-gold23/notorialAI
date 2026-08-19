@@ -311,9 +311,9 @@ export default function Profile() {
                                 </button>
                             </div>
 
-                            {/* Senha de Assinatura */}
+                            {/* PIN de Confirmação */}
                             <div className="pt-4 border-t border-[var(--border-color)]">
-                                <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-main)' }}>Senha de Assinatura</h3>
+                                <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-main)' }}>PIN de Confirmação</h3>
                                 <p className="text-sm mb-4" style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>
                                     Senha numérica de 4 dígitos exigida no momento da emissão ou alteração de documentos.
                                 </p>
@@ -328,7 +328,7 @@ export default function Profile() {
                                             fontSize: '0.8rem',
                                             lineHeight: 1.4,
                                         }}>
-                                            ⚠️ Sua senha de assinatura está bloqueada devido a excesso de tentativas incorretas.
+                                            ⚠️ Seu PIN de confirmação está bloqueado devido a excesso de tentativas incorretas.
                                         </div>
                                         <button
                                             onClick={() => setShowResetModal(true)}
@@ -348,8 +348,8 @@ export default function Profile() {
                                             <Lock size={16} className="text-gray-500 group-hover:text-gray-800 dark:text-gray-400 dark:group-hover:text-white transition-colors" />
                                             <span>
                                                 {profile?.senha_assinatura_hash 
-                                                    ? 'Alterar Senha de Assinatura' 
-                                                    : 'Cadastrar Senha de Assinatura'
+                                                    ? 'Alterar PIN de Confirmação' 
+                                                    : 'Cadastrar PIN de Confirmação'
                                                 }
                                             </span>
                                         </button>
@@ -434,7 +434,7 @@ export default function Profile() {
                             </h3>
                             
                             <p className="text-sm mb-6 flex-1" style={{ color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                Seus documentos e dados fiscais estão protegidos e ofuscados através de rigorosos padrões de criptografia Base64 em trânsito e at-rest no banco de dados Supabase.
+                                Seus documentos e dados fiscais estão protegidos por medidas técnicas e administrativas de segurança, compatíveis com a natureza das informações tratadas.
                             </p>
 
                             <div className="bg-black/5 dark:bg-white/5 rounded-lg p-4 border border-[var(--border-color)]">

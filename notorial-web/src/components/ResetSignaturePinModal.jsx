@@ -179,7 +179,7 @@ export default function ResetSignaturePinModal({ onClose, onSuccess }) {
             });
 
             setStep('done');
-            toast.success('Senha de assinatura redefinida com sucesso!');
+            toast.success('PIN de confirmação redefinido com sucesso!');
             setTimeout(() => {
                 onSuccess();
             }, 1200);
@@ -234,11 +234,11 @@ export default function ResetSignaturePinModal({ onClose, onSuccess }) {
                         }
                     </div>
                     <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-main)' }}>
-                        {step === 'done' ? 'Redefinição Concluída!' : 'Recuperar Senha de Assinatura'}
+                        {step === 'done' ? 'Redefinição Concluída!' : 'Recuperar PIN de Confirmação'}
                     </h3>
                     <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                         {step === 'done' 
-                            ? 'Sua nova senha de assinatura eletrônica já está ativa.'
+                            ? 'Seu novo PIN de confirmação e assinatura eletrônica já está ativo.'
                             : sendingEmail 
                                 ? 'Enviando código de segurança para o seu e-mail cadastrado...'
                                 : 'Digite o código de 6 dígitos enviado ao seu e-mail e configure sua nova senha de 4 dígitos.'
@@ -323,7 +323,7 @@ export default function ResetSignaturePinModal({ onClose, onSuccess }) {
                             {/* New PIN inputs */}
                             <div style={{ marginBottom: '1.25rem' }}>
                                 <label style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 500 }}>
-                                    Nova Senha de Assinatura (4 dígitos)
+                                    Novo PIN de Confirmação (4 dígitos)
                                 </label>
                                 <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
                                     {newPin.map((digit, idx) => (

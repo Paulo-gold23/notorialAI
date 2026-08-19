@@ -3,10 +3,10 @@ import { C, FONT_HEADING, FONT_BODY, Reveal } from './landingUtils';
 
 export default function StatsBar() {
   const stats = [
-    { value: '1.200+', label: 'Processos analisados' },
-    { value: '97%+', label: 'Precisão na transcrição' },
-    { value: '< 5min', label: 'Tempo médio por análise' },
-    { value: 'Groq + GPT-4o', label: 'Tecnologia de IA' },
+    { value: '1.200+', label: 'Relatórios processados' },
+    { value: 'Alta', label: 'Precisão na transcrição' },
+    { value: 'Minutos', label: 'Tempo médio por análise' },
+    { value: 'IA Avançada', label: 'Tecnologia de ponta' },
   ];
 
   return (
