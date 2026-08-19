@@ -161,7 +161,25 @@ export default function PrivacyPolicy() {
                     </p>
                 </PolicySection>
 
-                <PolicySection title="5. Atualizações e Lei Aplicável">
+                <PolicySection title="5. Cookies e Armazenamento Local">
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                        O LegisVox <strong>não utiliza cookies de rastreamento, publicidade ou analytics de terceiros</strong>.
+                        Utilizamos exclusivamente armazenamentos técnicos estritamente necessários para o funcionamento da plataforma:
+                    </p>
+                    <BulletList items={[
+                        <><strong>Sessão de autenticação (localStorage):</strong> Token JWT gerenciado pelo Supabase Auth, necessário para manter o usuário autenticado. Removido ao fazer logout.</>,
+                        <><strong>Preferência de tema (localStorage):</strong> Salva a escolha de tema visual (claro/escuro) do usuário. Dado puramente funcional, sem identificação pessoal.</>,
+                        <><strong>Flag de tutorial (localStorage):</strong> Indica se o tutorial inicial já foi visualizado. Não contém dados pessoais.</>,
+                        <><strong>CPF/CNPJ temporário (sessionStorage):</strong> Armazenado apenas durante a aba ativa para agilizar compras consecutivas. Eliminado automaticamente ao fechar a aba.</>,
+                    ]} />
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '0.5rem' }}>
+                        Por se tratarem de armazenamentos <strong>estritamente técnicos e necessários</strong> ao funcionamento do serviço, 
+                        dispensam consentimento prévio nos termos da LGPD e da Diretiva ePrivacy. Nenhum dado é compartilhado com terceiros 
+                        por meio desses mecanismos.
+                    </p>
+                </PolicySection>
+
+                <PolicySection title="6. Atualizações e Lei Aplicável">
                     <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
                         A Legatus reserva-se o direito de alterar esta Política periodicamente para refletir melhorias no serviço ou mudanças
                         legislativas, sempre indicando a data da última atualização no topo do documento.

@@ -115,8 +115,11 @@ export default function TermsOfUse() {
 
                 <TermsSection title="8. Eliminação de Dados e Política de Custódia Zero">
                     <BulletList items={[
-                        <><strong>8.1 Descarte Automático:</strong> Em cumprimento aos Artigos 15 e 16 da LGPD, a Legatus procederá à eliminação definitiva e irreversível de todos os arquivos brutos submetidos (.ZIP), arquivos de áudio, imagens e transcrições em até <strong>24 horas</strong> após o processamento.</>,
+                        <><strong>8.1 Descarte Automático:</strong> Em cumprimento aos Artigos 15 e 16 da LGPD, a Legatus procederá à eliminação definitiva e irreversível de todos os arquivos brutos submetidos (.ZIP), arquivos de áudio, imagens e transcrições em até <strong>24 horas</strong> após a <strong>conclusão do processamento</strong> (marcação de status como concluído ou erro no sistema).</>,
                         <><strong>8.2 Responsabilidade de Armazenamento:</strong> A Legatus não atua como serviço de custódia ou backup de documentos ou arquivos de mídia. Uma vez concluído o descarte automático, é tecnicamente impossível a recuperação das transcrições, áudios e imagens. O Usuário assume a responsabilidade integral por realizar o download e garantir a guarda segura do relatório e de todas as mídias associadas à conversa.</>,
+                        <><strong>8.3 Purge de Documentos Excluídos:</strong> Documentos excluídos pelo Usuário são mantidos em estado de exclusão lógica por até <strong>30 (trinta) dias corridos</strong>, período durante o qual não são acessíveis. Após esse prazo, são <strong>física e irreversivelmente removidos</strong> dos servidores, incluindo todo o conteúdo associado (transcrições, chat, metadados de conteúdo).</>,
+                        <><strong>8.4 Retenção de Registros de Auditoria:</strong> Os registros de auditoria (logs de acesso e operações) são mantidos por até <strong>6 (seis) meses</strong>, em conformidade com o Marco Civil da Internet (Art. 15, Lei 12.965/2014). Registros vinculados a incidentes de segurança poderão ser retidos por prazo superior, conforme exigência legal.</>,
+                        <><strong>8.5 Processamento Parcial:</strong> Em caso de falha no processamento após o débito de créditos, os créditos utilizados serão <strong>integralmente devolvidos</strong> ao saldo do Usuário de forma automática, sem necessidade de solicitação.</>,
                     ]} />
                 </TermsSection>
 
@@ -124,6 +127,7 @@ export default function TermsOfUse() {
                     <BulletList items={[
                         <><strong>9.1 Infração Contratual:</strong> A Legatus poderá rescindir o presente contrato e bloquear o acesso do Usuário, sem direito a reembolso de créditos, caso seja identificada qualquer violação a estes Termos, à legislação vigente ou uso abusivo da tecnologia.</>,
                         <><strong>9.2 Desistência:</strong> O Usuário poderá solicitar o cancelamento de sua conta a qualquer momento. Créditos avulsos já adquiridos não serão objeto de reembolso em caso de desistência após o uso parcial.</>,
+                        <><strong>9.3 Exclusão de Conta Self-Service:</strong> O Usuário pode excluir sua conta diretamente pela plataforma, mediante confirmação por PIN. A exclusão é <strong>irreversível</strong> e acarreta: (a) remoção permanente de todos os documentos, transcrições e relatórios; (b) eliminação de registros de consentimento; (c) perda definitiva de créditos remanescentes, sem direito a reembolso; (d) exclusão dos dados cadastrais e de acesso. Registros de auditoria serão mantidos pelo prazo legal (Art. 15, Marco Civil da Internet).</>,
                     ]} />
                 </TermsSection>
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabase';
-import { ArrowLeft, User, Mail, Briefcase, ShieldCheck, CreditCard, Lock, Sparkles, CheckCircle2, TrendingUp, Coins, ChevronRight, RefreshCw } from 'lucide-react';
+import { ArrowLeft, User, Mail, Briefcase, ShieldCheck, CreditCard, Lock, Sparkles, CheckCircle2, TrendingUp, Coins, ChevronRight, RefreshCw, Trash2 } from 'lucide-react';
 import { creditsApi } from '../services/creditsApi';
 import { apiRequest } from '../services/api';
 import { useToast } from '../components/ToastContext';
@@ -19,6 +19,9 @@ export default function Profile() {
     const [sendingReset, setSendingReset] = useState(false);
     const [showPinModal, setShowPinModal] = useState(false);
     const [showResetModal, setShowResetModal] = useState(false);
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [deletePin, setDeletePin] = useState('');
+    const [deletingAccount, setDeletingAccount] = useState(false);
     // True when user already has a signature PIN — drives isUpdate prop on modal
     const [hasSignaturePin, setHasSignaturePin] = useState(false);
     
@@ -385,6 +388,58 @@ export default function Profile() {
                                     </p>
                                 )}
                             </div>
+
+                            {/* Marketing Consent Toggle */}
+                            <div className="pt-4 border-t border-[var(--border-color)]">
+                                <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-main)' }}>Comunicações</h3>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                                        Receber novidades e funcionalidades por e-mail
+                                    </span>
+                                    <button
+                                        onClick={async () => {
+                                            try {
+                                                if (profile?.marketing_consent) {
+                                                    await apiRequest('/api/consent/revoke-marketing', { method: 'POST' });
+                                                    toast.success('Comunicações de marketing desativadas.');
+                                                } else {
+                                                    await apiRequest('/api/consent/accept', {
+                                                        method: 'POST',
+                                                        body: JSON.stringify({ consent_type: 'marketing' }),
+                                                    });
+                                                    toast.success('Comunicações de marketing ativadas.');
+                                                }
+                                                loadProfile();
+                                            } catch (err) {
+                                                toast.error(err.message || 'Erro ao atualizar preferência.');
+                                            }
+                                        }}
+                                        className="text-sm font-semibold px-3 py-1.5 rounded-lg border cursor-pointer transition-colors"
+                                        style={{
+                                            borderColor: profile?.marketing_consent ? 'var(--primary-color)' : 'var(--border-color)',
+                                            color: profile?.marketing_consent ? 'var(--primary-color)' : 'var(--text-dimmed)',
+                                            background: profile?.marketing_consent ? 'rgba(var(--primary-rgb, 59,130,246), 0.1)' : 'transparent',
+                                        }}
+                                    >
+                                        {profile?.marketing_consent ? 'Ativado ✓' : 'Desativado'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Account Deletion */}
+                            <div className="pt-4 border-t border-[var(--border-color)]">
+                                <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--danger, #ef4444)' }}>Zona de Perigo</h3>
+                                <p className="text-xs mb-3" style={{ color: 'var(--text-dimmed)', lineHeight: 1.5 }}>
+                                    A exclusão da conta é irreversível. Todos os dados, documentos e créditos serão permanentemente removidos.
+                                </p>
+                                <button
+                                    onClick={() => setShowDeleteModal(true)}
+                                    className="text-xs font-semibold flex items-center gap-2 px-4 py-2.5 rounded-lg border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
+                                >
+                                    <Trash2 size={14} />
+                                    Excluir Minha Conta
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -497,6 +552,95 @@ export default function Profile() {
                         loadProfile();
                     }}
                 />
+            )}
+
+            {showDeleteModal && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 9999,
+                    background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: '1rem',
+                }}>
+                    <div style={{
+                        background: 'var(--bg-card)', borderRadius: '1rem',
+                        padding: '2rem', maxWidth: '440px', width: '100%',
+                        boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+                    }}>
+                        <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--danger, #ef4444)', marginBottom: '0.75rem' }}>
+                            ⚠️ Excluir Conta Permanentemente
+                        </h2>
+                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: '1rem' }}>
+                            <p style={{ margin: '0 0 0.5rem' }}>Esta ação é <strong>irreversível</strong>. Serão removidos:</p>
+                            <ul style={{ margin: '0 0 0.75rem', paddingLeft: '1.25rem' }}>
+                                <li>Todos os documentos e relatórios</li>
+                                <li>Histórico de consentimentos</li>
+                                <li>Transações e saldo de créditos (sem reembolso)</li>
+                                <li>Dados cadastrais e de acesso</li>
+                            </ul>
+                            <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-dimmed)' }}>
+                                Registros de auditoria serão mantidos pelo prazo legal (6 meses — Marco Civil, Art. 15).
+                            </p>
+                        </div>
+
+                        <div style={{ marginBottom: '1rem' }}>
+                            <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '0.375rem', fontWeight: 500 }}>
+                                Confirme com seu PIN de 4 dígitos:
+                            </label>
+                            <input
+                                type="password"
+                                inputMode="numeric"
+                                maxLength={4}
+                                value={deletePin}
+                                onChange={(e) => setDeletePin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                placeholder="• • • •"
+                                className="input-field"
+                                style={{ textAlign: 'center', letterSpacing: '0.5rem', fontSize: '1.1rem' }}
+                            />
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                            <button
+                                disabled={deletePin.length !== 4 || deletingAccount}
+                                style={{
+                                    flex: 1, padding: '0.75rem', fontSize: '0.9rem', fontWeight: 600,
+                                    background: deletePin.length === 4 ? 'var(--danger, #ef4444)' : 'var(--border-color)',
+                                    color: '#fff', border: 'none', borderRadius: '0.5rem',
+                                    cursor: deletePin.length === 4 ? 'pointer' : 'not-allowed',
+                                    opacity: deletingAccount ? 0.6 : 1,
+                                }}
+                                onClick={async () => {
+                                    setDeletingAccount(true);
+                                    try {
+                                        const { getDeviceFingerprint } = await import('../services/fingerprint');
+                                        const fp = await getDeviceFingerprint();
+                                        await apiRequest('/api/consent/delete-account', {
+                                            method: 'POST',
+                                            body: JSON.stringify({ pin: deletePin, device_fingerprint: fp }),
+                                        });
+                                        toast.success('Conta excluída com sucesso.');
+                                        await supabase.auth.signOut();
+                                        window.location.href = '/';
+                                    } catch (err) {
+                                        toast.error(err.message || 'Erro ao excluir conta.');
+                                        setDeletingAccount(false);
+                                    }
+                                }}
+                            >
+                                {deletingAccount ? 'Excluindo...' : 'Excluir Minha Conta'}
+                            </button>
+                            <button
+                                style={{
+                                    padding: '0.75rem 1.25rem', fontSize: '0.85rem',
+                                    background: 'transparent', border: '1px solid var(--border-color)',
+                                    borderRadius: '0.5rem', color: 'var(--text-muted)', cursor: 'pointer',
+                                }}
+                                onClick={() => { setShowDeleteModal(false); setDeletePin(''); setDeletingAccount(false); }}
+                            >
+                                Cancelar
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             <LegalFooter style={{ marginTop: '3rem' }} />
