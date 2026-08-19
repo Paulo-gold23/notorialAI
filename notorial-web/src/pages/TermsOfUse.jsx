@@ -66,6 +66,8 @@ export default function TermsOfUse() {
                         <><strong>3.3 Modalidades de Contratação:</strong> O serviço é disponibilizado mediante créditos avulsos (saldo para processamentos pontuais).</>,
                         <><strong>3.4 Processamento via Asaas:</strong> Todas as transações financeiras são processadas pela <strong>Asaas Gestão Financeira Instituição de Pagamento S/A</strong>. A Legatus não armazena dados sensíveis de pagamento, e a liberação dos serviços está condicionada à confirmação de pagamento.</>,
                         <><strong>3.5 Inadimplemento e Suspensão:</strong> A ausência de saldo de créditos ensejará a suspensão imediata e automática das funcionalidades do LegisVox.</>,
+                        <><strong>3.6 Validade dos Créditos:</strong> Os créditos adquiridos possuem validade de <strong>180 (cento e oitenta) dias corridos</strong> a partir da data de confirmação do pagamento. Após esse prazo, os créditos não utilizados serão automaticamente expirados, sem direito a reembolso ou extensão de prazo.</>,
+                        <><strong>3.7 Resumo Pré-Compra:</strong> Antes da confirmação de qualquer aquisição, o sistema exibirá ao Usuário um resumo detalhado contendo: quantidade de créditos, valor unitário por página, valor total, CPF/CNPJ do pagador, prazo de validade e política de não reembolso após uso parcial.</>,
                     ]} />
                 </TermsSection>
 

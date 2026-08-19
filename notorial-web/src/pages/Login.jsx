@@ -19,6 +19,8 @@ export default function Login() {
     const [successMsg, setSuccessMsg] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [termsAccepted, setTermsAccepted] = useState(false);
+    const [marketingConsent, setMarketingConsent] = useState(false);
 
     const formatCpfCnpj = (value) => {
         const digits = value.replace(/\D/g, '').slice(0, 14);
@@ -74,6 +76,9 @@ export default function Login() {
         setSuccessMsg('');
         try {
             if (isRegister) {
+                if (!termsAccepted) {
+                    throw new Error('É necessário aceitar os Termos de Uso e a Política de Privacidade para criar sua conta.');
+                }
                 if (password !== confirmPassword) {
                     throw new Error('As senhas não coincidem. Por favor, verifique.');
                 }
@@ -119,6 +124,27 @@ export default function Login() {
                 } catch (auditErr) {
                     // Audit failure must never block the user
                     console.warn('Audit log (signup) failed:', auditErr);
+                }
+
+                // Register consent records for terms and privacy acceptance
+                try {
+                    const fp = await getDeviceFingerprint();
+                    await apiRequest('/api/consent/accept', {
+                        method: 'POST',
+                        body: JSON.stringify({ consent_type: 'terms', device_fingerprint: fp }),
+                    });
+                    await apiRequest('/api/consent/accept', {
+                        method: 'POST',
+                        body: JSON.stringify({ consent_type: 'privacy', device_fingerprint: fp }),
+                    });
+                    if (marketingConsent) {
+                        await apiRequest('/api/consent/accept', {
+                            method: 'POST',
+                            body: JSON.stringify({ consent_type: 'marketing', device_fingerprint: fp }),
+                        });
+                    }
+                } catch (consentErr) {
+                    console.warn('Consent record failed:', consentErr);
                 }
 
                 setIsRegister(false);
@@ -423,6 +449,42 @@ export default function Login() {
                                             <Shield size={11} /> As senhas não coincidem.
                                         </p>
                                     )}
+                                </div>
+                            )}
+
+                            {/* Terms acceptance checkboxes — register only */}
+                            {isRegister && (
+                                <div style={{ marginBottom: '1rem' }}>
+                                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer', marginBottom: '0.625rem' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={termsAccepted}
+                                            onChange={(e) => setTermsAccepted(e.target.checked)}
+                                            style={{ marginTop: '3px', accentColor: 'var(--primary-color)', flexShrink: 0 }}
+                                        />
+                                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                                            Li e aceito os{' '}
+                                            <a href="/terms" target="_blank" rel="noopener noreferrer"
+                                                style={{ color: 'var(--primary-color)', textDecoration: 'underline' }}>
+                                                Termos de Uso
+                                            </a>{' '}e a{' '}
+                                            <a href="/privacy" target="_blank" rel="noopener noreferrer"
+                                                style={{ color: 'var(--primary-color)', textDecoration: 'underline' }}>
+                                                Política de Privacidade
+                                            </a>. <span style={{ color: 'var(--danger)' }}>*</span>
+                                        </span>
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={marketingConsent}
+                                            onChange={(e) => setMarketingConsent(e.target.checked)}
+                                            style={{ marginTop: '3px', accentColor: 'var(--primary-color)', flexShrink: 0 }}
+                                        />
+                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-dimmed)', lineHeight: 1.5 }}>
+                                            Aceito receber comunicações sobre novidades e funcionalidades do LegisVox. (opcional)
+                                        </span>
+                                    </label>
                                 </div>
                             )}
 

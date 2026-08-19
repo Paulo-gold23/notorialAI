@@ -366,6 +366,25 @@ export default function Profile() {
                                     </div>
                                 )}
                             </div>
+
+                            {/* Termos Aceitos */}
+                            <div className="pt-4 border-t border-[var(--border-color)]">
+                                <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-main)' }}>Termos e Consentimento</h3>
+                                {profile?.terms_accepted_at ? (
+                                    <div className="text-sm" style={{ color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                                        <p style={{ margin: '0 0 0.25rem 0' }}>
+                                            ✅ Termos aceitos em: <strong>{new Date(profile.terms_accepted_at).toLocaleDateString('pt-BR')}</strong>
+                                        </p>
+                                        <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-dimmed)' }}>
+                                            Versão: {profile?.terms_version || 'N/A'}
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <p className="text-sm" style={{ color: 'var(--text-dimmed)', lineHeight: 1.5 }}>
+                                        Nenhum aceite de termos registrado.
+                                    </p>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>

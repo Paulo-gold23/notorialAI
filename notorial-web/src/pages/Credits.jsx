@@ -28,6 +28,7 @@ export default function Credits() {
   const [showCpfPrompt, setShowCpfPrompt] = useState(false);
   const [cpfForCheckout, setCpfForCheckout] = useState('');
   const [cpfError, setCpfError] = useState('');
+  const [purchaseConfirm, setPurchaseConfirm] = useState(null); // { credits, totalCents, pricePerPage, cpf }
   const toast = useToast();
 
   useEffect(() => {
@@ -125,9 +126,29 @@ export default function Credits() {
   };
 
   const handlePurchaseClick = (pkg, overrideCredits = null) => {
+    const credits = overrideCredits || pkg.credits;
+    const pricePerPage = pkg.price_per_page_cents || customPricePerPage;
+    const totalCents = credits * pricePerPage;
     const cachedCpf = sessionStorage.getItem('user_cpf_raw') || '';
-    if (cachedCpf && cachedCpf.length >= 11) {
-      handlePurchase(pkg, overrideCredits, cachedCpf);
+
+    // Show pre-purchase confirmation summary
+    setPurchaseConfirm({
+      pkg,
+      credits,
+      totalCents,
+      pricePerPage,
+      cpf: cachedCpf,
+      overrideCredits,
+    });
+  };
+
+  const handleConfirmPurchase = () => {
+    if (!purchaseConfirm) return;
+    const { pkg, overrideCredits, cpf } = purchaseConfirm;
+    setPurchaseConfirm(null);
+
+    if (cpf && cpf.length >= 11) {
+      handlePurchase(pkg, overrideCredits, cpf);
     } else {
       setCpfForCheckout('');
       setCpfError('');
@@ -438,6 +459,69 @@ export default function Credits() {
         </>
       )}
       <LegalFooter style={{ marginTop: '3rem' }} />
+
+      {/* ─── Pre-Purchase Confirmation Modal ─── */}
+      {purchaseConfirm && (
+        <div
+          className="modal-backdrop-responsive"
+          onClick={(e) => { if (e.target === e.currentTarget) setPurchaseConfirm(null); }}
+        >
+          <div
+            className="modal-card-responsive"
+            style={{ maxWidth: '420px', padding: '2rem' }}
+          >
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '1rem' }}>
+              📋 Resumo da Compra
+            </h3>
+
+            <div style={{
+              background: 'var(--surface-color)', borderRadius: '0.75rem',
+              padding: '1rem', marginBottom: '1rem', border: '1px solid var(--border-color)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Créditos (páginas)</span>
+                <strong style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>{purchaseConfirm.credits}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Valor por página</span>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>{formatBRL(purchaseConfirm.pricePerPage)}</span>
+              </div>
+              <div style={{ height: '1px', background: 'var(--border-color)', margin: '0.5rem 0' }} />
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)' }}>Total</span>
+                <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--primary-color)' }}>{formatBRL(purchaseConfirm.totalCents)}</span>
+              </div>
+            </div>
+
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-dimmed)', lineHeight: 1.6, marginBottom: '1.25rem' }}>
+              <p style={{ margin: '0 0 0.25rem' }}>⏳ <strong>Validade:</strong> 180 dias a partir da confirmação do pagamento.</p>
+              <p style={{ margin: '0 0 0.25rem' }}>💳 <strong>Pagamento:</strong> PIX instantâneo via Asaas.</p>
+              <p style={{ margin: 0 }}>📌 <strong>Reembolso:</strong> Créditos já utilizados não são passíveis de reembolso (cláusula 9.2).</p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button
+                className="btn-gradient"
+                style={{ flex: 1, padding: '0.75rem', fontSize: '0.9rem' }}
+                onClick={handleConfirmPurchase}
+                disabled={loading}
+              >
+                Confirmar Compra
+              </button>
+              <button
+                style={{
+                  padding: '0.75rem 1.25rem', fontSize: '0.85rem',
+                  background: 'transparent', border: '1px solid var(--border-color)',
+                  borderRadius: '0.5rem', color: 'var(--text-muted)', cursor: 'pointer',
+                }}
+                onClick={() => setPurchaseConfirm(null)}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCpfPrompt && (
         <div 

@@ -109,11 +109,12 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 # Import and include routers AFTER middleware
-from routers import atas, credits, webhooks, auth
+from routers import atas, credits, webhooks, auth, consent
 app.include_router(atas.router)
 app.include_router(credits.router)
 app.include_router(webhooks.router)
 app.include_router(auth.router)
+app.include_router(consent.router)
 
 @app.get("/")
 def read_root():
