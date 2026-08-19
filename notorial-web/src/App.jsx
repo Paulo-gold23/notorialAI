@@ -179,21 +179,41 @@ function App() {
                   📜 Atualização dos Termos de Uso
                 </h2>
                 <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: '1rem' }}>
-                  Atualizamos nossos Termos de Uso e Política de Privacidade. Para continuar utilizando o LegisVox, é necessário revisar e aceitar a nova versão.
+                  Atualizamos nossos Termos de Uso e Política de Privacidade. Para continuar utilizando o LegisVox, é necessário <strong>ler</strong> e aceitar a nova versão.
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem' }}>
                   <a href="/terms" target="_blank" rel="noopener noreferrer"
                     style={{ color: 'var(--primary-color)', fontSize: '0.85rem', textDecoration: 'underline' }}>
-                    📄 Ler Termos de Uso (v2.3)
+                    📄 Ler Termos de Uso (v2.3) ↗
                   </a>
                   <a href="/privacy" target="_blank" rel="noopener noreferrer"
                     style={{ color: 'var(--primary-color)', fontSize: '0.85rem', textDecoration: 'underline' }}>
-                    🔒 Ler Política de Privacidade (v2.3)
+                    🔒 Ler Política de Privacidade (v2.3) ↗
                   </a>
                 </div>
+
+                {/* Checkbox obrigatório — impede aceite sem leitura */}
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer', marginBottom: '1.25rem' }}>
+                  <input
+                    type="checkbox"
+                    id="reaccept-terms-checkbox"
+                    style={{ marginTop: '3px', accentColor: 'var(--primary-color)', flexShrink: 0 }}
+                    onChange={(e) => {
+                      const btn = document.getElementById('reaccept-terms-btn');
+                      if (btn) btn.disabled = !e.target.checked;
+                    }}
+                  />
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    Li e aceito os <strong>Termos de Uso</strong> e a <strong>Política de Privacidade</strong> na versão atual (v2.3).
+                    <span style={{ color: 'var(--danger)' }}> *</span>
+                  </span>
+                </label>
+
                 <div style={{ display: 'flex', gap: '0.75rem' }}>
                   <button
+                    id="reaccept-terms-btn"
                     className="btn-gradient"
+                    disabled
                     style={{ flex: 1, padding: '0.75rem', fontSize: '0.9rem' }}
                     onClick={async () => {
                       try {
