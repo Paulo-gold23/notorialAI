@@ -1,5 +1,5 @@
 import React, { useEffect, useState, lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { supabase } from './services/supabase';
 import { checkIsAdmin } from './services/adminApi';
 import { ToastProvider } from './components/ToastContext';
@@ -50,6 +50,107 @@ function initializeTheme() {
 }
 
 initializeTheme();
+
+function TermsReacceptanceGate({ session, needsTermsReaccept, needsCpf, onAccepted, onSignOut }) {
+  const location = useLocation();
+  const [accepted, setAccepted] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  // Não bloqueia rotas de leitura dos documentos públicos (/terms e /privacy)
+  const isPublicDocRoute = location.pathname === '/terms' || location.pathname === '/privacy';
+
+  if (!session || !needsTermsReaccept || needsCpf || isPublicDocRoute) {
+    return null;
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 9998,
+      background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: '1rem',
+    }}>
+      <div style={{
+        background: 'var(--bg-card)', borderRadius: '1rem',
+        padding: '2rem', maxWidth: '480px', width: '100%',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+        maxHeight: '90vh', overflowY: 'auto',
+      }}>
+        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.75rem' }}>
+          📜 Atualização dos Termos de Uso
+        </h2>
+        <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: '1rem' }}>
+          Atualizamos nossos Termos de Uso e Política de Privacidade. Para continuar utilizando o LegisVox, é necessário <strong>ler</strong> e aceitar a nova versão.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem' }}>
+          <a href="/terms" target="_blank" rel="noopener noreferrer"
+            style={{ color: 'var(--primary-color)', fontSize: '0.85rem', textDecoration: 'underline' }}>
+            📄 Ler Termos de Uso (v2.3) ↗
+          </a>
+          <a href="/privacy" target="_blank" rel="noopener noreferrer"
+            style={{ color: 'var(--primary-color)', fontSize: '0.85rem', textDecoration: 'underline' }}>
+            🔒 Ler Política de Privacidade (v2.3) ↗
+          </a>
+        </div>
+
+        {/* Checkbox obrigatório — impede aceite sem leitura */}
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer', marginBottom: '1.25rem' }}>
+          <input
+            type="checkbox"
+            checked={accepted}
+            onChange={(e) => setAccepted(e.target.checked)}
+            style={{ marginTop: '3px', accentColor: 'var(--primary-color)', flexShrink: 0 }}
+          />
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Li e aceito os <strong>Termos de Uso</strong> e a <strong>Política de Privacidade</strong> na versão atual (v2.3).
+            <span style={{ color: 'var(--danger)' }}> *</span>
+          </span>
+        </label>
+
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button
+            className="btn-gradient"
+            disabled={!accepted || loading}
+            style={{ flex: 1, padding: '0.75rem', fontSize: '0.9rem', opacity: (!accepted || loading) ? 0.5 : 1 }}
+            onClick={async () => {
+              setLoading(true);
+              try {
+                const { apiRequest } = await import('./services/api');
+                const { getDeviceFingerprint } = await import('./services/fingerprint');
+                const fp = await getDeviceFingerprint();
+                await apiRequest('/api/consent/accept', {
+                  method: 'POST',
+                  body: JSON.stringify({ consent_type: 'terms', device_fingerprint: fp }),
+                });
+                await apiRequest('/api/consent/accept', {
+                  method: 'POST',
+                  body: JSON.stringify({ consent_type: 'privacy', device_fingerprint: fp }),
+                });
+                onAccepted();
+              } catch (err) {
+                console.error('Failed to accept terms:', err);
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            {loading ? 'Gravando...' : 'Aceitar e Continuar'}
+          </button>
+          <button
+            style={{
+              flex: 0, padding: '0.75rem 1.25rem', fontSize: '0.85rem',
+              background: 'transparent', border: '1px solid var(--border-color)',
+              borderRadius: '0.5rem', color: 'var(--text-muted)', cursor: 'pointer',
+            }}
+            onClick={onSignOut}
+          >
+            Sair
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function App() {
   const [session, setSession] = useState(undefined);
@@ -162,94 +263,13 @@ function App() {
               onSignOut={handleSignOut}
             />
           )}
-          {session && needsTermsReaccept && !needsCpf && (
-            <div style={{
-              position: 'fixed', inset: 0, zIndex: 9998,
-              background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              padding: '1rem',
-            }}>
-              <div style={{
-                background: 'var(--bg-card)', borderRadius: '1rem',
-                padding: '2rem', maxWidth: '480px', width: '100%',
-                boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-                maxHeight: '90vh', overflowY: 'auto',
-              }}>
-                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.75rem' }}>
-                  📜 Atualização dos Termos de Uso
-                </h2>
-                <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: '1rem' }}>
-                  Atualizamos nossos Termos de Uso e Política de Privacidade. Para continuar utilizando o LegisVox, é necessário <strong>ler</strong> e aceitar a nova versão.
-                </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem' }}>
-                  <a href="/terms" target="_blank" rel="noopener noreferrer"
-                    style={{ color: 'var(--primary-color)', fontSize: '0.85rem', textDecoration: 'underline' }}>
-                    📄 Ler Termos de Uso (v2.3) ↗
-                  </a>
-                  <a href="/privacy" target="_blank" rel="noopener noreferrer"
-                    style={{ color: 'var(--primary-color)', fontSize: '0.85rem', textDecoration: 'underline' }}>
-                    🔒 Ler Política de Privacidade (v2.3) ↗
-                  </a>
-                </div>
-
-                {/* Checkbox obrigatório — impede aceite sem leitura */}
-                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer', marginBottom: '1.25rem' }}>
-                  <input
-                    type="checkbox"
-                    id="reaccept-terms-checkbox"
-                    style={{ marginTop: '3px', accentColor: 'var(--primary-color)', flexShrink: 0 }}
-                    onChange={(e) => {
-                      const btn = document.getElementById('reaccept-terms-btn');
-                      if (btn) btn.disabled = !e.target.checked;
-                    }}
-                  />
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                    Li e aceito os <strong>Termos de Uso</strong> e a <strong>Política de Privacidade</strong> na versão atual (v2.3).
-                    <span style={{ color: 'var(--danger)' }}> *</span>
-                  </span>
-                </label>
-
-                <div style={{ display: 'flex', gap: '0.75rem' }}>
-                  <button
-                    id="reaccept-terms-btn"
-                    className="btn-gradient"
-                    disabled
-                    style={{ flex: 1, padding: '0.75rem', fontSize: '0.9rem' }}
-                    onClick={async () => {
-                      try {
-                        const { apiRequest } = await import('./services/api');
-                        const { getDeviceFingerprint } = await import('./services/fingerprint');
-                        const fp = await getDeviceFingerprint();
-                        await apiRequest('/api/consent/accept', {
-                          method: 'POST',
-                          body: JSON.stringify({ consent_type: 'terms', device_fingerprint: fp }),
-                        });
-                        await apiRequest('/api/consent/accept', {
-                          method: 'POST',
-                          body: JSON.stringify({ consent_type: 'privacy', device_fingerprint: fp }),
-                        });
-                        setNeedsTermsReaccept(false);
-                      } catch (err) {
-                        console.error('Failed to accept terms:', err);
-                      }
-                    }}
-                  >
-                    Aceitar e Continuar
-                  </button>
-                  <button
-                    style={{
-                      flex: 0, padding: '0.75rem 1.25rem', fontSize: '0.85rem',
-                      background: 'transparent', border: '1px solid var(--border-color)',
-                      borderRadius: '0.5rem', color: 'var(--text-muted)', cursor: 'pointer',
-                    }}
-                    onClick={handleSignOut}
-                  >
-                    Sair
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+          <TermsReacceptanceGate 
+            session={session}
+            needsTermsReaccept={needsTermsReaccept}
+            needsCpf={needsCpf}
+            onAccepted={() => setNeedsTermsReaccept(false)}
+            onSignOut={handleSignOut}
+          />
           {/* PIN setup is prompted organically in Review.jsx when the user tries to sign.
               Do NOT block app entry here — only CPF is mandatory for onboarding. */}
           <Suspense fallback={

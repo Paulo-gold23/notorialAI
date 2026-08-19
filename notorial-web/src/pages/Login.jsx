@@ -95,7 +95,14 @@ export default function Login() {
                     email,
                     password,
                     options: {
-                        data: { nome, oab, cpf_cnpj: encodedCpfCnpj },
+                        data: { 
+                            nome, 
+                            oab, 
+                            cpf_cnpj: encodedCpfCnpj,
+                            terms_version: '2.3',
+                            terms_accepted_at: new Date().toISOString(),
+                            marketing_consent: Boolean(marketingConsent)
+                        },
                     },
                 });
 
