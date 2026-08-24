@@ -22,7 +22,7 @@ from typing import Optional
 from database import supabase_admin
 from middleware.auth import get_current_user_id
 from config import settings
-from services.limiter import limiter
+from services.limiter import limiter, get_real_client_ip
 from services.log_utils import mask_email
 
 logger = logging.getLogger(__name__)
@@ -273,16 +273,7 @@ def _hash_cpf(value: str) -> str:
 
 
 # ── Helper: Extract Real IP ─────────────────────────────────────────────────
-
-def _get_real_ip(request: Request) -> str:
-    """Extracts the real client IP from proxy headers or falls back to direct connection."""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return "unknown"
-
+# Uses get_real_client_ip from services.limiter (validates Cloudflare/Docker CIDRs)
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
@@ -356,7 +347,7 @@ def save_cpf(req: SaveCPFRequest, request: Request, user_id: str = Depends(get_c
         raise HTTPException(status_code=500, detail="Erro ao salvar CPF/CNPJ.")
 
     # 5. Audit log
-    real_ip = _get_real_ip(request)
+    real_ip = get_real_client_ip(request)
     user_agent = request.headers.get("user-agent", "unknown")
 
     try:
@@ -383,7 +374,7 @@ def log_audit(req: AuditLogRequest, request: Request, user_id: str = Depends(get
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    real_ip = _get_real_ip(request)
+    real_ip = get_real_client_ip(request)
     user_agent = request.headers.get("user-agent", "unknown")
 
     # Get user email for the log
@@ -459,7 +450,7 @@ def set_signature_pin(req: SignaturePinSetRequest, request: Request, user_id: st
             except Exception as e:
                 logger.error(f"Failed to update error count on PIN change (user {user_id}): {e}")
                 
-            real_ip = _get_real_ip(request)
+            real_ip = get_real_client_ip(request)
             user_agent = request.headers.get("user-agent", "unknown")
             acao = "tentativa_assinatura_bloqueada" if bloquear else "tentativa_assinatura_falha"
             try:
@@ -498,7 +489,7 @@ def set_signature_pin(req: SignaturePinSetRequest, request: Request, user_id: st
         logger.error(f"Failed to set signature PIN for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Erro ao salvar PIN de confirmação.")
         
-    real_ip = _get_real_ip(request)
+    real_ip = get_real_client_ip(request)
     user_agent = request.headers.get("user-agent", "unknown")
     
     try:
@@ -547,7 +538,7 @@ def verify_signature_pin(req: SignaturePinVerifyRequest, request: Request, user_
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
         
-    real_ip = _get_real_ip(request)
+    real_ip = get_real_client_ip(request)
     user_agent = request.headers.get("user-agent", "unknown")
     user_resp = supabase_admin.table("advogados") \
         .select("email", "senha_assinatura_hash", "senha_assinatura_erros", "senha_assinatura_bloqueado") \
@@ -633,7 +624,7 @@ def forgot_signature_pin(req: SignaturePinForgotRequest, request: Request, user_
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
         
-    real_ip = _get_real_ip(request)
+    real_ip = get_real_client_ip(request)
     user_agent = request.headers.get("user-agent", "unknown")
     token = "".join(secrets.choice(string.digits) for _ in range(6))
     hashed_token = _hash_token(token)
@@ -688,7 +679,7 @@ def reset_signature_pin(req: SignaturePinResetRequest, request: Request, user_id
     if not req.new_pin.isdigit():
         raise HTTPException(status_code=422, detail="O PIN de confirmação deve conter apenas números.")
         
-    real_ip = _get_real_ip(request)
+    real_ip = get_real_client_ip(request)
     user_agent = request.headers.get("user-agent", "unknown")
     user_resp = supabase_admin.table("advogados") \
         .select("email", "senha_assinatura_token_hash", "senha_assinatura_token_exp") \

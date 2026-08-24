@@ -1,8 +1,13 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Variáveis de ambiente no Vite usam o prefixo VITE_ 
-// Precisaremos adicioná-las no .env local do frontend depois.
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://sua-url.supabase.co'
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_KEY || 'sua-anon-key'
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error(
+    '[LegisVox] VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY são obrigatórias. ' +
+    'Verifique o arquivo .env na raiz do projeto.'
+  )
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)

@@ -26,6 +26,9 @@ class Settings:
 
 settings = Settings()
 
-# Optional: Validate critical configs on startup
+# Validate critical configs on startup — fail immediately instead of corrupted runtime
 if not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
-    print("Warning: Missing SUPABASE environment variables. Ensure they are set in .env")
+    raise ValueError(
+        "FATAL: SUPABASE_URL e SUPABASE_KEY são obrigatórias. "
+        "Configure o arquivo .env antes de iniciar a aplicação."
+    )

@@ -11,7 +11,24 @@ if (sentryDsn) {
     integrations: [
       new Sentry.BrowserTracing(),
     ],
-    tracesSampleRate: 1.0,
+    tracesSampleRate: 0.1,
+    beforeSend(event) {
+      // Scrub PII from request headers
+      if (event.request?.headers) {
+        delete event.request.headers['Authorization'];
+        delete event.request.headers['Cookie'];
+      }
+      // Scrub PII from breadcrumbs (URLs with tokens, emails)
+      if (event.breadcrumbs) {
+        event.breadcrumbs = event.breadcrumbs.map(bc => {
+          if (bc.data?.url) {
+            bc.data.url = bc.data.url.replace(/token=[^&]+/gi, 'token=[REDACTED]');
+          }
+          return bc;
+        });
+      }
+      return event;
+    },
   });
 }
 

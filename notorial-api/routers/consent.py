@@ -6,6 +6,7 @@ from typing import Optional
 
 from database import supabase_admin
 from middleware.auth import get_current_user_id
+from services.limiter import get_real_client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ def accept_consent(
         raise HTTPException(status_code=422, detail=f"Tipo de consentimento inválido: {body.consent_type}")
     
     version = body.terms_version or CURRENT_TERMS_VERSION
-    ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
+    ip = get_real_client_ip(request)
     ua = request.headers.get("user-agent", "unknown")
     
     try:
@@ -168,7 +169,7 @@ def revoke_marketing(request: Request, user_id: str = Depends(get_current_user_i
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
     
-    ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
+    ip = get_real_client_ip(request)
     ua = request.headers.get("user-agent", "unknown")
     
     try:
@@ -220,7 +221,7 @@ def delete_account(
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
     
-    ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
+    ip = get_real_client_ip(request)
     ua = request.headers.get("user-agent", "unknown")
     
     try:
