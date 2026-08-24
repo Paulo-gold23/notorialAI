@@ -203,7 +203,7 @@ export default function Profile() {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
                 <div className="flex items-center gap-4">
                     <button 
-                        onClick={() => navigate('/')}
+                        onClick={() => navigate('/dashboard')}
                         className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
                         title="Voltar ao Dashboard"
                     >
