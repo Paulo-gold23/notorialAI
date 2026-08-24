@@ -251,11 +251,29 @@ def _classify_message(conteudo: str, audio_exact_paths: set[str], audio_by_basen
     return 'texto', None
 
 
+MAX_CHAT_TXT_BYTES = 100 * 1024 * 1024  # 100 MB max uncompressed chat text
+
 def _read_chat_content(z: zipfile.ZipFile, chat_filenames: list[str]) -> str:
-    """L├â┬¬ e concatena o conte├â┬║do dos arquivos de chat com detec├â┬º├â┬úo de encoding."""
+    """Lê e concatena o conteúdo dos arquivos de chat com detecção de encoding.
+    Usa leitura em streaming com limite de bytes para prevenir zip bombs."""
     parts = []
     for chat_filename in chat_filenames:
-        raw_bytes = z.read(chat_filename)
+        chunks = []
+        total_read = 0
+        with z.open(chat_filename) as f:
+            while True:
+                chunk = f.read(65536)  # 64 KB per read
+                if not chunk:
+                    break
+                total_read += len(chunk)
+                if total_read > MAX_CHAT_TXT_BYTES:
+                    raise ValueError(
+                        f"Arquivo de chat '{chat_filename}' excede o limite de "
+                        f"{MAX_CHAT_TXT_BYTES // (1024 * 1024)}MB descomprimido. "
+                        f"Possível arquivo corrompido ou malicioso."
+                    )
+                chunks.append(chunk)
+        raw_bytes = b"".join(chunks)
         content = None
         for encoding in ('utf-8', 'utf-8-sig', 'latin-1', 'cp1252'):
             try:

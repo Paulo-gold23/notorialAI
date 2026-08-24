@@ -9,6 +9,7 @@ import nh3
 from config import settings
 
 import ipaddress
+import socket
 from urllib.parse import urlparse
 
 ALLOWED_TAGS = {
@@ -33,7 +34,8 @@ _BLOCKED_SSRF_HOSTS = {
 }
 
 def _is_safe_ssrf_url(url: str) -> bool:
-    """Validates that a URL does not target internal services, loopbacks, or cloud metadata."""
+    """Validates that a URL does not target internal services, loopbacks, or cloud metadata.
+    Resolves DNS to prevent rebinding attacks (e.g. 169.254.169.254.nip.io)."""
     if not url:
         return False
     if url.startswith("data:image/"):
@@ -49,12 +51,21 @@ def _is_safe_ssrf_url(url: str) -> bool:
             return False
         if hostname.endswith(".local") or hostname.endswith(".internal") or hostname.endswith(".localhost"):
             return False
+        # Check if hostname is a literal IP
         try:
             ip = ipaddress.ip_address(hostname)
             if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
                 return False
         except ValueError:
-            pass  # Normal domain name
+            pass  # Normal domain name — resolve via DNS below
+        # DNS resolution check: resolve domain and verify resolved IP is not internal
+        try:
+            resolved_ip = socket.gethostbyname(hostname)
+            ip_obj = ipaddress.ip_address(resolved_ip)
+            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved:
+                return False
+        except (socket.gaierror, socket.timeout, OSError):
+            return False  # DNS resolution failed — block by default
         return True
     except Exception:
         return False

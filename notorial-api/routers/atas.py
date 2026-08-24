@@ -27,6 +27,14 @@ logger = logging.getLogger(__name__)
 # ── Security constants ──
 MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500 MB max upload
 
+import re as _re
+
+def _sanitize_filename(raw: str) -> str:
+    """Sanitize user-provided filename to prevent XSS and path traversal in document titles."""
+    base = os.path.basename(raw or "arquivo")
+    clean = _re.sub(r'[<>"\'/\\&;`${}]', '', base)
+    return (clean.strip()[:100]) or "arquivo"
+
 class AtaContentUpdate(BaseModel):
     tipo: str
     conteudo: str
@@ -196,9 +204,9 @@ async def upload_whatsapp_zip(
         try:
             response = supabase.table('atas').insert({
                 'advogado_id': advogado_id,
-                'titulo': f"Conversa - {file.filename}",
+                'titulo': f"Conversa - {_sanitize_filename(file.filename)}",
                 'status': 'uploading',
-                'zip_filename': file.filename,
+                'zip_filename': _sanitize_filename(file.filename),
                 'zip_hash': zip_hash
             }).execute()
             if not response.data:
@@ -327,9 +335,9 @@ async def estimate_upload(
             supabase.table('atas').insert({
                 'id': ata_id,
                 'advogado_id': advogado_id,
-                'titulo': f"Estimativa - {file.filename}",
+                'titulo': f"Estimativa - {_sanitize_filename(file.filename)}",
                 'status': 'estimating',
-                'zip_filename': file.filename,
+                'zip_filename': _sanitize_filename(file.filename),
                 'estimated_pages': estimated_pages,
                 'status_message': json.dumps({
                     'temp_path': temp_path,
@@ -345,7 +353,7 @@ async def estimate_upload(
                 'temp_path': temp_path, 'start_date': start_date, 'end_date': end_date,
                 'advogado_id': advogado_id,
                 'estimated_pages': estimated_pages, 'confirmed': False,
-                'timestamp': time.time(), 'zip_filename': file.filename
+                'timestamp': time.time(), 'zip_filename': _sanitize_filename(file.filename)
             }
     else:
         # Bypass / no Supabase: use local cache
@@ -353,7 +361,7 @@ async def estimate_upload(
             'temp_path': temp_path, 'start_date': start_date, 'end_date': end_date,
             'advogado_id': advogado_id,
             'estimated_pages': estimated_pages, 'confirmed': False,
-            'timestamp': time.time(), 'zip_filename': file.filename
+            'timestamp': time.time(), 'zip_filename': _sanitize_filename(file.filename)
         }
 
     logger.info(f"[ESTIMATE] {ata_id}: {estimated_pages} páginas estimadas, saldo={balance}, suficiente={has_credits}")
@@ -551,6 +559,8 @@ async def get_ata_status(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_c
         # Fallback: sem Supabase (modo local).
         cached = local_results.get(ata_id)
         if cached:
+            if cached.get("user_id") and cached.get("user_id") != auth_ctx.advogado_id:
+                raise HTTPException(status_code=403, detail="Acesso negado")
             return {
                 "status": cached.get('status', 'ready'),
                 "progress": cached.get('progress', 0),
@@ -580,6 +590,8 @@ async def get_ata_preview(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_
 
     # Modo local (sem Supabase): usa local_results.
     cached = local_results.get(ata_id, {})
+    if cached.get("user_id") and cached.get("user_id") != auth_ctx.advogado_id:
+        raise HTTPException(status_code=403, detail="Acesso negado")
     parsed = cached.get('parsed_data', {})
     return {
         "ata": {
@@ -725,7 +737,10 @@ async def update_ata_title(
     supabase = auth_ctx.client
     if not supabase or ata_id in local_results:
         if ata_id in local_results:
-            local_results[ata_id]["titulo"] = update_data.titulo
+            cached = local_results[ata_id]
+            if cached.get("user_id") and cached.get("user_id") != auth_ctx.advogado_id:
+                raise HTTPException(status_code=403, detail="Acesso negado")
+            cached["titulo"] = update_data.titulo
         return {"status": "success", "message": "Mocked update"}
 
     # Update only the title in the atas table
