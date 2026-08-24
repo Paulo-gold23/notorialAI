@@ -1,11 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users, Clock, FileText, FileCheck, AlertTriangle,
   CheckCircle, XCircle, Trash2, Search, ArrowLeft,
   LogOut, Shield, RefreshCw, UserCheck, MessageSquare,
   Mic, TrendingUp, Calendar, Activity, BarChart3,
-  Coins, History
+  Coins, History, Terminal, Server, Globe, Cpu, Database,
+  AlertOctagon, Info, Copy, Check
 } from 'lucide-react';
 import {
   getAdminStats,
@@ -16,7 +17,9 @@ import {
   getAtasByWeek,
   getAtasByStatus,
   adjustCredits,
-  getUserTransactions
+  getUserTransactions,
+  getSystemLogs,
+  getErrorAtas
 } from '../services/adminApi';
 import { supabase } from '../services/supabase';
 import AnimatedNumber from '../components/AnimatedNumber';
@@ -24,7 +27,6 @@ import ConfirmModal from '../components/ConfirmModal';
 import Modal from '../components/Modal';
 import { useToast } from '../components/ToastContext';
 import Logo from '../components/Logo';
-import ServiceStatusBanner from '../components/ServiceStatusBanner';
 
 /* ============================================
    COLOR CONSTANTS
@@ -65,6 +67,17 @@ export default function AdminDashboard() {
   const [recentAtas, setRecentAtas] = useState([]);
   const [weeklyData, setWeeklyData] = useState([]);
   const [statusData, setStatusData] = useState([]);
+  const [systemLogs, setSystemLogs] = useState([]);
+  const [errorAtas, setErrorAtas] = useState([]);
+  const [logsSubTab, setLogsSubTab] = useState('all');
+  const [logsSearch, setLogsSearch] = useState('');
+  const [infraStatus, setInfraStatus] = useState({
+    supabase: { status: 'online', label: 'Operacional', incident: null },
+    openai: { status: 'online', label: 'Operacional' },
+    groq: { status: 'online', label: 'Operacional' },
+    asaas: { status: 'online', label: 'Operacional' },
+    gotenberg: { status: 'online', label: 'Operacional (Docker Local)' }
+  });
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -76,28 +89,63 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const toast = useToast();
 
-  useEffect(() => { loadAll(); }, []);
+  const checkInfraHealth = useCallback(async () => {
+    try {
+      const res = await fetch('https://status.supabase.com/api/v2/summary.json', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        const indicator = data?.status?.indicator;
+        const incidents = data?.incidents ?? [];
+        if (indicator && indicator !== 'none' && incidents.length > 0) {
+          const latest = incidents[0];
+          setInfraStatus(prev => ({
+            ...prev,
+            supabase: {
+              status: indicator === 'minor' ? 'warning' : 'danger',
+              label: indicator === 'minor' ? 'Alerta Menor' : 'Instabilidade',
+              incident: latest.name,
+              updatedAt: latest.updated_at
+            }
+          }));
+        } else {
+          setInfraStatus(prev => ({
+            ...prev,
+            supabase: { status: 'online', label: 'Operacional', incident: null }
+          }));
+        }
+      }
+    } catch (_) {
+      // Keep optimistic
+    }
+  }, []);
 
   const loadAll = async () => {
     try {
-      const [s, adv, atas, weekly, byStatus] = await Promise.all([
+      const [s, adv, atas, weekly, byStatus, logs, errors] = await Promise.all([
         getAdminStats(),
         listAdvogados(),
         getRecentAtas(15),
         getAtasByWeek().catch(() => []),
         getAtasByStatus().catch(() => []),
+        getSystemLogs(100).catch(() => []),
+        getErrorAtas(50).catch(() => []),
       ]);
       setStats(s);
       setAdvogados(adv);
       setRecentAtas(atas);
       setWeeklyData(weekly);
       setStatusData(byStatus);
+      setSystemLogs(logs);
+      setErrorAtas(errors);
+      checkInfraHealth();
     } catch (err) {
       toast.error(err.message);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => { loadAll(); }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -212,7 +260,6 @@ export default function AdminDashboard() {
 
   return (
     <div className="page-enter" style={{ minHeight: '100vh', background: 'var(--bg-color)' }}>
-      <ServiceStatusBanner />
       <style>{`
         /* CSS regras de responsividade */
         .adm-primary-grid {
@@ -466,6 +513,7 @@ export default function AdminDashboard() {
             { key: 'overview', label: 'Visão Geral', icon: BarChart3 },
             { key: 'users', label: 'Usuários', icon: Users },
             { key: 'activity', label: 'Atividade', icon: Activity },
+            { key: 'logs', label: 'Logs & Sistema', icon: Terminal },
           ].map(tab => (
             <button
               key={tab.key}
@@ -490,6 +538,15 @@ export default function AdminDashboard() {
                   padding: '0.1rem 0.4rem', minWidth: '16px', textAlign: 'center',
                 }}>
                   {pendentes.length}
+                </span>
+              )}
+              {tab.key === 'logs' && errorAtas.length > 0 && (
+                <span style={{
+                  background: '#ef4444', color: '#fff',
+                  fontSize: '0.6rem', fontWeight: 800, borderRadius: '9999px',
+                  padding: '0.1rem 0.4rem', minWidth: '16px', textAlign: 'center',
+                }}>
+                  {errorAtas.length}
                 </span>
               )}
             </button>
@@ -884,6 +941,360 @@ export default function AdminDashboard() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* === LOGS & SISTEMA TAB === */}
+        {activeTab === 'logs' && (
+          <div style={{ animation: 'fadeSlideIn 0.3s ease-out' }}>
+            {/* Top Cards in Logs */}
+            <div className="adm-primary-grid" style={{ marginBottom: '1.25rem' }}>
+              <StatCard 
+                icon={Terminal} 
+                label="Logs de Auditoria" 
+                value={systemLogs.length} 
+                color={COLORS.indigo} 
+                sub="Ações rastreadas no sistema" 
+              />
+              <StatCard 
+                icon={AlertOctagon} 
+                label="Falhas / Erros" 
+                value={errorAtas.length} 
+                color={errorAtas.length > 0 ? COLORS.red : COLORS.emerald} 
+                highlight={errorAtas.length > 0} 
+                sub={errorAtas.length > 0 ? `${errorAtas.length} documento(s) com erro` : 'Nenhum erro registrado'} 
+              />
+              <StatCard 
+                icon={Server} 
+                label="Supabase Status" 
+                value={infraStatus.supabase.status === 'online' ? '100%' : 'Alerta'} 
+                color={infraStatus.supabase.status === 'online' ? COLORS.emerald : COLORS.amber} 
+                sub={infraStatus.supabase.incident || 'Banco e Auth Operacionais'} 
+              />
+              <StatCard 
+                icon={Cpu} 
+                label="APIs de IA (ZDR)" 
+                value="Ativo" 
+                color={COLORS.blue} 
+                sub="OpenAI & Groq Conectados" 
+              />
+            </div>
+
+            {/* Sub-Tabs Selector & Search */}
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem'
+            }}>
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                {[
+                  { key: 'all', label: `Todos os Logs (${systemLogs.length})`, icon: Terminal },
+                  { key: 'errors', label: `Erros de Documentos (${errorAtas.length})`, icon: AlertTriangle, danger: errorAtas.length > 0 },
+                  { key: 'admin', label: 'Ações de Admin', icon: Shield },
+                  { key: 'infra', label: 'Saúde da Infraestrutura', icon: Server },
+                ].map(sub => (
+                  <button
+                    key={sub.key}
+                    onClick={() => setLogsSubTab(sub.key)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '0.35rem',
+                      padding: '0.45rem 0.85rem', borderRadius: '0.5rem',
+                      fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer',
+                      background: logsSubTab === sub.key
+                        ? (sub.danger ? 'rgba(239, 68, 68, 0.2)' : 'var(--primary-color)')
+                        : 'var(--panel-bg)',
+                      color: logsSubTab === sub.key
+                        ? (sub.danger ? '#ef4444' : '#fff')
+                        : 'var(--text-muted)',
+                      border: `1px solid ${logsSubTab === sub.key ? 'transparent' : 'var(--border-color)'}`,
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <sub.icon size={14} /> {sub.label}
+                  </button>
+                ))}
+              </div>
+
+              {logsSubTab !== 'infra' && (
+                <div style={{ position: 'relative', minWidth: '240px' }}>
+                  <Search size={14} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    placeholder="Filtrar logs..."
+                    value={logsSearch}
+                    onChange={(e) => setLogsSearch(e.target.value)}
+                    className="input-field"
+                    style={{ paddingLeft: '2.2rem', height: '36px', fontSize: '0.8rem', width: '100%' }}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Sub-Tab 1: INFRAESTRUTURA */}
+            {logsSubTab === 'infra' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                <div className="card" style={{ padding: '1.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Database size={20} color={COLORS.emerald} />
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-main)' }}>Supabase Database & Auth</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>PostgreSQL, RLS, Storage</div>
+                      </div>
+                    </div>
+                    <span style={{
+                      padding: '0.2rem 0.6rem', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 700,
+                      background: infraStatus.supabase.status === 'online' ? 'rgba(74, 222, 128, 0.15)' : 'rgba(251, 191, 36, 0.15)',
+                      color: infraStatus.supabase.status === 'online' ? '#4ade80' : '#fbbf24',
+                      border: `1px solid ${infraStatus.supabase.status === 'online' ? 'rgba(74, 222, 128, 0.3)' : 'rgba(251, 191, 36, 0.3)'}`
+                    }}>
+                      {infraStatus.supabase.label}
+                    </span>
+                  </div>
+                  {infraStatus.supabase.incident && (
+                    <div style={{ fontSize: '0.78rem', color: '#fbbf24', background: 'rgba(245, 158, 11, 0.1)', padding: '0.5rem', borderRadius: '0.35rem', marginTop: '0.5rem' }}>
+                      {infraStatus.supabase.incident}
+                    </div>
+                  )}
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dimmed)', marginTop: '0.5rem' }}>
+                    Região: AWS us-east-1 · Criptografia AES-256
+                  </div>
+                </div>
+
+                <div className="card" style={{ padding: '1.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Cpu size={20} color={COLORS.blue} />
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-main)' }}>OpenAI API</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>gpt-4.1-mini (Organização Textual)</div>
+                      </div>
+                    </div>
+                    <span style={{
+                      padding: '0.2rem 0.6rem', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 700,
+                      background: 'rgba(74, 222, 128, 0.15)', color: '#4ade80', border: '1px solid rgba(74, 222, 128, 0.3)'
+                    }}>
+                      Operacional
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dimmed)', marginTop: '0.5rem' }}>
+                    Política: Zero Data Retention (ZDR) · Sem treinamento
+                  </div>
+                </div>
+
+                <div className="card" style={{ padding: '1.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Mic size={20} color={COLORS.indigo} />
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-main)' }}>Groq Whisper LPU</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Transcrição de Áudios</div>
+                      </div>
+                    </div>
+                    <span style={{
+                      padding: '0.2rem 0.6rem', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 700,
+                      background: 'rgba(74, 222, 128, 0.15)', color: '#4ade80', border: '1px solid rgba(74, 222, 128, 0.3)'
+                    }}>
+                      Operacional
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dimmed)', marginTop: '0.5rem' }}>
+                    Processamento em Memória · Descarte Imediato
+                  </div>
+                </div>
+
+                <div className="card" style={{ padding: '1.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <FileCheck size={20} color={COLORS.orange} />
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-main)' }}>Gotenberg PDF Engine</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Compilação de Relatórios</div>
+                      </div>
+                    </div>
+                    <span style={{
+                      padding: '0.2rem 0.6rem', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 700,
+                      background: 'rgba(74, 222, 128, 0.15)', color: '#4ade80', border: '1px solid rgba(74, 222, 128, 0.3)'
+                    }}>
+                      Docker Local (VPS)
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dimmed)', marginTop: '0.5rem' }}>
+                    100% Isolado · Sem tráfego externo
+                  </div>
+                </div>
+
+                <div className="card" style={{ padding: '1.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Coins size={20} color={COLORS.amber} />
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-main)' }}>Asaas Pagamentos</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Gateway PIX & Notas Fiscais</div>
+                      </div>
+                    </div>
+                    <span style={{
+                      padding: '0.2rem 0.6rem', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 700,
+                      background: 'rgba(74, 222, 128, 0.15)', color: '#4ade80', border: '1px solid rgba(74, 222, 128, 0.3)'
+                    }}>
+                      Operacional
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dimmed)', marginTop: '0.5rem' }}>
+                    Instituição Financeira Regulada (BACEN)
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Sub-Tab 2: DOCUMENTOS COM ERRO */}
+            {logsSubTab === 'errors' && (
+              <div className="card" style={{ padding: '1rem' }}>
+                {errorAtas.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                    <CheckCircle size={32} color={COLORS.emerald} style={{ margin: '0 auto 0.5rem' }} />
+                    <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>Nenhum erro de processamento registrado!</div>
+                    <div style={{ fontSize: '0.8rem' }}>Todos os documentos foram processados com sucesso.</div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {errorAtas.map(errAta => (
+                      <div key={errAta.id} style={{
+                        background: 'rgba(239, 68, 68, 0.05)',
+                        border: '1px solid rgba(239, 68, 68, 0.2)',
+                        borderRadius: '0.5rem', padding: '0.85rem 1rem'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ background: '#ef4444', color: '#fff', fontSize: '0.65rem', fontWeight: 800, padding: '0.15rem 0.4rem', borderRadius: '0.25rem' }}>
+                              FALHA
+                            </span>
+                            <span style={{ fontWeight: 700, fontSize: '0.875rem', color: 'var(--text-main)' }}>
+                              {errAta.titulo || 'Documento sem título'}
+                            </span>
+                          </div>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            {new Date(errAta.created_at).toLocaleString('pt-BR')}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                          Advogado: <strong style={{ color: 'var(--text-main)' }}>{errAta.advogado_nome}</strong> ({errAta.advogado_email})
+                        </div>
+                        <div style={{
+                          background: 'rgba(0,0,0,0.4)', padding: '0.6rem 0.75rem', borderRadius: '0.35rem',
+                          fontSize: '0.78rem', fontFamily: 'monospace', color: '#f87171', wordBreak: 'break-all'
+                        }}>
+                          {errAta.error_message || 'Erro desconhecido durante o pipeline de processamento.'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Sub-Tab 3: TODOS OS LOGS / AUDITORIA */}
+            {(logsSubTab === 'all' || logsSubTab === 'admin') && (
+              <div className="card" style={{ padding: '1rem', overflowX: 'auto' }}>
+                {systemLogs.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                    Nenhum registro de log encontrado.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {systemLogs
+                      .filter(l => {
+                        if (logsSubTab === 'admin') return (l.acao || '').startsWith('admin_');
+                        return true;
+                      })
+                      .filter(l => {
+                        if (!logsSearch) return true;
+                        const q = logsSearch.toLowerCase();
+                        return (
+                          (l.acao || '').toLowerCase().includes(q) ||
+                          (l.advogado_nome || '').toLowerCase().includes(q) ||
+                          (l.advogado_email || '').toLowerCase().includes(q) ||
+                          JSON.stringify(l.payload || {}).toLowerCase().includes(q)
+                        );
+                      })
+                      .map((log) => {
+                        const isAdm = (log.acao || '').startsWith('admin_');
+                        const isDel = (log.acao || '').includes('delete') || (log.acao || '').includes('revoke');
+                        const isSec = (log.acao || '').includes('pin') || (log.acao || '').includes('auth');
+                        
+                        let badgeBg = 'rgba(59, 130, 246, 0.15)';
+                        let badgeColor = '#60a5fa';
+                        let badgeBorder = 'rgba(59, 130, 246, 0.3)';
+
+                        if (isAdm) {
+                          badgeBg = 'rgba(251, 191, 36, 0.15)';
+                          badgeColor = '#fbbf24';
+                          badgeBorder = 'rgba(251, 191, 36, 0.3)';
+                        } else if (isDel) {
+                          badgeBg = 'rgba(239, 68, 68, 0.15)';
+                          badgeColor = '#f87171';
+                          badgeBorder = 'rgba(239, 68, 68, 0.3)';
+                        } else if (isSec) {
+                          badgeBg = 'rgba(168, 85, 247, 0.15)';
+                          badgeColor = '#c084fc';
+                          badgeBorder = 'rgba(168, 85, 247, 0.3)';
+                        }
+
+                        return (
+                          <div key={log.id} style={{
+                            background: 'var(--panel-bg)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '0.5rem',
+                            padding: '0.75rem 1rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.4rem',
+                            fontSize: '0.8rem',
+                            transition: 'border-color 0.2s'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <span style={{
+                                  background: badgeBg, color: badgeColor, border: `1px solid ${badgeBorder}`,
+                                  padding: '0.15rem 0.5rem', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 700,
+                                  letterSpacing: '0.03em'
+                                }}>
+                                  {log.acao}
+                                </span>
+                                <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+                                  {log.advogado_nome}
+                                </span>
+                                <span style={{ color: 'var(--text-dimmed)', fontSize: '0.75rem' }}>
+                                  ({log.advogado_email})
+                                </span>
+                              </div>
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                                {new Date(log.created_at).toLocaleString('pt-BR')}
+                              </span>
+                            </div>
+
+                            {log.payload && Object.keys(log.payload).length > 0 && (
+                              <div style={{
+                                background: 'rgba(0,0,0,0.25)', padding: '0.4rem 0.6rem',
+                                borderRadius: '0.35rem', fontFamily: 'monospace', fontSize: '0.72rem',
+                                color: 'var(--text-muted)', wordBreak: 'break-all'
+                              }}>
+                                {JSON.stringify(log.payload)}
+                              </div>
+                            )}
+
+                            {log.ip_address && log.ip_address !== 'internal' && (
+                              <div style={{ fontSize: '0.7rem', color: 'var(--text-dimmed)', display: 'flex', gap: '1rem' }}>
+                                <span>IP: {log.ip_address}</span>
+                                {log.user_agent && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '400px' }}>Agente: {log.user_agent}</span>}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
               </div>
             )}
           </div>

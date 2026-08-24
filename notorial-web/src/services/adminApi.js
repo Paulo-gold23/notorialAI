@@ -80,3 +80,20 @@ export async function getUserTransactions(targetId) {
   return data || [];
 }
 
+export async function getSystemLogs(limit = 100) {
+  const { data, error } = await supabase.rpc('admin_get_system_logs', {
+    p_limit: limit,
+  });
+  if (error) throw new Error('Erro ao buscar logs do sistema: ' + error.message);
+  return data || [];
+}
+
+export async function getErrorAtas(limit = 50) {
+  const { data, error } = await supabase.rpc('admin_get_error_atas', {
+    p_limit: limit,
+  });
+  if (error) throw new Error('Erro ao buscar documentos com erro: ' + error.message);
+  return data || [];
+}
+
+
