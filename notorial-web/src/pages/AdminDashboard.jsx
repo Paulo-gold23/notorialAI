@@ -479,7 +479,11 @@ export default function AdminDashboard() {
         backdropFilter: 'blur(12px)',
       }}>
         <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div 
+            style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}
+            onClick={() => navigate('/dashboard')}
+            title="Ir para o Dashboard do Usuário"
+          >
             <Logo size={30} />
             <h1 className="font-serif" style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: 'var(--text-main)' }}>
               LegisVox
@@ -494,8 +498,8 @@ export default function AdminDashboard() {
             <button onClick={handleRefresh} className="btn-ghost" disabled={refreshing} title="Atualizar">
               <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
             </button>
-            <button onClick={() => navigate('/')} className="btn-ghost" title="Voltar ao app">
-              <ArrowLeft size={16} /> <span style={{ fontSize: '0.8rem' }}>App</span>
+            <button onClick={() => navigate('/dashboard')} className="btn-ghost" title="Voltar ao Dashboard do Usuário">
+              <ArrowLeft size={16} /> <span style={{ fontSize: '0.8rem' }}>Dashboard</span>
             </button>
             <button onClick={handleLogout} className="btn-ghost" title="Sair">
               <LogOut size={16} />
