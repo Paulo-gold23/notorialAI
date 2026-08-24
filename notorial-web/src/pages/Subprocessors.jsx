@@ -12,46 +12,46 @@ export default function Subprocessors() {
 
   const subprocessors = [
     {
-      name: 'Supabase, Inc. / AWS',
-      role: 'Hospedagem de Banco de Dados, Autenticação e Armazenamento Temporário',
-      location: 'Estados Unidos (AWS us-east-1)',
-      security: 'Criptografia em repouso AES-256, TLS 1.3 em trânsito, Row Level Security (RLS) estrito e certificação SOC 2 Tipo II / ISO 27001.',
-      zdr: 'Dados cadastrais e registros de auditoria mantidos conforme política de retenção da LGPD. Hashes periciais imutáveis.',
+      name: 'Infraestrutura de Nuvem e Banco de Dados',
+      role: 'Armazenamento de Dados Relacionais, Autenticação e Segurança de Acesso',
+      location: 'Data Center em Nuvem com Certificação Internacional',
+      security: 'Criptografia em repouso AES-256, TLS 1.3 em trânsito, controle rigoroso de acesso por linha (Row Level Security) e certificações SOC 2 / ISO 27001.',
+      zdr: 'Dados cadastrais e registros de auditoria mantidos em conformidade com a LGPD. Hashes periciais protegidos por travas de imutabilidade.',
       icon: Database,
       badgeColor: '#3b82f6'
     },
     {
-      name: 'OpenAI OpCo, LLC',
+      name: 'Provedor Especializado de Inteligência Artificial',
       role: 'Processamento Semântico e Estruturação Cronológica de Textos',
-      location: 'Estados Unidos',
-      security: 'Contrato de API Comercial com criptografia TLS 1.3 e isolamento corporativo.',
-      zdr: 'Política Contratual de Zero Data Retention (ZDR): os dados transmitidos para formatação e estruturação não são armazenados após a conclusão do endpoint e NÃO são utilizados para treinamento de modelos públicos de inteligência artificial.',
+      location: 'Infraestrutura Corporativa Segura',
+      security: 'Conexão segura ponto a ponto via API Comercial com criptografia TLS 1.3 e isolamento corporativo.',
+      zdr: 'Garantia Contratual de Retenção Zero (ZDR): os dados transmitidos para formatação e estruturação não são armazenados após o processamento da requisição e NUNCA são utilizados para treinamento de modelos de inteligência artificial.',
       icon: Cpu,
       badgeColor: '#10b981'
     },
     {
-      name: 'Groq, Inc.',
-      role: 'Transcrição Fonética de Mensagens de Áudio (Whisper v3 LPU)',
-      location: 'Estados Unidos',
-      security: 'Processamento acelerado por hardware LPU (Language Processing Unit).',
-      zdr: 'Processamento Efêmero em Memória: as mídias de áudio são convertidas em texto em memória RAM e imediatamente descartadas. Não há persistência de áudios em discos da operadora.',
+      name: 'Provedor Especializado de Transcrição Fonética',
+      role: 'Conversão Fonética de Áudios em Texto',
+      location: 'Infraestrutura de Alta Performance',
+      security: 'Processamento em hardware dedicado de alta velocidade.',
+      zdr: 'Processamento Efêmero em Memória: os arquivos de áudio são convertidos em texto diretamente na memória RAM e descartados imediatamente após a geração do texto. Nenhum áudio permanece salvo.',
       icon: Mic,
       badgeColor: '#6366f1'
     },
     {
-      name: 'Gotenberg (Container Local na VPS)',
-      role: 'Compilação de Relatórios Técnicos em Formato PDF',
-      location: 'Servidor VPS Próprio (Local)',
-      security: 'Ambiente Docker isolado na rede interna do sistema.',
-      zdr: 'Isolamento Absoluto: a renderização visual e compilação do relatório ocorrem inteiramente dentro do servidor local da LegisVox, sem envio de dados para nenhuma API ou servidor externo.',
+      name: 'Motor Próprio de Compilação de Documentos',
+      role: 'Geração e Estilização Visual de Relatórios Técnicos (PDF)',
+      location: 'Servidor Próprio LegisVox (Ambiente Isolado)',
+      security: 'Execução 100% isolada na rede interna do servidor.',
+      zdr: 'Isolamento Absoluto: a renderização visual e a compilação do relatório ocorrem inteiramente dentro do servidor local da LegisVox, sem envio de dados para servidores externos.',
       icon: FileCheck,
       badgeColor: '#f59e0b'
     },
     {
-      name: 'Asaas Gestão Financeira S.A.',
-      role: 'Gateway de Pagamento (PIX e Cartão) e Emissão de Notas Fiscais',
-      location: 'Brasil (Joinville/SC)',
-      security: 'Instituição de Pagamento regulada e autorizada pelo Banco Central do Brasil (BACEN) e conformidade PCI-DSS.',
+      name: 'Instituição de Pagamento Homologada (BACEN)',
+      role: 'Processamento de Pagamentos (PIX e Cartão) e Emissão de Notas Fiscais',
+      location: 'Brasil',
+      security: 'Instituição de Pagamento regulada e autorizada pelo Banco Central do Brasil (BACEN) com conformidade PCI-DSS.',
       zdr: 'Processamento estrito de dados fiscais e de faturamento necessários para cumprimento de obrigação legal e regulatória (Art. 7º, II da LGPD).',
       icon: Coins,
       badgeColor: '#ec4899'
@@ -172,19 +172,19 @@ export default function Subprocessors() {
           })}
         </div>
 
-        {/* DPO / Contact Box */}
+        {/* Canal de Privacidade */}
         <div className="card" style={{ padding: '1.5rem', background: 'linear-gradient(135deg, rgba(212, 160, 23, 0.06), var(--panel-bg))', border: '1px solid rgba(212, 160, 23, 0.3)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-            <Mail size={20} color="var(--gold-main)" />
+            <Shield size={20} color="var(--gold-main)" />
             <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)' }}>
-              Canal de Atendimento ao Titular e DPO (Encarregado)
+              Direitos do Titular de Dados (LGPD)
             </h3>
           </div>
           <p style={{ fontSize: '0.825rem', color: 'var(--text-muted)', margin: '0 0 0.75rem', lineHeight: 1.6 }}>
-            Para esclarecer dúvidas sobre os suboperadores, exercer seus direitos previstos no Art. 18 da LGPD ou obter cópia integral de relatórios de impacto, entre em contato diretamente com o nosso Encarregado de Proteção de Dados:
+            Os advogados e usuários cadastrados podem exercer seus direitos previstos no Art. 18 da LGPD (como consulta e exportação de dados em 1 clique) diretamente na aba <strong>Perfil</strong> da plataforma.
           </p>
-          <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--primary-color)' }}>
-            E-mail: privacidade@legisvox.com.br · Atendimento em até 3 dias úteis
+          <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--primary-color)' }}>
+            Legatus Tecnologia e Portais de Conteúdo Ltda. · CNPJ: 30.643.080/0001-08
           </div>
         </div>
 

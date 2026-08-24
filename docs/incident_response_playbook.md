@@ -1,10 +1,11 @@
 # 🛡️ Plano de Resposta a Incidentes de Segurança da Informação (LGPD)
 
-**Plataforma:** LegisVox v2.3  
+**Plataforma:** LegisVox  
 **Controladora:** Legatus Tecnologia e Portais de Conteúdo Ltda.  
 **Versão:** 1.0 — Homologada para Convênios Institucionais (OAB)  
 **Data:** 24 de Agosto de 2026  
-**Encarregado de Dados (DPO):** `privacidade@legisvox.com.br`  
+**Canal Oficial de Atendimento:** Plataforma LegisVox  
+
 
 ---
 
@@ -90,7 +91,7 @@ ASSUNTO: Comunicação Formal de Incidente de Segurança (Art. 48 da Lei 13.709/
    - Razão Social: Legatus Tecnologia e Portais de Conteúdo Ltda.
    - CNPJ: [CNPJ da Legatus]
    - Plataforma: LegisVox (legisvox.com.br)
-   - Contato do DPO: privacidade@legisvox.com.br
+   - Contato Oficial: [Canal de Suporte / Atendimento LegisVox]
 
 2. DESCRIÇÃO DO EVENTO:
    - Data/Hora da Detecção: [DD/MM/AAAA às HH:mm]

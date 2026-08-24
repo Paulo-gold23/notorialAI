@@ -413,7 +413,7 @@ export default function Profile() {
                                 <div className="p-3.5 rounded-lg mb-3 border border-[var(--border-color)] bg-black/5 dark:bg-white/5">
                                     <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
                                         <span className="text-xs font-semibold text-emerald-500 flex items-center gap-1.5">
-                                            <CheckCircle2 size={14} /> Termos de Uso v{profile?.terms_version || '2.3'} Aceitos
+                                            <CheckCircle2 size={14} /> Termos de Uso Aceitos e Vigentes
                                         </span>
                                         {profile?.terms_accepted_at && (
                                             <span className="text-xs text-gray-500">
