@@ -24,6 +24,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import Modal from '../components/Modal';
 import { useToast } from '../components/ToastContext';
 import Logo from '../components/Logo';
+import ServiceStatusBanner from '../components/ServiceStatusBanner';
 
 /* ============================================
    COLOR CONSTANTS
@@ -211,6 +212,7 @@ export default function AdminDashboard() {
 
   return (
     <div className="page-enter" style={{ minHeight: '100vh', background: 'var(--bg-color)' }}>
+      <ServiceStatusBanner />
       <style>{`
         /* CSS regras de responsividade */
         .adm-primary-grid {

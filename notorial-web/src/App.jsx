@@ -5,8 +5,8 @@ import { checkIsAdmin } from './services/adminApi';
 import { ToastProvider } from './components/ToastContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import OfflineBanner from './components/OfflineBanner';
-import ServiceStatusBanner from './components/ServiceStatusBanner';
 import CPFPromptModal from './components/CPFPromptModal';
+import AdminMfaGate from './components/AdminMfaGate';
 
 const Login = lazy(() => import('./pages/Login'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -252,7 +252,6 @@ function App() {
   return (
     <>
       <OfflineBanner />
-      <ServiceStatusBanner />
       <ErrorBoundary>
       <ToastProvider>
         <BrowserRouter>
@@ -299,7 +298,7 @@ function App() {
                   <Route path="/review/:id" element={<Review />} />
                   <Route path="/credits" element={<Credits />} />
                   <Route path="/profile" element={<Profile />} />
-                  <Route path="/admin" element={isAdmin ? <AdminDashboard /> : <Navigate to="/dashboard" replace />} />
+                  <Route path="/admin" element={isAdmin ? <AdminMfaGate><AdminDashboard /></AdminMfaGate> : <Navigate to="/dashboard" replace />} />
                   <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </>
               )}
