@@ -60,7 +60,7 @@ export default function Footer() {
             {[
               { label: 'Termos de Uso', href: '/terms' },
               { label: 'Política de Privacidade', href: '/privacy' },
-              { label: 'LGPD', href: '/privacy' },
+              { label: 'Suboperadores Autorizados', href: '/suboperadores' },
             ].map(l => (
               <a key={l.label} href={l.href} style={{
                 display: 'block',
@@ -83,6 +83,7 @@ export default function Footer() {
             {[
               { label: 'Como Funciona', href: '#how' },
               { label: 'Funcionalidades', href: '#features' },
+              { label: 'Verificador de Hash', href: '/verificar' },
               { label: 'Planos', href: '#pricing' },
               { label: 'Entrar', href: '/login' },
             ].map(l => (

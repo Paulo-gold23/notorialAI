@@ -15,10 +15,14 @@ export default function LegalFooter({ style }) {
             padding: '0.625rem 0',
             ...style
         }}>
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', alignItems: 'center' }}>
-                <a href="#/terms" className="hover:text-amber-500 transition-colors">Termos de Uso</a>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
+                <a href="/terms" className="hover:text-amber-500 transition-colors">Termos de Uso</a>
                 <span>&bull;</span>
-                <a href="#/privacy" className="hover:text-amber-500 transition-colors">Políticas de Privacidade</a>
+                <a href="/privacy" className="hover:text-amber-500 transition-colors">Privacidade</a>
+                <span>&bull;</span>
+                <a href="/verificar" className="hover:text-amber-500 transition-colors" style={{ color: 'var(--gold-main)', fontWeight: 600 }}>Verificador de Hash</a>
+                <span>&bull;</span>
+                <a href="/suboperadores" className="hover:text-amber-500 transition-colors">Suboperadores</a>
             </div>
             <div style={{ marginTop: '0.25rem', opacity: 0.8 }}>
                 Software registrado no INPI

@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabase';
-import { ArrowLeft, User, Mail, Briefcase, ShieldCheck, CreditCard, Lock, Sparkles, CheckCircle2, TrendingUp, Coins, ChevronRight, RefreshCw, Trash2 } from 'lucide-react';
+import {
+  ArrowLeft, User, Mail, Briefcase, ShieldCheck, CreditCard,
+  Lock, Sparkles, CheckCircle2, TrendingUp, Coins, ChevronRight,
+  RefreshCw, Trash2, Download, FileText, ExternalLink, Shield, FileCheck
+} from 'lucide-react';
 import { creditsApi } from '../services/creditsApi';
 import { apiRequest } from '../services/api';
 import { useToast } from '../components/ToastContext';
@@ -22,6 +26,7 @@ export default function Profile() {
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [deletePin, setDeletePin] = useState('');
     const [deletingAccount, setDeletingAccount] = useState(false);
+    const [exportingData, setExportingData] = useState(false);
     // True when user already has a signature PIN — drives isUpdate prop on modal
     const [hasSignaturePin, setHasSignaturePin] = useState(false);
     
@@ -89,6 +94,31 @@ export default function Profile() {
             toast.error('Erro ao carregar dados do perfil.');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleExportPersonalData = async () => {
+        setExportingData(true);
+        try {
+            const { data, error } = await supabase.rpc('export_user_personal_data');
+            if (error) throw error;
+
+            const jsonStr = JSON.stringify(data, null, 2);
+            const blob = new Blob([jsonStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `legisvox_dados_pessoais_${profile?.id || 'usuario'}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            toast.success('Relatório de dados pessoais baixado com sucesso!');
+        } catch (err) {
+            toast.error('Erro ao exportar dados: ' + err.message);
+        } finally {
+            setExportingData(false);
         }
     };
 
@@ -370,31 +400,70 @@ export default function Profile() {
                                 )}
                             </div>
 
-                            {/* Termos Aceitos */}
+                            {/* Privacidade & Direitos do Titular (LGPD) */}
                             <div className="pt-4 border-t border-[var(--border-color)]">
-                                <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-main)' }}>Termos e Consentimento</h3>
-                                {profile?.terms_accepted_at ? (
-                                    <div className="text-sm" style={{ color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                        <p style={{ margin: '0 0 0.25rem 0' }}>
-                                            ✅ Termos aceitos em: <strong>{new Date(profile.terms_accepted_at).toLocaleDateString('pt-BR')}</strong>
-                                        </p>
-                                        <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-dimmed)' }}>
-                                            Versão: {profile?.terms_version || 'N/A'}
-                                        </p>
-                                    </div>
-                                ) : (
-                                    <p className="text-sm" style={{ color: 'var(--text-dimmed)', lineHeight: 1.5 }}>
-                                        Nenhum aceite de termos registrado.
-                                    </p>
-                                )}
-                            </div>
+                                <div className="flex items-center gap-2 mb-3">
+                                    <Shield size={16} className="text-[var(--gold-main)]" />
+                                    <h3 className="text-sm font-semibold m-0" style={{ color: 'var(--text-main)' }}>
+                                        Privacidade & Direitos do Titular (LGPD)
+                                    </h3>
+                                </div>
 
-                            {/* Marketing Consent Toggle */}
-                            <div className="pt-4 border-t border-[var(--border-color)]">
-                                <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-main)' }}>Comunicações</h3>
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                                        Receber novidades e funcionalidades por e-mail
+                                {/* Termos Aceitos Card */}
+                                <div className="p-3.5 rounded-lg mb-3 border border-[var(--border-color)] bg-black/5 dark:bg-white/5">
+                                    <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                                        <span className="text-xs font-semibold text-emerald-500 flex items-center gap-1.5">
+                                            <CheckCircle2 size={14} /> Termos de Uso v{profile?.terms_version || '2.3'} Aceitos
+                                        </span>
+                                        {profile?.terms_accepted_at && (
+                                            <span className="text-xs text-gray-500">
+                                                {new Date(profile.terms_accepted_at).toLocaleDateString('pt-BR')}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
+                                        <a href="/terms" target="_blank" rel="noreferrer" className="hover:text-amber-500 flex items-center gap-1 underline">
+                                            Termos de Uso <ExternalLink size={10} />
+                                        </a>
+                                        <span>•</span>
+                                        <a href="/privacy" target="_blank" rel="noreferrer" className="hover:text-amber-500 flex items-center gap-1 underline">
+                                            Política de Privacidade <ExternalLink size={10} />
+                                        </a>
+                                        <span>•</span>
+                                        <a href="/suboperadores" target="_blank" rel="noreferrer" className="hover:text-amber-500 flex items-center gap-1 underline">
+                                            Suboperadores (ZDR) <ExternalLink size={10} />
+                                        </a>
+                                        <span>•</span>
+                                        <a href="/verificar" target="_blank" rel="noreferrer" className="hover:text-amber-500 flex items-center gap-1 underline">
+                                            Verificador de Hash <ExternalLink size={10} />
+                                        </a>
+                                    </div>
+                                </div>
+
+                                {/* Portabilidade de Dados (Art. 18 LGPD) */}
+                                <div className="flex items-center justify-between p-3.5 rounded-lg mb-3 border border-[var(--border-color)] gap-3">
+                                    <div>
+                                        <div className="text-xs font-semibold" style={{ color: 'var(--text-main)' }}>
+                                            Portabilidade de Dados (Art. 18 LGPD)
+                                        </div>
+                                        <div className="text-xs text-gray-500">
+                                            Baixe todo o seu histórico cadastral, financeiro e metadados periciais em formato JSON.
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={handleExportPersonalData}
+                                        disabled={exportingData}
+                                        className="btn-secondary px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 cursor-pointer flex-shrink-0"
+                                    >
+                                        {exportingData ? <RefreshCw size={12} className="animate-spin" /> : <Download size={12} />}
+                                        {exportingData ? 'Exportando...' : 'Exportar Dados'}
+                                    </button>
+                                </div>
+
+                                {/* Marketing Consent Toggle */}
+                                <div className="flex items-center justify-between p-3 rounded-lg border border-[var(--border-color)] gap-2">
+                                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                        Receber comunicados e novidades por e-mail
                                     </span>
                                     <button
                                         onClick={async () => {
@@ -414,7 +483,7 @@ export default function Profile() {
                                                 toast.error(err.message || 'Erro ao atualizar preferência.');
                                             }
                                         }}
-                                        className="text-sm font-semibold px-3 py-1.5 rounded-lg border cursor-pointer transition-colors"
+                                        className="text-xs font-semibold px-3 py-1 rounded-lg border cursor-pointer transition-colors flex-shrink-0"
                                         style={{
                                             borderColor: profile?.marketing_consent ? 'var(--primary-color)' : 'var(--border-color)',
                                             color: profile?.marketing_consent ? 'var(--primary-color)' : 'var(--text-dimmed)',

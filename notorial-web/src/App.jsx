@@ -18,6 +18,8 @@ const Profile = lazy(() => import('./pages/Profile'));
 const TermsOfUse = lazy(() => import('./pages/TermsOfUse'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
 const LandingPage = lazy(() => import('./pages/LandingPage'));
+const PublicHashVerifier = lazy(() => import('./pages/PublicHashVerifier'));
+const Subprocessors = lazy(() => import('./pages/Subprocessors'));
 
 import { useSessionTimeout } from './hooks/useSessionTimeout';
 
@@ -285,6 +287,8 @@ function App() {
               <Route path="/" element={<LandingPage session={session} />} />
               <Route path="/terms" element={<TermsOfUse />} />
               <Route path="/privacy" element={<PrivacyPolicy />} />
+              <Route path="/verificar" element={<PublicHashVerifier />} />
+              <Route path="/suboperadores" element={<Subprocessors />} />
 
               {!session ? (
                 <>
