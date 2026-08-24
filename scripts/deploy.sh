@@ -16,6 +16,13 @@ if [ ! -f "notorial-api/.env" ]; then
     exit 1
 fi
 
+# 2. Validar existência do .env raiz (variáveis VITE para build do frontend)
+if [ ! -f ".env" ]; then
+    echo "❌ Erro: Arquivo '.env' raiz não encontrado!"
+    echo "Execute setup_vps.sh primeiro ou crie manualmente com VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY e DOMAIN."
+    exit 1
+fi
+
 # 2. Build dos containers Docker
 echo "🔨 Construindo imagens Docker (FastAPI, Nginx Frontend, Caddy)..."
 docker compose build --pull

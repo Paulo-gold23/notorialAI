@@ -1,19 +1,20 @@
 #!/bin/bash
 # ==============================================================================
-# Script para ping no backend (Render) para evitar Cold Start
-# Pode ser configurado em CRON no Hostinger ou servidor Linux
+# LegisVox - Health Check Ping
+# Verifica se o backend está respondendo corretamente
+# Pode ser configurado em CRON: */5 * * * * /opt/notorialAI/ping_backend.sh
 # ==============================================================================
 
-# Defina a URL do seu backend aqui:
-BACKEND_URL="https://notorialai.onrender.com" # Substitua se for outra
+# URL de healthcheck da VPS
+BACKEND_URL="https://legisvox.com/health"
 
-echo "Efetuando ping em: $BACKEND_URL"
+echo "Efetuando health check em: $BACKEND_URL"
 
-# Requisição simples na raiz ou /health (timeout de 10s)
-curl -m 10 -s "$BACKEND_URL" > /dev/null
+# Requisição simples no endpoint /health (timeout de 10s)
+HTTP_CODE=$(curl -m 10 -s -o /dev/null -w "%{http_code}" "$BACKEND_URL")
 
-if [ $? -eq 0 ]; then
-    echo "$(date): Ping realizado com sucesso."
+if [ "$HTTP_CODE" = "200" ]; then
+    echo "$(date): Health check OK (HTTP $HTTP_CODE)."
 else
-    echo "$(date): Falha ao conectar."
+    echo "$(date): ALERTA - Health check falhou (HTTP $HTTP_CODE)."
 fi

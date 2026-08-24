@@ -103,7 +103,24 @@ if [ ! -f "notorial-api/.env" ]; then
     fi
 fi
 
+# 7. Criar arquivo .env raiz para docker-compose (variáveis VITE_* e DOMAIN)
+echo "⚙️ 7/7 - Verificando .env raiz para docker-compose..."
+if [ ! -f ".env" ]; then
+    echo "DOMAIN=\${DOMAIN:-:80}" > .env
+    if [ -f "notorial-api/.env" ]; then
+        # Extrair SUPABASE_URL e SUPABASE_KEY → VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY
+        SUPA_URL=$(grep -E '^SUPABASE_URL=' notorial-api/.env | head -1 | cut -d'=' -f2-)
+        SUPA_KEY=$(grep -E '^SUPABASE_KEY=' notorial-api/.env | head -1 | cut -d'=' -f2-)
+        [ -n "$SUPA_URL" ] && echo "VITE_SUPABASE_URL=${SUPA_URL}" >> .env
+        [ -n "$SUPA_KEY" ] && echo "VITE_SUPABASE_ANON_KEY=${SUPA_KEY}" >> .env
+    fi
+    echo "⚠️ Arquivo '.env' raiz criado para docker-compose. Revise DOMAIN e VITE_* antes do deploy!"
+else
+    echo "ℹ️ Arquivo '.env' raiz já existe."
+fi
+
 echo "=========================================================="
 echo "🎉 Setup concluído com sucesso!"
 echo "Para subir a aplicação, execute: ./scripts/deploy.sh"
 echo "=========================================================="
+
