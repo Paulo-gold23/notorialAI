@@ -283,8 +283,7 @@ function App() {
             </div>
           }>
             <Routes>
-              {/* Rotas Públicas */}
-              <Route path="/" element={<LandingPage session={session} />} />
+              {/* Rotas Públicas (acessíveis sem login) */}
               <Route path="/terms" element={<TermsOfUse />} />
               <Route path="/privacy" element={<PrivacyPolicy />} />
               <Route path="/verificar" element={<PublicHashVerifier />} />
@@ -292,11 +291,15 @@ function App() {
 
               {!session ? (
                 <>
+                  {/* Visitante: mostra landing page na raiz */}
+                  <Route path="/" element={<LandingPage session={session} />} />
                   <Route path="/login" element={<Login />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </>
               ) : (
                 <>
+                  {/* Logado: raiz redireciona para o dashboard */}
+                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
                   <Route path="/dashboard" element={<Dashboard isAdmin={isAdmin} />} />
                   <Route path="/upload" element={<Upload />} />
                   <Route path="/review/:id" element={<Review />} />
