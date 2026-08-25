@@ -24,69 +24,93 @@ export default function Login() {
 
     const googleBtnRef = useRef(null);
     const [gsiReady, setGsiReady] = useState(false);
+    const gsiInitialized = useRef(false);
+
+    const GOOGLE_CLIENT_ID = '197297760270-pf0c10ncietepdlnn7bul8f0g4gt55ak.apps.googleusercontent.com';
+
+    const handleGoogleCredential = async (response) => {
+        if (!response.credential) return;
+        setLoading(true);
+        setError('');
+        try {
+            const { error: idTokenError } = await supabase.auth.signInWithIdToken({
+                provider: 'google',
+                token: response.credential,
+            });
+            if (idTokenError) throw idTokenError;
+        } catch (err) {
+            setError(err.message || 'Erro ao autenticar com o Google.');
+            setLoading(false);
+        }
+    };
+
+    const initializeGsi = () => {
+        if (!window.google?.accounts?.id || gsiInitialized.current) return;
+        try {
+            window.google.accounts.id.initialize({
+                client_id: GOOGLE_CLIENT_ID,
+                callback: handleGoogleCredential,
+                auto_select: false,
+                ux_mode: 'popup',
+            });
+            gsiInitialized.current = true;
+        } catch (e) {
+            console.warn('Erro ao inicializar Google Sign-In:', e);
+        }
+    };
 
     useEffect(() => {
-        const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '197297760270-pf0c10ncietepdlnn7bul8f0g4gt55ak.apps.googleusercontent.com';
-
-        const handleCredentialResponse = async (response) => {
-            if (!response.credential) return;
-            setLoading(true);
-            setError('');
+        const renderButton = () => {
+            if (!window.google?.accounts?.id || !googleBtnRef.current) return;
+            initializeGsi();
             try {
-                const { error: idTokenError } = await supabase.auth.signInWithIdToken({
-                    provider: 'google',
-                    token: response.credential,
+                googleBtnRef.current.innerHTML = '';
+                window.google.accounts.id.renderButton(googleBtnRef.current, {
+                    type: 'standard',
+                    theme: 'outline',
+                    size: 'large',
+                    text: isRegister ? 'signup_with' : 'signin_with',
+                    shape: 'rectangular',
+                    logo_alignment: 'left',
+                    width: 360,
+                    locale: 'pt-BR',
                 });
-                if (idTokenError) throw idTokenError;
-            } catch (err) {
-                setError(err.message || 'Erro ao autenticar com o Google.');
-                setLoading(false);
-            }
-        };
-
-        const setupGoogle = () => {
-            if (window.google?.accounts?.id && googleBtnRef.current) {
-                try {
-                    window.google.accounts.id.initialize({
-                        client_id: clientId,
-                        callback: handleCredentialResponse,
-                        auto_select: false,
-                    });
-
-                    googleBtnRef.current.innerHTML = '';
-                    window.google.accounts.id.renderButton(googleBtnRef.current, {
-                        type: 'standard',
-                        theme: 'outline',
-                        size: 'large',
-                        text: isRegister ? 'signup_with' : 'signin_with',
-                        shape: 'rectangular',
-                        logo_alignment: 'left',
-                        width: 360,
-                        locale: 'pt-BR',
-                    });
-                    setGsiReady(true);
-                } catch (e) {
-                    console.warn('Erro ao inicializar Google Sign-In:', e);
-                }
+                setGsiReady(true);
+            } catch (e) {
+                console.warn('Erro ao renderizar botão Google:', e);
             }
         };
 
         if (window.google?.accounts?.id) {
-            setupGoogle();
+            renderButton();
         } else {
             const interval = setInterval(() => {
                 if (window.google?.accounts?.id) {
                     clearInterval(interval);
-                    setupGoogle();
+                    renderButton();
                 }
-            }, 200);
-            const timeout = setTimeout(() => clearInterval(interval), 5000);
+            }, 150);
+            const timeout = setTimeout(() => clearInterval(interval), 8000);
             return () => {
                 clearInterval(interval);
                 clearTimeout(timeout);
             };
         }
     }, [isRegister]);
+
+    const handleGoogleFallbackClick = () => {
+        if (!window.google?.accounts?.id) {
+            setError('O serviço do Google ainda está carregando. Tente novamente em instantes.');
+            return;
+        }
+        initializeGsi();
+        window.google.accounts.id.prompt((notification) => {
+            if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+                // If prompt can't display (e.g. popup blocked), show error
+                setError('Popup do Google bloqueado. Verifique se popups estão permitidos neste site.');
+            }
+        });
+    };
 
     const formatCpfCnpj = (value) => {
         const digits = value.replace(/\D/g, '').slice(0, 14);
@@ -618,8 +642,9 @@ export default function Login() {
                                 <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }} />
                             </div>
 
-                            {/* ── Google OAuth button ── */}
+                            {/* ── Google Sign-In (Native) ── */}
                             <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', minHeight: '44px' }}>
+                                {/* GSI rendered button container */}
                                 <div 
                                     ref={googleBtnRef} 
                                     style={{ 
@@ -630,26 +655,12 @@ export default function Login() {
                                     }} 
                                 />
 
+                                {/* Fallback: custom button that triggers Google popup (never redirects to Supabase) */}
                                 {!gsiReady && (
                                     <button
                                         type="button"
                                         disabled={loading}
-                                        onClick={async () => {
-                                            setLoading(true);
-                                            setError('');
-                                            try {
-                                                const { error: oauthError } = await supabase.auth.signInWithOAuth({
-                                                    provider: 'google',
-                                                    options: {
-                                                        redirectTo: window.location.origin + '/dashboard',
-                                                    },
-                                                });
-                                                if (oauthError) throw oauthError;
-                                            } catch (err) {
-                                                setError(err.message || 'Erro ao conectar com o Google.');
-                                                setLoading(false);
-                                            }
-                                        }}
+                                        onClick={handleGoogleFallbackClick}
                                         style={{
                                             width: '100%',
                                             padding: '0.75rem',
@@ -675,7 +686,6 @@ export default function Login() {
                                             e.currentTarget.style.background = 'var(--panel-bg)';
                                         }}
                                     >
-                                        {/* Google "G" logo SVG */}
                                         <svg width="18" height="18" viewBox="0 0 48 48">
                                             <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
                                             <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
