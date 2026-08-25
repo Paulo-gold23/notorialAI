@@ -1,0 +1,158 @@
+<svg 
+  xmlns="http://www.w3.org/2000/svg" 
+  viewBox="0 0 512 512" 
+  width="512" 
+  height="512"
+>
+  <defs>
+    <linearGradient id="bg-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </linearGradient>
+
+    <linearGradient id="gold-left" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FEF08A"/>
+      <stop offset="100%" stop-color="#F59E0B"/>
+    </linearGradient>
+    <linearGradient id="gold-right" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#B45309"/>
+    </linearGradient>
+
+    <linearGradient id="blue-left" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="blue-right" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1D4ED8"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+
+    <linearGradient id="red-left" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F87171"/>
+      <stop offset="100%" stop-color="#DC2626"/>
+    </linearGradient>
+    <linearGradient id="red-right" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#DC2626"/>
+      <stop offset="100%" stop-color="#991B1B"/>
+    </linearGradient>
+
+    <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.6"/>
+    </filter>
+
+    <filter id="crisp-shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="6" dy="6" stdDeviation="0" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <rect width="100%" height="100%" rx="110" fill="url(#bg-gradient)"/>
+
+  <g filter="url(#soft-shadow)">
+    <path d="M 256 30 L 90 70 L 90 270 C 90 400 256 480 256 480 Z" fill="url(#gold-left)"/>
+    <path d="M 256 30 L 422 70 L 422 270 C 422 400 256 480 256 480 Z" fill="url(#gold-right)"/>
+
+    <path d="M 256 50 L 110 86 L 110 266 C 110 380 256 456 256 456 Z" fill="url(#blue-left)"/>
+    <path d="M 256 50 L 402 86 L 402 266 C 402 380 256 456 256 456 Z" fill="url(#blue-right)"/>
+
+    <path d="M 256 34 L 94 73 L 94 269 C 94 396 256 474 256 474" stroke="#FFFFFF" stroke-width="2" stroke-opacity="0.4" fill="none"/>
+    <path d="M 256 34 L 418 73 L 418 269 C 418 396 256 474 256 474" stroke="#FFFFFF" stroke-width="2" stroke-opacity="0.1" fill="none"/>
+    <path d="M 256 54 L 114 89 L 114 265 C 114 376 256 450 256 450" stroke="#FFFFFF" stroke-width="2" stroke-opacity="0.2" fill="none"/>
+    <path d="M 256 54 L 398 89 L 398 265 C 398 376 256 450 256 450" stroke="#000000" stroke-width="2" stroke-opacity="0.2" fill="none"/>
+  </g>
+
+  <g filter="url(#crisp-shadow)">
+    <g transform="translate(206, 95) scale(1.2)">
+      <polygon points="0,-10 2.2,-3.1 9.5,-3.1 3.6,1.2 5.9,8.1 0,3.8 -5.9,8.1 -3.6,1.2 -9.5,-3.1 -2.2,-3.1" fill="url(#gold-left)"/>
+    </g>
+    <g transform="translate(306, 95) scale(1.2)">
+      <polygon points="0,-10 2.2,-3.1 9.5,-3.1 3.6,1.2 5.9,8.1 0,3.8 -5.9,8.1 -3.6,1.2 -9.5,-3.1 -2.2,-3.1" fill="url(#gold-right)"/>
+    </g>
+    <g transform="translate(256, 80) scale(1.5)">
+      <polygon points="0,-10 0,3.8 -5.9,8.1 -3.6,1.2 -9.5,-3.1 -2.2,-3.1" fill="url(#gold-left)"/>
+      <polygon points="0,-10 2.2,-3.1 9.5,-3.1 3.6,1.2 5.9,8.1 0,3.8" fill="url(#gold-right)"/>
+    </g>
+
+    <rect x="236" y="348" width="20" height="16" fill="url(#gold-left)"/>
+    <rect x="256" y="348" width="20" height="16" fill="url(#gold-right)"/>
+    <rect x="226" y="364" width="30" height="16" fill="url(#gold-left)"/>
+    <rect x="256" y="364" width="30" height="16" fill="url(#gold-right)"/>
+    <rect x="216" y="380" width="40" height="16" fill="url(#gold-left)"/>
+    <rect x="256" y="380" width="40" height="16" fill="url(#gold-right)"/>
+
+    <rect x="240" y="200" width="16" height="148" fill="url(#gold-left)"/>
+    <rect x="256" y="200" width="16" height="148" fill="url(#gold-right)"/>
+    
+    <rect x="243" y="200" width="3" height="148" fill="#FFFFFF" opacity="0.3"/>
+    <rect x="249" y="200" width="3" height="148" fill="#FFFFFF" opacity="0.3"/>
+    <rect x="260" y="200" width="3" height="148" fill="#000000" opacity="0.2"/>
+    <rect x="266" y="200" width="3" height="148" fill="#000000" opacity="0.2"/>
+
+    <rect x="236" y="184" width="20" height="16" fill="url(#gold-left)"/>
+    <rect x="256" y="184" width="20" height="16" fill="url(#gold-right)"/>
+    <rect x="226" y="168" width="30" height="16" fill="url(#gold-left)"/>
+    <rect x="256" y="168" width="30" height="16" fill="url(#gold-right)"/>
+    
+    <circle cx="226" cy="176" r="12" fill="url(#gold-left)"/>
+    <circle cx="286" cy="176" r="12" fill="url(#gold-right)"/>
+
+    <rect x="150" y="136" width="106" height="8" fill="url(#gold-left)"/>
+    <rect x="256" y="136" width="106" height="8" fill="url(#gold-right)"/>
+
+    <rect x="248" y="136" width="8" height="4" fill="url(#gold-left)"/>
+    <rect x="256" y="136" width="8" height="4" fill="url(#gold-right)"/>
+    <path d="M 256 126 A 14 14 0 0 0 256 154 Z" fill="url(#gold-left)"/>
+    <path d="M 256 126 A 14 14 0 0 1 256 154 Z" fill="url(#gold-right)"/>
+    <circle cx="256" cy="140" r="4" fill="#0F172A"/>
+
+    <polygon points="256,90 244,108 256,126" fill="url(#gold-left)"/>
+    <polygon points="256,90 268,108 256,126" fill="url(#gold-right)"/>
+
+    <line x1="160" y1="144" x2="124" y2="240" stroke="url(#gold-left)" stroke-width="2"/>
+    <line x1="160" y1="144" x2="196" y2="240" stroke="url(#gold-left)" stroke-width="2"/>
+    <line x1="160" y1="144" x2="160" y2="248" stroke="url(#gold-left)" stroke-width="2"/>
+    <circle cx="160" cy="140" r="3" fill="url(#gold-left)"/>
+
+    <line x1="352" y1="144" x2="316" y2="240" stroke="url(#gold-right)" stroke-width="2"/>
+    <line x1="352" y1="144" x2="388" y2="240" stroke="url(#gold-right)" stroke-width="2"/>
+    <line x1="352" y1="144" x2="352" y2="248" stroke="url(#gold-right)" stroke-width="2"/>
+    <circle cx="352" cy="140" r="3" fill="url(#gold-right)"/>
+
+    <path d="M 124 240 C 124 270, 196 270, 196 240 Z" fill="url(#gold-left)"/>
+    <ellipse cx="160" cy="240" rx="36" ry="6" fill="#FEF08A"/>
+
+    <path d="M 316 240 C 316 270, 388 270, 388 240 Z" fill="url(#gold-right)"/>
+    <ellipse cx="352" cy="240" rx="36" ry="6" fill="#B45309"/>
+
+    <path d="M 256 386 Q 206 376 156 390 L 156 420 Q 206 406 256 416 Z" fill="url(#red-left)"/>
+    <path d="M 256 386 Q 306 376 356 390 L 356 420 Q 306 406 256 416 Z" fill="url(#red-right)"/>
+
+    <path d="M 256 382 Q 206 372 160 386 L 160 412 Q 206 398 256 408 Z" fill="#F8FAFC"/>
+    <path d="M 256 382 Q 306 372 352 386 L 352 412 Q 306 398 256 408 Z" fill="#CBD5E1"/>
+
+    <path d="M 170 392 Q 206 380 246 390" stroke="#CBD5E1" stroke-width="2" fill="none"/>
+    <path d="M 170 398 Q 206 386 246 396" stroke="#CBD5E1" stroke-width="2" fill="none"/>
+    <path d="M 170 404 Q 206 392 246 402" stroke="#CBD5E1" stroke-width="2" fill="none"/>
+
+    <path d="M 342 392 Q 306 380 266 390" stroke="#94A3B8" stroke-width="2" fill="none"/>
+    <path d="M 342 398 Q 306 386 266 396" stroke="#94A3B8" stroke-width="2" fill="none"/>
+    <path d="M 342 404 Q 306 392 266 402" stroke="#94A3B8" stroke-width="2" fill="none"/>
+
+    <polygon points="252,382 256,382 256,442 252,436" fill="url(#gold-left)"/>
+    <polygon points="256,382 260,382 260,436 256,442" fill="url(#gold-right)"/>
+  </g>
+
+  <g filter="url(#crisp-shadow)">
+    <polygon points="50,450 140,450 140,490 50,490 80,470" fill="url(#red-left)"/>
+    <polygon points="462,450 372,450 372,490 462,490 432,470" fill="url(#red-right)"/>
+
+    <polygon points="120,470 140,470 140,490" fill="#7F1D1D"/>
+    <polygon points="392,470 372,470 372,490" fill="#450A0A"/>
+
+    <rect x="120" y="430" width="136" height="40" fill="url(#red-left)"/>
+    <rect x="256" y="430" width="136" height="40" fill="url(#red-right)"/>
+
+    <rect x="140" y="446" width="100" height="8" rx="4" fill="#F8FAFC" opacity="0.9"/>
+    <rect x="272" y="446" width="100" height="8" rx="4" fill="#CBD5E1" opacity="0.9"/>
+  </g>
+</svg>
