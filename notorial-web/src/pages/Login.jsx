@@ -22,10 +22,20 @@ export default function Login() {
     const [termsAccepted, setTermsAccepted] = useState(false);
     const [marketingConsent, setMarketingConsent] = useState(false);
 
-    const gsiInitialized = useRef(false);
     const [gsiLoaded, setGsiLoaded] = useState(false);
+    const rawNonceRef = useRef('');
 
     const GOOGLE_CLIENT_ID = '197297760270-pf0c10ncietepdlnn7bul8f0g4gt55ak.apps.googleusercontent.com';
+
+    const generateNonce = async () => {
+        const raw = crypto.randomUUID();
+        const encoded = new TextEncoder().encode(raw);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
+        const hashed = Array.from(new Uint8Array(hashBuffer))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+        return { raw, hashed };
+    };
 
     const handleGoogleCredential = async (response) => {
         if (!response.credential) return;
@@ -35,6 +45,7 @@ export default function Login() {
             const { error: idTokenError } = await supabase.auth.signInWithIdToken({
                 provider: 'google',
                 token: response.credential,
+                nonce: rawNonceRef.current,
             });
             if (idTokenError) throw idTokenError;
         } catch (err) {
@@ -43,25 +54,9 @@ export default function Login() {
         }
     };
 
-    const initializeGsi = () => {
-        if (!window.google?.accounts?.id || gsiInitialized.current) return;
-        try {
-            window.google.accounts.id.initialize({
-                client_id: GOOGLE_CLIENT_ID,
-                callback: handleGoogleCredential,
-                auto_select: false,
-                ux_mode: 'popup',
-            });
-            gsiInitialized.current = true;
-        } catch (e) {
-            console.warn('Erro ao inicializar Google Sign-In:', e);
-        }
-    };
-
     useEffect(() => {
         const checkGsi = () => {
             if (window.google?.accounts?.id) {
-                initializeGsi();
                 setGsiLoaded(true);
                 return true;
             }
@@ -80,13 +75,26 @@ export default function Login() {
         }
     }, []);
 
-    const handleGoogleClick = () => {
+    const handleGoogleClick = async () => {
         setError('');
         if (!window.google?.accounts?.id) {
             setError('O serviço do Google ainda está carregando. Tente novamente em instantes.');
             return;
         }
-        initializeGsi();
+
+        // Generate a fresh nonce for each login attempt
+        const { raw, hashed } = await generateNonce();
+        rawNonceRef.current = raw;
+
+        // Re-initialize GSI with the new hashed nonce
+        window.google.accounts.id.initialize({
+            client_id: GOOGLE_CLIENT_ID,
+            callback: handleGoogleCredential,
+            nonce: hashed,
+            auto_select: false,
+            ux_mode: 'popup',
+        });
+
         window.google.accounts.id.prompt((notification) => {
             if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
                 setError('Popup do Google bloqueado. Verifique se popups estão permitidos neste site.');
