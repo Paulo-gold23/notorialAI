@@ -38,6 +38,8 @@ def _is_safe_ssrf_url(url: str) -> bool:
     Resolves DNS to prevent rebinding attacks (e.g. 169.254.169.254.nip.io)."""
     if not url:
         return False
+    if url.startswith("#"):
+        return True  # Safe internal document anchor (e.g. #data-02082021)
     if url.startswith("data:image/"):
         return True  # Safe base64 image
     try:
@@ -73,13 +75,40 @@ def _is_safe_ssrf_url(url: str) -> bool:
 def sanitize_user_html(html_content: str) -> str:
     """
     Sanitizes HTML content to prevent XSS and SSRF (Gotenberg internal network / cloud metadata reads).
+    Preserves internal document anchors (href="#...") used by the date index.
     """
-    cleaned = nh3.clean(
+    # nh3 strips href when the URL scheme is not in url_schemes.
+    # Fragment-only anchors (#data-02082021) have no scheme, so nh3 removes them.
+    # Workaround: temporarily replace fragment hrefs with a safe placeholder,
+    # then restore them after sanitization.
+    _ANCHOR_PLACEHOLDER = "https://legisvox-internal-anchor.invalid/"
+    anchors_map: dict[str, str] = {}
+
+    def _protect_anchor(match):
+        full_match = match.group(0)
+        fragment = match.group(1)
+        placeholder_url = f"{_ANCHOR_PLACEHOLDER}{fragment}"
+        anchors_map[placeholder_url] = f"#{fragment}"
+        return full_match.replace(f'href="#{fragment}"', f'href="{placeholder_url}"')
+
+    protected = re.sub(
+        r'<a[^>]+href="#([^"]+)"[^>]*>',
+        _protect_anchor,
         html_content,
+        flags=re.IGNORECASE
+    )
+
+    cleaned = nh3.clean(
+        protected,
         tags=ALLOWED_TAGS,
         attributes=ALLOWED_ATTRIBUTES,
         url_schemes={"http", "https", "data"} # Blocks file:// scheme
     )
+
+    # Restore internal anchors from placeholders
+    for placeholder_url, original_fragment in anchors_map.items():
+        cleaned = cleaned.replace(placeholder_url, original_fragment)
+
     # Post-process to remove unsafe SSRF URLs from img src and a href
     def _sanitize_src(match):
         attr = match.group(1)
@@ -359,9 +388,16 @@ def _wrap_html_for_pdf(html_str: str) -> str:
       display: block;
       margin-bottom: 8px;
       break-inside: avoid;
+      color: #1a56db;
+      text-decoration: underline;
     }
     .indice-inline-colunas br {
       display: none;
+    }
+    /* Explicit blue hyperlink for index list items */
+    .indice-colunas a {
+      color: #1a56db;
+      text-decoration: underline;
     }
     .ata-imagem-anexada {
       display: block;
