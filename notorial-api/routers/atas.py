@@ -302,7 +302,7 @@ async def estimate_upload(
         if os.path.exists(temp_path):
             os.remove(temp_path)
         logger.error(f"[ESTIMATE] Erro ao analisar ZIP: {e}")
-        raise HTTPException(status_code=400, detail=f"Erro ao analisar arquivo: {str(e)}")
+        raise HTTPException(status_code=400, detail="Erro ao analisar arquivo. Verifique se o ZIP é uma exportação válida do WhatsApp.")
 
     all_audio_bytes = parsed_data.get("arquivos_extraidos", {})
 
@@ -574,7 +574,7 @@ async def get_ata_status(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_c
         raise
     except Exception as e:
         logger.error(f"Erro interno no get_ata_status na requisição ({ata_id}): {e}", exc_info=True)
-        return {"status": "error", "progress": 0, "status_message": "Erro fatal ao buscar status da ata.", "error_message": str(e)}
+        return {"status": "error", "progress": 0, "status_message": "Erro fatal ao buscar status da ata.", "error_message": "Erro interno. Tente novamente ou entre em contato com o suporte."}
 
 @router.get("/{ata_id}/preview")
 async def get_ata_preview(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_context)):
@@ -788,7 +788,7 @@ async def generate_pdf(
         pdf_bytes, pdf_hash = await generate_pdf_from_html(html_for_pdf, reviewer_name=reviewer, zip_hash=zip_hash)
     except PdfGenerationError as e:
         logger.error(f"[PDF] Falha na geração do PDF para ata {ata_id}: {e}")
-        raise HTTPException(status_code=503, detail=str(e))
+        raise HTTPException(status_code=503, detail="Falha ao gerar o PDF. O serviço pode estar temporariamente indisponível. Tente novamente.")
     except Exception as e:
         logger.error(f"[PDF] Erro inesperado ao gerar PDF para ata {ata_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erro interno inesperado ao gerar o PDF")

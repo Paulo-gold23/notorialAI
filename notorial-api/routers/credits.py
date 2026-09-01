@@ -110,9 +110,10 @@ async def purchase_package(req: PurchaseRequest, user_id: str = Depends(get_curr
             raw_cpf
         )
     except ValueError as e:
+        logger.warning(f"[CREDITS] Asaas customer creation ValueError for user {user_id}: {e}")
         raise HTTPException(
             status_code=422,
-            detail=str(e)
+            detail="Não foi possível registrar os dados de pagamento. Verifique seu CPF/CNPJ e tente novamente."
         )
     
     if not customer_id:
@@ -128,7 +129,8 @@ async def purchase_package(req: PurchaseRequest, user_id: str = Depends(get_curr
         pay_res = await asaas_service.create_pix_payment(customer_id, total_price_cents, desc)
         
         if not pay_res["success"]:
-            raise HTTPException(status_code=400, detail=pay_res["error"])
+            logger.warning(f"[CREDITS] PIX payment creation failed for user {user_id}: {pay_res.get('error')}")
+            raise HTTPException(status_code=400, detail="Falha ao criar pagamento PIX. Tente novamente.")
             
         # 5. Registrar no banco local
         payment_data = {
