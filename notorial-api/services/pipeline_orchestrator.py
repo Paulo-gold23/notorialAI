@@ -176,23 +176,46 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
         logger.info(f"[{ata_id}] ✅ {done_msg}")
 
         if supabase and not is_local:
+            # Proteção contra payload excessivo no PostgREST:
+            # O documento completo final com 100% de fidelidade e qualidade (HTML, fotos, áudios e formatação)
+            # é preservado integralmente em 'conteudo_preparatorio'.
+            # Para conversas gigantes (> 3000 mensagens), otimizamos o 'chat_parseado' (que armazena
+            # o JSON bruto) para salvar metadados estruturados + amostra, evitando
+            # que um payload de 40MB cause timeout na requisição HTTP do Supabase.
+            db_chat_parseado = parsed_data
+            if parsed_data and len(parsed_data.get("mensagens", [])) > 3000:
+                raw_msgs = parsed_data.get("mensagens", [])
+                db_chat_parseado = {
+                    "participantes": parsed_data.get("participantes", []),
+                    "phone_map": parsed_data.get("phone_map", {}),
+                    "periodo": parsed_data.get("periodo", {}),
+                    "total_mensagens": parsed_data.get("total_mensagens", len(raw_msgs)),
+                    "total_audios": parsed_data.get("total_audios", 0),
+                    "total_imagens": parsed_data.get("total_imagens", 0),
+                    "sample_mensagens": raw_msgs[:50],
+                    "nota": "Mensagens compiladas fielmente no documento preparatorio"
+                }
+
             try:
                 supabase.table('atas_conteudo').insert({
                     'ata_id': ata_id,
-                    'chat_parseado': parsed_data,
+                    'chat_parseado': db_chat_parseado,
                     'conteudo_formal': None,
                     'conteudo_preparatorio': preparatorio_data.get('conteudo'),
                     'advogado_id': advogado_id
                 }).execute()
             except Exception as db_err:
-                logger.error(f"[{ata_id}] Aviso: Falha ao inserir atas_conteudo (talvez advogado_id não exista na tabela): {db_err}")
-                # Fallback caso a tabela não tenha a coluna
-                supabase.table('atas_conteudo').insert({
-                    'ata_id': ata_id,
-                    'chat_parseado': parsed_data,
-                    'conteudo_formal': None,
-                    'conteudo_preparatorio': preparatorio_data.get('conteudo')
-                }).execute()
+                logger.warning(f"[{ata_id}] Aviso: Falha ao inserir atas_conteudo com advogado_id: {db_err}. Tentando fallback...")
+                try:
+                    supabase.table('atas_conteudo').insert({
+                        'ata_id': ata_id,
+                        'chat_parseado': db_chat_parseado,
+                        'conteudo_formal': None,
+                        'conteudo_preparatorio': preparatorio_data.get('conteudo')
+                    }).execute()
+                except Exception as fatal_db_err:
+                    logger.error(f"[{ata_id}] Erro crítico ao inserir atas_conteudo: {fatal_db_err}")
+                    raise fatal_db_err
 
             # Gerar título descritivo a partir dos participantes + período
             participantes_list = parsed_data.get('participantes', [])

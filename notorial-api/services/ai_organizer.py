@@ -1256,12 +1256,15 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
             async def _process_chunk(i: int, chunk: str) -> str:
                 nonlocal completed_chunks
                 async with sem:
+                    chunk_hash = hashlib.sha256(chunk.encode("utf-8")).hexdigest()
+
                     # ── Checkpoint lookup: reutiliza chunk já processado ──
                     if ata_id:
                         try:
                             from database import get_supabase_client
                             _chunk_cache = get_supabase_client()
                             if _chunk_cache:
+                                # 1. Match pelo ata_id + índice
                                 cached = _chunk_cache.table("ata_chunks_cache") \
                                     .select("content") \
                                     .eq("ata_id", ata_id) \
@@ -1269,9 +1272,20 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
                                     .eq("total_chunks", len(chunks)) \
                                     .execute()
                                 if cached.data and len(cached.data) > 0:
-                                    logger.info(f"[{tipo}] Chunk {i+1}/{len(chunks)} — CACHE HIT, reutilizando")
+                                    logger.info(f"[{tipo}] Chunk {i+1}/{len(chunks)} — CACHE HIT (ata_id), reutilizando")
                                     completed_chunks += 1
                                     return cached.data[0]["content"]
+
+                                # 2. Match global pelo hash do conteúdo do chunk (reaproveitamento mesmo com novo upload)
+                                cached_hash = _chunk_cache.table("ata_chunks_cache") \
+                                    .select("content") \
+                                    .eq("chunk_hash", chunk_hash) \
+                                    .limit(1) \
+                                    .execute()
+                                if cached_hash.data and len(cached_hash.data) > 0:
+                                    logger.info(f"[{tipo}] Chunk {i+1}/{len(chunks)} — CACHE HIT (chunk_hash), reutilizando")
+                                    completed_chunks += 1
+                                    return cached_hash.data[0]["content"]
                         except Exception as cc_err:
                             logger.warning(f"[{tipo}] Chunk cache lookup failed (proceeding): {cc_err}")
 
@@ -1332,6 +1346,7 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
                                     "ata_id": ata_id,
                                     "chunk_index": i,
                                     "total_chunks": len(chunks),
+                                    "chunk_hash": chunk_hash,
                                     "content": res,
                                 }).execute()
                         except Exception as cw_err:
