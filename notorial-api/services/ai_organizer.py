@@ -1,3 +1,4 @@
+import hashlib
 import httpx
 import logging
 import json
@@ -1407,7 +1408,7 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
             
         except Exception as e:
             logger.error(f"[{tipo}] Falha no organize_chat_with_ai: {e}", exc_info=True)
-            return {"conteudo": f"ERRO IA: {str(e)}"}
+            raise e
 
 async def transform_content_with_ai(content: str, action: str, client: httpx.AsyncClient = None, *, ata_id: str = None, advogado_id: str = None) -> dict:
     """

@@ -168,7 +168,7 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
             logger.info(f"[{ata_id}] IA Preparatória concluída em {time.time()-t2:.2f}s")
         except Exception as e:
             logger.error(f"[{ata_id}] Erro na IA Preparatória: {e}")
-            preparatorio_data = {"conteudo": f"[Erro no processamento preparatório: {str(e)}]"}
+            raise e
 
         # ── ETAPA 6: Salvar resultado ──
         elapsed = time.time() - t_total
