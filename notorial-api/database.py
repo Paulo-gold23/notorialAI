@@ -8,6 +8,26 @@ logger = logging.getLogger(__name__)
 _cached_supabase = None
 _cached_supabase_admin = None
 
+def _apply_extended_timeout(client: Client, timeout_seconds: float = 180.0):
+    """Safely extend the httpx timeout on the postgrest client after creation.
+    
+    The default httpx timeout (~5s) is too short for saving large documents.
+    Blocking a sync supabase-py call for >100s triggers Cloudflare 524 errors,
+    so we extend the timeout and run these calls in run_in_executor.
+    """
+    try:
+        _timeout = httpx.Timeout(timeout_seconds, connect=10.0)
+        pg = getattr(client, 'postgrest', None)
+        if pg:
+            for attr in ('_client', '_session', 'session'):
+                sess = getattr(pg, attr, None)
+                if sess and hasattr(sess, 'timeout'):
+                    sess.timeout = _timeout
+                    logger.info(f"[database] PostgREST timeout extended to {timeout_seconds}s via .postgrest.{attr}")
+                    return
+    except Exception as e:
+        logger.warning(f"[database] Could not extend postgrest timeout: {e}")
+
 def get_supabase_client() -> Client:
     """Anon key client — used for internal operations (pipeline, cleanup).
     
@@ -23,6 +43,7 @@ def get_supabase_client() -> Client:
         return None
     try:
         _cached_supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        _apply_extended_timeout(_cached_supabase)
         return _cached_supabase
     except Exception as e:
         print(f"\n[ALERTA] Erro ao conectar ao Supabase (anon): {e}")
@@ -95,6 +116,7 @@ def get_supabase_admin_client() -> Client:
 
     try:
         _cached_supabase_admin = create_client(url, key)
+        _apply_extended_timeout(_cached_supabase_admin)
         if not service_key:
             print("[AVISO] SUPABASE_SERVICE_KEY nao configurada. Queries do backend usarao anon key (RLS ativo).")
             print("[INFO] Configure SUPABASE_SERVICE_KEY no .env para evitar erros de 'Perfil nao encontrado'.")

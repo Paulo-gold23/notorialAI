@@ -196,26 +196,39 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
                     "nota": "Mensagens compiladas fielmente no documento preparatorio"
                 }
 
-            try:
-                supabase.table('atas_conteudo').insert({
-                    'ata_id': ata_id,
-                    'chat_parseado': db_chat_parseado,
-                    'conteudo_formal': None,
-                    'conteudo_preparatorio': preparatorio_data.get('conteudo'),
-                    'advogado_id': advogado_id
-                }).execute()
-            except Exception as db_err:
-                logger.warning(f"[{ata_id}] Aviso: Falha ao inserir atas_conteudo com advogado_id: {db_err}. Tentando fallback...")
+            # ── CRITICAL: run_in_executor para NÃO bloquear o event loop ──
+            # As chamadas supabase-py são SÍNCRONAS (httpx.Client blocking).
+            # Se executadas diretamente em uma corrotina, o event loop fica travado
+            # e o FastAPI não consegue responder a polling requests, causando
+            # erro Cloudflare 524 (origin timeout > 100s).
+            loop = asyncio.get_running_loop()
+
+            def _sync_save_content():
+                """Salva conteúdo em thread separada para não bloquear o event loop."""
                 try:
                     supabase.table('atas_conteudo').insert({
                         'ata_id': ata_id,
                         'chat_parseado': db_chat_parseado,
                         'conteudo_formal': None,
-                        'conteudo_preparatorio': preparatorio_data.get('conteudo')
+                        'conteudo_preparatorio': preparatorio_data.get('conteudo'),
+                        'advogado_id': advogado_id
                     }).execute()
-                except Exception as fatal_db_err:
-                    logger.error(f"[{ata_id}] Erro crítico ao inserir atas_conteudo: {fatal_db_err}")
-                    raise fatal_db_err
+                except Exception as db_err:
+                    logger.warning(f"[{ata_id}] Aviso: Falha ao inserir atas_conteudo com advogado_id: {db_err}. Tentando fallback...")
+                    try:
+                        supabase.table('atas_conteudo').insert({
+                            'ata_id': ata_id,
+                            'chat_parseado': db_chat_parseado,
+                            'conteudo_formal': None,
+                            'conteudo_preparatorio': preparatorio_data.get('conteudo')
+                        }).execute()
+                    except Exception as fatal_db_err:
+                        logger.error(f"[{ata_id}] Erro crítico ao inserir atas_conteudo: {fatal_db_err}")
+                        raise fatal_db_err
+
+            update('organizing', "Salvando documento no banco de dados...", progress=96)
+            await loop.run_in_executor(None, _sync_save_content)
+            logger.info(f"[{ata_id}] atas_conteudo salvo com sucesso")
 
             # Gerar título descritivo a partir dos participantes + período
             participantes_list = parsed_data.get('participantes', [])
@@ -245,16 +258,21 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
             if periodo_fmt:
                 titulo_smart += f" - {periodo_fmt}"
             
-            supabase.table('atas').update({
-                'status': 'ready',
-                'status_message': done_msg,
-                'titulo': titulo_smart,
-                'participantes': parsed_data.get('participantes'),
-                'periodo_inicio': p_inicio,
-                'periodo_fim': p_fim,
-                'total_mensagens': parsed_data.get('total_mensagens'),
-                'total_audios': parsed_data.get('total_audios')
-            }).eq('id', ata_id).execute()
+            def _sync_update_status():
+                """Atualiza status para ready em thread separada."""
+                supabase.table('atas').update({
+                    'status': 'ready',
+                    'status_message': done_msg,
+                    'titulo': titulo_smart,
+                    'participantes': parsed_data.get('participantes'),
+                    'periodo_inicio': p_inicio,
+                    'periodo_fim': p_fim,
+                    'total_mensagens': parsed_data.get('total_mensagens'),
+                    'total_audios': parsed_data.get('total_audios')
+                }).eq('id', ata_id).execute()
+
+            await loop.run_in_executor(None, _sync_update_status)
+            logger.info(f"[{ata_id}] Status atualizado para 'ready'")
 
             # Mantém image_bytes no cache local para generate-formal (mesmo worker, curta duração).
             # Status e conteúdo são a fonte de verdade no banco.
