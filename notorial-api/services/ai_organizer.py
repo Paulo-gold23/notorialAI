@@ -1250,6 +1250,19 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
                 found_audio = {int(m) for m in _AUDIO_MARKER_RE.findall(chunk)}
                 chunk_audio_indices.append(found_audio)
 
+            # Busca zip_hash da ata para permitir reaproveitamento mesmo entre uploads diferentes
+            current_zip_hash = None
+            if ata_id:
+                try:
+                    from database import get_supabase_client
+                    _sc = get_supabase_client()
+                    if _sc:
+                        _ata_row = _sc.table("atas").select("zip_hash").eq("id", ata_id).execute()
+                        if _ata_row.data and _ata_row.data[0].get("zip_hash"):
+                            current_zip_hash = _ata_row.data[0]["zip_hash"]
+                except Exception:
+                    pass
+
             sem = asyncio.Semaphore(6)
             completed_chunks = 0
 
@@ -1286,6 +1299,21 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
                                     logger.info(f"[{tipo}] Chunk {i+1}/{len(chunks)} — CACHE HIT (chunk_hash), reutilizando")
                                     completed_chunks += 1
                                     return cached_hash.data[0]["content"]
+
+                                # 3. Match global pelo zip_hash da ata (re-upload do mesmo arquivo)
+                                if current_zip_hash:
+                                    try:
+                                        cached_zip = _chunk_cache.rpc("get_cached_chunk_by_zip_hash", {
+                                            "p_zip_hash": current_zip_hash,
+                                            "p_chunk_index": i,
+                                            "p_total_chunks": len(chunks)
+                                        }).execute()
+                                        if cached_zip.data and len(cached_zip.data) > 0 and cached_zip.data[0].get("content"):
+                                            logger.info(f"[{tipo}] Chunk {i+1}/{len(chunks)} — CACHE HIT (zip_hash), reutilizando")
+                                            completed_chunks += 1
+                                            return cached_zip.data[0]["content"]
+                                    except Exception:
+                                        pass
                         except Exception as cc_err:
                             logger.warning(f"[{tipo}] Chunk cache lookup failed (proceeding): {cc_err}")
 
