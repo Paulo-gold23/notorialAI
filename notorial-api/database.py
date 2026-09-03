@@ -5,12 +5,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-try:
-    from supabase.client import ClientOptions
-    _client_options = ClientOptions(postgrest_client_timeout=120)
-except Exception:
-    _client_options = None
-
 _cached_supabase = None
 _cached_supabase_admin = None
 
@@ -28,10 +22,7 @@ def get_supabase_client() -> Client:
     if not settings.SUPABASE_URL or not settings.SUPABASE_KEY or "your-supabase" in settings.SUPABASE_URL:
         return None
     try:
-        if _client_options:
-            _cached_supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY, options=_client_options)
-        else:
-            _cached_supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        _cached_supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
         return _cached_supabase
     except Exception as e:
         print(f"\n[ALERTA] Erro ao conectar ao Supabase (anon): {e}")
@@ -73,10 +64,7 @@ def create_user_client(token: str) -> Client:
             _user_clients_cache.popitem(last=False)
 
         try:
-            if _client_options:
-                client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY, options=_client_options)
-            else:
-                client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+            client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
             client.postgrest.auth(token)
             _user_clients_cache[token] = (client, now)
             return client
@@ -106,10 +94,7 @@ def get_supabase_admin_client() -> Client:
         return None
 
     try:
-        if _client_options:
-            _cached_supabase_admin = create_client(url, key, options=_client_options)
-        else:
-            _cached_supabase_admin = create_client(url, key)
+        _cached_supabase_admin = create_client(url, key)
         if not service_key:
             print("[AVISO] SUPABASE_SERVICE_KEY nao configurada. Queries do backend usarao anon key (RLS ativo).")
             print("[INFO] Configure SUPABASE_SERVICE_KEY no .env para evitar erros de 'Perfil nao encontrado'.")
