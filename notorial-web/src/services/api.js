@@ -91,20 +91,110 @@ export async function uploadZip(file, options = {}) {
     return response.json();
 }
 
-export async function estimateUpload(file, options = {}) {
-    const formData = new FormData();
-    formData.append('file', file);
-    if (options.startDate) formData.append('startDate', options.startDate);
-    if (options.endDate) formData.append('endDate', options.endDate);
+export async function uploadInChunks(file, onProgress = null) {
+    const CHUNK_SIZE = 20 * 1024 * 1024; // 20 MB por fatia (bem abaixo do teto de 100MB do Cloudflare)
+    const uploadId = (typeof crypto !== 'undefined' && crypto.randomUUID) 
+        ? crypto.randomUUID() 
+        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+            const r = Math.random() * 16 | 0;
+            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        });
 
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    const headers = await getAuthHeader();
+
+    for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(file.size, start + CHUNK_SIZE);
+        const chunkBlob = file.slice(start, end);
+
+        let attempt = 0;
+        let success = false;
+        let lastError = null;
+
+        while (attempt < 3 && !success) {
+            attempt++;
+            try {
+                const chunkData = new FormData();
+                chunkData.append('chunk', chunkBlob, file.name);
+                chunkData.append('upload_id', uploadId);
+                chunkData.append('chunk_index', String(i));
+                chunkData.append('total_chunks', String(totalChunks));
+                chunkData.append('filename', file.name);
+
+                const response = await fetch(`${API_BASE}/api/atas/upload/chunk`, {
+                    method: 'POST',
+                    headers,
+                    body: chunkData,
+                });
+
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({}));
+                    throw new Error(err.detail || `Erro na transmissão da fatia ${i + 1}/${totalChunks}`);
+                }
+
+                success = true;
+                if (onProgress) {
+                    const percent = Math.round(((i + 1) / totalChunks) * 100);
+                    onProgress(percent, i + 1, totalChunks);
+                }
+            } catch (err) {
+                lastError = err;
+                if (attempt < 3) {
+                    // Espera exponencial breve (1s, 2s) antes de retentar a mesma fatia
+                    await new Promise(r => setTimeout(r, 1000 * attempt));
+                }
+            }
+        }
+
+        if (!success) {
+            throw new Error(lastError?.message || `Falha na conexão ao enviar a parte ${i + 1} de ${totalChunks}.`);
+        }
+    }
+
+    return uploadId;
+}
+
+export async function estimateUpload(file, options = {}, onProgress = null) {
+    const CHUNK_THRESHOLD = 25 * 1024 * 1024; // Arquivos > 25MB usam upload fracionado
     const headers = await getAuthHeader();
     let response;
+
     try {
-        response = await fetch(`${API_BASE}/api/atas/upload/estimate`, {
-            method: 'POST',
-            headers,
-            body: formData,
-        });
+        if (file && file.size > CHUNK_THRESHOLD) {
+            // Upload em fatias para contornar com segurança o limite de 100MB do Cloudflare
+            const uploadId = await uploadInChunks(file, (percent, current, total) => {
+                if (onProgress) onProgress('uploading_chunks', percent, current, total);
+            });
+
+            if (onProgress) onProgress('estimating', 100);
+
+            const formData = new FormData();
+            formData.append('upload_id', uploadId);
+            formData.append('filename', file.name);
+            if (options.startDate) formData.append('startDate', options.startDate);
+            if (options.endDate) formData.append('endDate', options.endDate);
+
+            response = await fetch(`${API_BASE}/api/atas/upload/estimate`, {
+                method: 'POST',
+                headers,
+                body: formData,
+            });
+        } else {
+            // Upload direto para arquivos pequenos (fluxo original)
+            if (onProgress) onProgress('estimating', 50);
+
+            const formData = new FormData();
+            formData.append('file', file);
+            if (options.startDate) formData.append('startDate', options.startDate);
+            if (options.endDate) formData.append('endDate', options.endDate);
+
+            response = await fetch(`${API_BASE}/api/atas/upload/estimate`, {
+                method: 'POST',
+                headers,
+                body: formData,
+            });
+        }
     } catch (error) {
         throw mapNetworkError(error);
     }

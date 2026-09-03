@@ -254,12 +254,88 @@ class ConfirmUploadRequest(BaseModel):
     ata_id: str
 
 
+_UUID_REGEX = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
+
+
+@router.post("/upload/chunk")
+@limiter.limit("60/minute")
+async def upload_chunk(
+    request: Request,
+    chunk: UploadFile = File(...),
+    upload_id: str = Form(...),
+    chunk_index: int = Form(...),
+    total_chunks: int = Form(...),
+    filename: str = Form("upload.zip"),
+    auth_ctx: AuthContext = Depends(get_auth_context)
+):
+    """
+    Recebe fatias (chunks de ~20MB) de arquivos grandes para contornar o limite de 100MB do Cloudflare.
+    Monta o arquivo sequencialmente em disco com integridade criptográfica preservada.
+    """
+    upload_id_clean = upload_id.strip()
+    if not _UUID_REGEX.match(upload_id_clean):
+        raise HTTPException(status_code=400, detail="upload_id inválido")
+
+    if chunk_index < 0 or chunk_index >= total_chunks:
+        raise HTTPException(status_code=400, detail="chunk_index fora dos limites")
+
+    temp_dir = tempfile.gettempdir()
+    part_path = os.path.join(temp_dir, f"legisvox_chunk_{upload_id_clean}.part")
+    final_path = os.path.join(temp_dir, f"legisvox_upload_{upload_id_clean}.zip")
+
+    chunk_bytes = await chunk.read()
+    if not chunk_bytes:
+        raise HTTPException(status_code=400, detail="Fatia do arquivo vazia")
+
+    mode = "wb" if chunk_index == 0 else "ab"
+    try:
+        current_size = os.path.getsize(part_path) if chunk_index > 0 and os.path.exists(part_path) else 0
+        if current_size + len(chunk_bytes) > MAX_UPLOAD_SIZE:
+            if os.path.exists(part_path):
+                os.remove(part_path)
+            raise HTTPException(status_code=413, detail=f"Arquivo excede o limite máximo permitido de {MAX_UPLOAD_SIZE // (1024*1024)}MB")
+
+        with open(part_path, mode) as f:
+            f.write(chunk_bytes)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[CHUNK] Erro ao gravar fatia {chunk_index} para {upload_id_clean}: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao salvar fatia do arquivo")
+
+    # Se for a última fatia, finaliza renomeando o .part para .zip completo
+    if chunk_index == total_chunks - 1:
+        try:
+            if os.path.exists(final_path):
+                os.remove(final_path)
+            os.replace(part_path, final_path)
+            total_size = os.path.getsize(final_path)
+            logger.info(f"[CHUNK] Arquivo {upload_id_clean} montado com sucesso ({total_chunks} partes, {total_size} bytes)")
+            return {
+                "status": "completed",
+                "upload_id": upload_id_clean,
+                "total_size": total_size,
+                "total_chunks": total_chunks
+            }
+        except Exception as e:
+            logger.error(f"[CHUNK] Erro ao consolidar arquivo {upload_id_clean}: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao consolidar arquivo final")
+
+    return {
+        "status": "chunk_received",
+        "upload_id": upload_id_clean,
+        "chunk_index": chunk_index,
+        "total_chunks": total_chunks
+    }
+
 
 @router.post("/upload/estimate")
 @limiter.limit("10/minute")
 async def estimate_upload(
     request: Request,
-    file: UploadFile = File(...),
+    file: UploadFile = File(None),
+    upload_id: str = Form(None),
+    filename: str = Form(None),
     startDate: str = Form(None),
     endDate: str = Form(None),
     auth_ctx: AuthContext = Depends(get_auth_context)
@@ -268,26 +344,45 @@ async def estimate_upload(
     start_date = startDate.strip() if startDate and startDate.strip() else None
     end_date = endDate.strip() if endDate and endDate.strip() else None
 
-    if not file.filename.endswith('.zip'):
-        raise HTTPException(status_code=400, detail="Apenas arquivos .zip são aceitos")
+    zip_filename = "upload.zip"
+    temp_path = None
+    created_new_temp = False
 
-    fd, temp_path = tempfile.mkstemp(suffix=".zip")
-    os.close(fd)
-    
-    try:
-        loop = asyncio.get_running_loop()
-        size, _ = await loop.run_in_executor(
-            None,
-            lambda: save_upload_file_with_limit_and_hash(file, temp_path, MAX_UPLOAD_SIZE)
-        )
-    except ValueError as ve:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-        raise HTTPException(status_code=413, detail=str(ve))
-    except Exception as e:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-        raise HTTPException(status_code=500, detail="Erro ao salvar o arquivo")
+    # Opção A: Arquivo já montado via upload em partes (Chunked Upload)
+    if upload_id and upload_id.strip():
+        upload_id_clean = upload_id.strip()
+        if not _UUID_REGEX.match(upload_id_clean):
+            raise HTTPException(status_code=400, detail="upload_id inválido")
+        temp_dir = tempfile.gettempdir()
+        temp_path = os.path.join(temp_dir, f"legisvox_upload_{upload_id_clean}.zip")
+        if not os.path.exists(temp_path):
+            raise HTTPException(status_code=404, detail="Arquivo do upload em partes não encontrado ou expirado. Tente novamente.")
+        zip_filename = filename.strip() if filename and filename.strip() else f"upload_{upload_id_clean[:8]}.zip"
+
+    # Opção B: Upload direto tradicional (para arquivos pequenos)
+    elif file is not None and file.filename:
+        if not file.filename.endswith('.zip'):
+            raise HTTPException(status_code=400, detail="Apenas arquivos .zip são aceitos")
+        zip_filename = file.filename
+        fd, temp_path = tempfile.mkstemp(suffix=".zip")
+        os.close(fd)
+        created_new_temp = True
+        try:
+            loop = asyncio.get_running_loop()
+            size, _ = await loop.run_in_executor(
+                None,
+                lambda: save_upload_file_with_limit_and_hash(file, temp_path, MAX_UPLOAD_SIZE)
+            )
+        except ValueError as ve:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise HTTPException(status_code=413, detail=str(ve))
+        except Exception as e:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise HTTPException(status_code=500, detail="Erro ao salvar o arquivo")
+    else:
+        raise HTTPException(status_code=400, detail="Nenhum arquivo ou upload_id fornecido")
 
     advogado_id = auth_ctx.advogado_id
 
@@ -299,7 +394,7 @@ async def estimate_upload(
             lambda: parse_whatsapp_zip(temp_path, start_date=start_date, end_date=end_date, estimate_only=True)
         )
     except Exception as e:
-        if os.path.exists(temp_path):
+        if created_new_temp and os.path.exists(temp_path):
             os.remove(temp_path)
         logger.error(f"[ESTIMATE] Erro ao analisar ZIP: {e}")
         raise HTTPException(status_code=400, detail="Erro ao analisar arquivo. Verifique se o ZIP é uma exportação válida do WhatsApp.")
@@ -328,6 +423,8 @@ async def estimate_upload(
     ata_id = str(uuid.uuid4())
     cleanup_estimate_cache()
 
+    safe_title_name = _sanitize_filename(zip_filename)
+
     supabase = auth_ctx.client
     if supabase:
         # Persist to DB so any worker can pick up the confirm
@@ -335,9 +432,9 @@ async def estimate_upload(
             supabase.table('atas').insert({
                 'id': ata_id,
                 'advogado_id': advogado_id,
-                'titulo': f"Estimativa - {_sanitize_filename(file.filename)}",
+                'titulo': f"Estimativa - {safe_title_name}",
                 'status': 'estimating',
-                'zip_filename': _sanitize_filename(file.filename),
+                'zip_filename': safe_title_name,
                 'estimated_pages': estimated_pages,
                 'status_message': json.dumps({
                     'temp_path': temp_path,
@@ -353,7 +450,7 @@ async def estimate_upload(
                 'temp_path': temp_path, 'start_date': start_date, 'end_date': end_date,
                 'advogado_id': advogado_id,
                 'estimated_pages': estimated_pages, 'confirmed': False,
-                'timestamp': time.time(), 'zip_filename': _sanitize_filename(file.filename)
+                'timestamp': time.time(), 'zip_filename': safe_title_name
             }
     else:
         # Bypass / no Supabase: use local cache
@@ -361,7 +458,7 @@ async def estimate_upload(
             'temp_path': temp_path, 'start_date': start_date, 'end_date': end_date,
             'advogado_id': advogado_id,
             'estimated_pages': estimated_pages, 'confirmed': False,
-            'timestamp': time.time(), 'zip_filename': _sanitize_filename(file.filename)
+            'timestamp': time.time(), 'zip_filename': safe_title_name
         }
 
     logger.info(f"[ESTIMATE] {ata_id}: {estimated_pages} páginas estimadas, saldo={balance}, suficiente={has_credits}")
@@ -919,7 +1016,9 @@ async def download_pdf(pdf_id: str, auth_ctx: AuthContext = Depends(get_auth_con
     return Response(content=pdf_bytes, media_type="application/pdf")
 
 @router.post("/{ata_id}/ai-action")
+@limiter.limit("15/minute")
 async def ata_ai_action(
+    request: Request,
     ata_id: str,
     req: AiActionRequest,
     auth_ctx: AuthContext = Depends(get_auth_context)
@@ -928,7 +1027,7 @@ async def ata_ai_action(
     from services.ai_organizer import transform_content_with_ai
     # ata_id pode ser usado no futuro para logar ou salvar no banco,
     # mas no momento estamos apenas transformando o texto.
-    result = await transform_content_with_ai(req.content, req.action)
+    result = await transform_content_with_ai(req.content, req.action, ata_id=ata_id, advogado_id=auth_ctx.advogado_id)
     if "error" in result:
         raise HTTPException(status_code=500, detail=result["error"])
     return result

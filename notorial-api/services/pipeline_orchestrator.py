@@ -1,4 +1,5 @@
 import os
+import gc
 import time
 import asyncio
 import logging
@@ -115,6 +116,14 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
             f"Pulados/fora do período: {skipped}"
         )
 
+        # ── Liberar memória: dicts brutos de mídia não são mais necessários ──
+        del all_audio_bytes
+        del audio_by_basename_bytes
+        del needed_audio_files
+        del needed_basenames
+        gc.collect()
+        logger.info(f"[{ata_id}] Memória liberada: dicts de áudio bruto descartados")
+
         # ── ETAPA 3: Transcrição paralela (Groq Whisper) ──
         t1 = time.time()
         update('transcribing', f"Transcrevendo {len(audios_to_transcribe)} áudios...", progress=35)
@@ -122,7 +131,7 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
         async def trans_progress(msg, prog):
             update("transcribing", msg, progress=max(35, min(65, prog)))
 
-        transcriptions = await transcribe_all(audios_to_transcribe, on_progress=trans_progress)
+        transcriptions = await transcribe_all(audios_to_transcribe, on_progress=trans_progress, ata_id=ata_id, advogado_id=advogado_id)
         logger.info(f"[{ata_id}] Transcrição concluída em {time.time()-t1:.2f}s - {len(transcriptions)} resultados")
 
         # ── ETAPA 4: Merge cronológico — injetar transcrições ──
@@ -153,7 +162,8 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
 
         try:
             preparatorio_data = await organize_chat_with_ai(
-                parsed_data, on_progress=org_progress, image_bytes=all_image_bytes
+                parsed_data, on_progress=org_progress, image_bytes=all_image_bytes,
+                ata_id=ata_id, advogado_id=advogado_id,
             )
             logger.info(f"[{ata_id}] IA Preparatória concluída em {time.time()-t2:.2f}s")
         except Exception as e:
@@ -283,6 +293,44 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
                 }).eq('id', ata_id).execute()
             except Exception:
                 pass
+
+        # ── Estorno automático de créditos em falha ──
+        # Se créditos foram debitados para esta ata e nenhum refund foi feito,
+        # devolve integralmente para o advogado.
+        if supabase and not is_local and advogado_id:
+            try:
+                # Verifica se houve débito para esta ata
+                debit_resp = supabase.table('credit_transactions') \
+                    .select('amount') \
+                    .eq('ata_id', ata_id) \
+                    .eq('type', 'debit') \
+                    .execute()
+                if debit_resp.data and len(debit_resp.data) > 0:
+                    charged = debit_resp.data[0].get('amount', 0)
+                    # Verifica se já houve refund para esta ata (idempotência)
+                    refund_resp = supabase.table('credit_transactions') \
+                        .select('id') \
+                        .eq('ata_id', ata_id) \
+                        .eq('type', 'refund') \
+                        .execute()
+                    if not refund_resp.data or len(refund_resp.data) == 0:
+                        from services.credits import credits_service
+                        refund_ok = credits_service.refund_credits(
+                            advogado_id, ata_id,
+                            estimated=charged, actual=0
+                        )
+                        if refund_ok:
+                            logger.info(
+                                f"[{ata_id}] AUTO-REFUND: {charged} créditos devolvidos "
+                                f"ao advogado {advogado_id} após falha no pipeline ({err_category})"
+                            )
+                        else:
+                            logger.warning(f"[{ata_id}] AUTO-REFUND: refund_credits retornou False")
+                    else:
+                        logger.info(f"[{ata_id}] AUTO-REFUND: refund já existe, ignorando duplicata")
+            except Exception as refund_err:
+                logger.error(f"[{ata_id}] AUTO-REFUND falhou (não-bloqueante): {refund_err}")
+
         # Fallback local (modo sem Supabase).
         if is_local:
             if ata_id not in local_results:
@@ -336,6 +384,40 @@ async def _process_pipeline(ata_id: str, is_local: bool, start_date: str = None,
                     }).eq('id', ata_id).execute()
                 except Exception:
                     pass
+
+            # ── Estorno automático de créditos em timeout ──
+            if supabase and not is_local and advogado_id:
+                try:
+                    debit_resp = supabase.table('credit_transactions') \
+                        .select('amount') \
+                        .eq('ata_id', ata_id) \
+                        .eq('type', 'debit') \
+                        .execute()
+                    if debit_resp.data and len(debit_resp.data) > 0:
+                        charged = debit_resp.data[0].get('amount', 0)
+                        refund_resp = supabase.table('credit_transactions') \
+                            .select('id') \
+                            .eq('ata_id', ata_id) \
+                            .eq('type', 'refund') \
+                            .execute()
+                        if not refund_resp.data or len(refund_resp.data) == 0:
+                            from services.credits import credits_service
+                            refund_ok = credits_service.refund_credits(
+                                advogado_id, ata_id,
+                                estimated=charged, actual=0
+                            )
+                            if refund_ok:
+                                logger.info(
+                                    f"[{ata_id}] AUTO-REFUND (TIMEOUT): {charged} créditos devolvidos "
+                                    f"ao advogado {advogado_id}"
+                                )
+                            else:
+                                logger.warning(f"[{ata_id}] AUTO-REFUND (TIMEOUT): refund_credits retornou False")
+                        else:
+                            logger.info(f"[{ata_id}] AUTO-REFUND (TIMEOUT): refund já existe")
+                except Exception as refund_err:
+                    logger.error(f"[{ata_id}] AUTO-REFUND (TIMEOUT) falhou: {refund_err}")
+
             if is_local:
                 if ata_id not in local_results:
                     local_results[ata_id] = {}

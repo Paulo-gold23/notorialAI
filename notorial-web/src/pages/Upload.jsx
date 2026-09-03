@@ -11,6 +11,7 @@ import ErrorState from '../components/ErrorState';
 import LegalFooter from '../components/LegalFooter';
 
 const STEPS = [
+    { key: 'uploading_chunks', label: 'Enviando arquivo', desc: 'Transferindo arquivo em partes seguras de 20MB' },
     { key: 'optimizing', label: 'Otimizando arquivo', desc: 'Filtrando mídias fora do período' },
     { key: 'estimating', label: 'Analisando conteúdo', desc: 'Estimando custo de processamento' },
     { key: 'uploading', label: 'Preparando processamento', desc: 'Debitando créditos e iniciando' },
@@ -317,7 +318,17 @@ export default function Upload() {
         setStatusMessage('Analisando conversa e estimando custo...');
 
         try {
-            const data = await estimateUpload(fileToUpload, { startDate, endDate });
+            const data = await estimateUpload(fileToUpload, { startDate, endDate }, (stage, percent, current, total) => {
+                if (stage === 'uploading_chunks') {
+                    setCurrentStatus('uploading_chunks');
+                    setStatusMessage(`Enviando arquivo: parte ${current} de ${total} (${percent}%)...`);
+                    setProgress(percent);
+                } else if (stage === 'estimating') {
+                    setCurrentStatus('estimating');
+                    setStatusMessage('Analisando conversa e estimando custo...');
+                    setProgress(100);
+                }
+            });
             setEstimationData(data);
             setCurrentStatus(null);
             setUploading(false);
@@ -677,16 +688,16 @@ export default function Upload() {
                                                 {step.label}
                                                 {isActive && uploading && <div className="sp-wave" />}
                                             </span>
-                                            {isActive && (step.key === 'transcribing' || step.key === 'organizing') && (
+                                            {isActive && (step.key === 'uploading_chunks' || step.key === 'transcribing' || step.key === 'organizing') && (
                                                 <span style={{ fontSize: '0.75rem', color: 'var(--primary-color)', fontWeight: 600 }}>{progress}%</span>
                                             )}
                                         </div>
                                         {isActive && (
                                             <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
-                                                {step.desc}
+                                                {statusMessage || step.desc}
                                             </p>
                                         )}
-                                        {isActive && (step.key === 'transcribing' || step.key === 'organizing') && (
+                                        {isActive && (step.key === 'uploading_chunks' || step.key === 'transcribing' || step.key === 'organizing') && (
                                             <div style={{
                                                 width: '100%',
                                                 height: '4px',

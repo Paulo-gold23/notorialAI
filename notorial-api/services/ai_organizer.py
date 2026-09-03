@@ -243,11 +243,21 @@ async def _call_openai(
     system_prompt: str, 
     user_content: str, 
     client: httpx.AsyncClient = None,
-    temperature: float = 0.2
+    temperature: float = 0.2,
+    *,
+    ata_id: str = None,
+    advogado_id: str = None,
+    operation: str = "unknown",
+    pipeline_stage: str = None,
+    chunk_index: int = None,
+    total_chunks: int = None,
 ) -> str:
     """
     Faz uma chamada para a API da OpenAI com retry automático e tratamento de erros.
+    Registra cada tentativa (sucesso, retry, erro) na tabela ai_usage_log.
     """
+    from services.ai_usage_service import log_ai_call, AICallTimer
+
     if not settings.OPENAI_API_KEY:
         raise Exception("OpenAI API Key não configurada.")
 
@@ -266,33 +276,106 @@ async def _call_openai(
         "temperature": temperature,
         "max_completion_tokens": 8000
     }
+
+    input_chars = len(user_content)
     
     max_retries = 3
     for attempt in range(1, max_retries + 1):
+        timer = AICallTimer()
+        is_retry = attempt > 1
+        retry_reason = None
+
         try:
             from database import get_http_client
             active_client = client if client is not None else get_http_client()
+            timer.start()
             response = await active_client.post(url, json=payload, headers=headers, timeout=180.0)
+            timer.stop()
             
             if response.status_code == 200:
                 result = response.json()
-                return result["choices"][0]["message"]["content"]
+                content = result["choices"][0]["message"]["content"]
+
+                # Captura usage retornado pela API
+                usage = result.get("usage") or {}
+                log_ai_call(
+                    ata_id=ata_id, advogado_id=advogado_id,
+                    service="openai", model=settings.OPENAI_MODEL,
+                    operation=operation, pipeline_stage=pipeline_stage,
+                    attempt_number=attempt, is_retry=is_retry,
+                    input_size_chars=input_chars,
+                    chunk_index=chunk_index, total_chunks=total_chunks,
+                    prompt_tokens=usage.get("prompt_tokens"),
+                    completion_tokens=usage.get("completion_tokens"),
+                    total_tokens=usage.get("total_tokens"),
+                    http_status=200, status="success",
+                    cost_category="confirmed" if usage.get("total_tokens") else "estimated",
+                    duration_ms=timer.duration_ms,
+                )
+                return content
             
-            # Rate limit or server error
+            # Rate limit or server error — log e retry
             if response.status_code in [429, 500, 502, 503, 504]:
                 wait = 2 ** attempt
+                retry_reason = "rate_limit" if response.status_code == 429 else "server_error"
                 logger.warning(f"OpenAI {response.status_code} na tentativa {attempt}. Aguardando {wait}s...")
+                log_ai_call(
+                    ata_id=ata_id, advogado_id=advogado_id,
+                    service="openai", model=settings.OPENAI_MODEL,
+                    operation=operation, pipeline_stage=pipeline_stage,
+                    attempt_number=attempt, is_retry=is_retry,
+                    retry_reason=retry_reason if is_retry else None,
+                    input_size_chars=input_chars,
+                    chunk_index=chunk_index, total_chunks=total_chunks,
+                    http_status=response.status_code,
+                    status="rate_limited" if response.status_code == 429 else "error",
+                    error_category=f"PROVIDER_OPENAI_{retry_reason.upper()}",
+                    error_message=f"HTTP {response.status_code}",
+                    cost_category="pending",
+                    duration_ms=timer.duration_ms,
+                )
                 await asyncio.sleep(wait)
                 continue
                 
-            # Erro fatal (4xx)
+            # Erro fatal (4xx) — log e break
             error_msg = response.text[:500]
             logger.error(f"OpenAI Erro Fatal {response.status_code}: {error_msg}")
+            log_ai_call(
+                ata_id=ata_id, advogado_id=advogado_id,
+                service="openai", model=settings.OPENAI_MODEL,
+                operation=operation, pipeline_stage=pipeline_stage,
+                attempt_number=attempt, is_retry=is_retry,
+                input_size_chars=input_chars,
+                chunk_index=chunk_index, total_chunks=total_chunks,
+                http_status=response.status_code, status="error",
+                error_category="PROVIDER_OPENAI_ERROR",
+                error_message=f"HTTP {response.status_code}: {error_msg[:200]}",
+                cost_category="none",
+                duration_ms=timer.duration_ms,
+            )
             break
 
         except (httpx.TimeoutException, httpx.ConnectError) as e:
+            timer.stop()
             wait = 2 ** attempt
-            logger.warning(f"Conexão OpenAI falhou ({type(e).__name__}). Tentativa {attempt}. Aguardando {wait}s...")
+            exc_name = type(e).__name__
+            is_timeout = isinstance(e, httpx.TimeoutException)
+            retry_reason = "timeout" if is_timeout else "connection_error"
+            logger.warning(f"Conexão OpenAI falhou ({exc_name}). Tentativa {attempt}. Aguardando {wait}s...")
+            log_ai_call(
+                ata_id=ata_id, advogado_id=advogado_id,
+                service="openai", model=settings.OPENAI_MODEL,
+                operation=operation, pipeline_stage=pipeline_stage,
+                attempt_number=attempt, is_retry=is_retry,
+                retry_reason=retry_reason if is_retry else None,
+                input_size_chars=input_chars,
+                chunk_index=chunk_index, total_chunks=total_chunks,
+                status="timeout" if is_timeout else "error",
+                error_category=f"PROVIDER_OPENAI_{retry_reason.upper()}",
+                error_message=f"{exc_name}: {str(e)[:200]}",
+                cost_category="pending" if is_timeout else "none",
+                duration_ms=timer.duration_ms,
+            )
             await asyncio.sleep(wait)
             continue
             
@@ -1106,7 +1189,7 @@ def _inject_document_thumbnails(html_str: str) -> str:
 
 
 
-async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, image_bytes: dict = None) -> dict:
+async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, image_bytes: dict = None, *, ata_id: str = None, advogado_id: str = None) -> dict:
     """
     Transforma o chat parseado em documento organizado via OpenAI (Relatório Preparatório).
     Usa texto limpo (não JSON bruto) para economizar tokens.
@@ -1132,7 +1215,12 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
             if len(chunks) == 1:
                 if on_progress:
                     await on_progress(f"Enviando para IA ({tipo})...", 10)
-                result = await _call_openai(system_prompt, chat_text, client)
+                result = await _call_openai(
+                    system_prompt, chat_text, client,
+                    ata_id=ata_id, advogado_id=advogado_id,
+                    operation="organize_chunk", pipeline_stage="organizing",
+                    chunk_index=0, total_chunks=1,
+                )
                 if on_progress:
                     await on_progress(f"IA ({tipo}) concluída.", 100)
                 # Restaura marcadores %%IMG_N%% que a IA removeu ANTES da conversão HTML.
@@ -1168,6 +1256,25 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
             async def _process_chunk(i: int, chunk: str) -> str:
                 nonlocal completed_chunks
                 async with sem:
+                    # ── Checkpoint lookup: reutiliza chunk já processado ──
+                    if ata_id:
+                        try:
+                            from database import get_supabase_client
+                            _chunk_cache = get_supabase_client()
+                            if _chunk_cache:
+                                cached = _chunk_cache.table("ata_chunks_cache") \
+                                    .select("content") \
+                                    .eq("ata_id", ata_id) \
+                                    .eq("chunk_index", i) \
+                                    .eq("total_chunks", len(chunks)) \
+                                    .execute()
+                                if cached.data and len(cached.data) > 0:
+                                    logger.info(f"[{tipo}] Chunk {i+1}/{len(chunks)} — CACHE HIT, reutilizando")
+                                    completed_chunks += 1
+                                    return cached.data[0]["content"]
+                        except Exception as cc_err:
+                            logger.warning(f"[{tipo}] Chunk cache lookup failed (proceeding): {cc_err}")
+
                     is_first = (i == 0)
                     is_last = (i == len(chunks) - 1)
 
@@ -1187,7 +1294,12 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
                         prog = int((completed_chunks / len(chunks)) * 100)
                         await on_progress(f"[{tipo}] Processando parte {i + 1} de {len(chunks)}...", prog)
 
-                    res = await _call_openai(system_prompt, chunk_prompt, client)
+                    res = await _call_openai(
+                        system_prompt, chunk_prompt, client,
+                        ata_id=ata_id, advogado_id=advogado_id,
+                        operation="organize_chunk", pipeline_stage="organizing",
+                        chunk_index=i, total_chunks=len(chunks),
+                    )
                     completed_chunks += 1
 
                     # Restaura apenas os marcadores que pertenciam a ESTE chunk
@@ -1209,6 +1321,21 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
                         if missing_audio:
                             logger.info(f"[AUDIO_RESTORE] Chunk {i+1}: IA removeu {len(missing_audio)} marcadores — re-inserindo: {missing_audio[:10]}")
                             res = _restore_missing_audio_markers(res, expected_audio_in_chunk)
+
+                    # ── Checkpoint write: salva chunk processado para retomada futura ──
+                    if ata_id:
+                        try:
+                            from database import get_supabase_client
+                            _chunk_w = get_supabase_client()
+                            if _chunk_w:
+                                _chunk_w.table("ata_chunks_cache").upsert({
+                                    "ata_id": ata_id,
+                                    "chunk_index": i,
+                                    "total_chunks": len(chunks),
+                                    "content": res,
+                                }).execute()
+                        except Exception as cw_err:
+                            logger.warning(f"[{tipo}] Chunk cache write failed (non-critical): {cw_err}")
 
                     return res
 
@@ -1239,7 +1366,7 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
             logger.error(f"[{tipo}] Falha no organize_chat_with_ai: {e}", exc_info=True)
             return {"conteudo": f"ERRO IA: {str(e)}"}
 
-async def transform_content_with_ai(content: str, action: str, client: httpx.AsyncClient = None) -> dict:
+async def transform_content_with_ai(content: str, action: str, client: httpx.AsyncClient = None, *, ata_id: str = None, advogado_id: str = None) -> dict:
     """
     Realiza uma transformação rápida no conteúdo fornecido usando IA.
     Ações suportadas: resumir, formalizar, corrigir, extrair_datas.
@@ -1255,7 +1382,11 @@ async def transform_content_with_ai(content: str, action: str, client: httpx.Asy
     user_content = f"TRANSFORMAÇÃO SOLICITADA: {action}\n\nCONTEÚDO:\n{content}"
     
     try:
-        result = await _call_openai(system_prompt, user_content, client)
+        result = await _call_openai(
+            system_prompt, user_content, client,
+            ata_id=ata_id, advogado_id=advogado_id,
+            operation="transform", pipeline_stage=None,
+        )
         # Para transformações rápidas, retornamos o texto sem converter para HTML
         # pois o editor TipTap pode inserir inline.
         return {"conteudo": result}
