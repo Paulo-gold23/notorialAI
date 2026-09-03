@@ -358,23 +358,34 @@ def _get_pipeline_semaphore() -> asyncio.Semaphore:
         _pipeline_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_PIPELINES)
     return _pipeline_semaphore
 
-async def _process_pipeline(ata_id: str, is_local: bool, start_date: str = None, end_date: str = None, token: str = None, advogado_id: str = None, zip_bytes: bytes = None, temp_path: str = None):
+async def _process_pipeline(ata_id: str, is_local: bool, start_date: str = None, end_date: str = None, token: str = None, advogado_id: str = None, zip_bytes: bytes = None, temp_path: str = None, estimated_pages: int = None):
     sem = _get_pipeline_semaphore()
     if sem.locked():
         logger.info(f"[{ata_id}] Pipeline aguardando na fila (concorrência máxima: {_MAX_CONCURRENT_PIPELINES})")
         supabase = get_supabase_client()
         _update_status(ata_id, is_local, supabase, "uploading", progress=0, message="Aguardando liberação na fila de processamento...")
 
+    # Timeout dinâmico: base de 20 minutos (1200s). Para conversas gigantes (> 100 páginas),
+    # escala proporcionalmente até 50 minutos (3000s) para garantir conclusão sem cortes.
+    pages = estimated_pages or 0
+    if pages > 100:
+        pipeline_timeout = min(3000.0, 1200.0 + (pages - 100) * 8.0)
+    else:
+        pipeline_timeout = 1200.0
+
+    timeout_minutes = int(pipeline_timeout // 60)
+    logger.info(f"[{ata_id}] Pipeline timeout configurado: {pipeline_timeout:.0f}s ({timeout_minutes} min) para {pages} páginas")
+
     async with sem:
         try:
             await asyncio.wait_for(
                 _inner_process_pipeline(ata_id, is_local, start_date, end_date, token, advogado_id, zip_bytes, temp_path),
-                timeout=1200.0
+                timeout=pipeline_timeout
             )
         except asyncio.TimeoutError:
-            logger.error(f"[{ata_id}] Pipeline excedeu o tempo limite de 20 minutos.")
+            logger.error(f"[{ata_id}] Pipeline excedeu o tempo limite de {timeout_minutes} minutos.")
             supabase = get_supabase_client()
-            err_msg = 'O processamento demorou mais do que o esperado (limite de 20 minutos) e foi cancelado. Tente arquivos menores.'
+            err_msg = f'O processamento demorou mais do que o esperado (limite de {timeout_minutes} minutos) e foi cancelado. Tente arquivos menores.'
             if supabase and not is_local:
                 try:
                     supabase.table('atas').update({

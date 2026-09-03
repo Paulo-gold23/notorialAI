@@ -596,7 +596,8 @@ async def confirm_upload(
             token=token,
             advogado_id=advogado_id,
             temp_path=temp_path,
-            zip_bytes=zip_bytes
+            zip_bytes=zip_bytes,
+            estimated_pages=estimated_pages
         )
     )
 

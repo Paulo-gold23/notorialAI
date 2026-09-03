@@ -340,7 +340,7 @@ async def transcribe_all(
     if not audios:
         return {}
 
-    sem = asyncio.Semaphore(3)  # reduzido de 5→3 para evitar rate limit
+    sem = asyncio.Semaphore(6)  # Otimizado para 6 chamadas paralelas (Groq suporta com folga)
     total = len(audios)
     completed = 0
     errors = 0

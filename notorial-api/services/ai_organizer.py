@@ -1237,7 +1237,7 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
                 return {"conteudo": html}
             
             # Caso com chunks - processa em paralelo e restaura marcadores por chunk
-            logger.info(f"[{tipo}] Chat dividido em {len(chunks)} chunks (concorrência máxima: 3)")
+            logger.info(f"[{tipo}] Chat dividido em {len(chunks)} chunks (concorrência máxima: 6)")
 
             # Pré-indexa quais marcadores %%IMG_N%% existem em cada chunk de input
             # Cada chunk da IA só precisa preservar OS SEUS próprios marcadores
@@ -1250,7 +1250,7 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
                 found_audio = {int(m) for m in _AUDIO_MARKER_RE.findall(chunk)}
                 chunk_audio_indices.append(found_audio)
 
-            sem = asyncio.Semaphore(3)
+            sem = asyncio.Semaphore(6)
             completed_chunks = 0
 
             async def _process_chunk(i: int, chunk: str) -> str:
