@@ -27,12 +27,12 @@ logger = logging.getLogger(__name__)
 # ── Security constants ──
 MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500 MB max upload
 
-import re as _re
+import re
 
 def _sanitize_filename(raw: str) -> str:
     """Sanitize user-provided filename to prevent XSS and path traversal in document titles."""
     base = os.path.basename(raw or "arquivo")
-    clean = _re.sub(r'[<>"\'/\\&;`${}]', '', base)
+    clean = re.sub(r'[<>"\'/\\&;`${}]', '', base)
     return (clean.strip()[:100]) or "arquivo"
 
 class AtaContentUpdate(BaseModel):
