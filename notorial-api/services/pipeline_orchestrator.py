@@ -330,10 +330,12 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
         if supabase:
             def _sync_error_and_refund():
                 try:
+                    # Inclui exceção original truncada no error_message para debug remoto
+                    debug_msg = f"{err_msg} [DEBUG: {raw_msg[:500]}]"
                     supabase.table('atas').update({
                         'status': 'error',
                         'status_message': err_msg,
-                        'error_message': err_msg
+                        'error_message': debug_msg
                     }).eq('id', ata_id).execute()
                 except Exception:
                     pass

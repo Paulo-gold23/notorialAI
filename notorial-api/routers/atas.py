@@ -616,7 +616,8 @@ async def get_ata_status(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_c
 
         # Supabase é sempre a fonte de verdade (multi-worker safe).
         if supabase:
-            res = supabase.table("atas").select("status, status_message, error_message").eq("id", ata_id).is_("deleted_at", "null").execute()
+            from database import db_exec
+            res = await db_exec(lambda: supabase.table("atas").select("status, status_message, error_message").eq("id", ata_id).is_("deleted_at", "null").execute())
             if not res.data:
                 # Pode estar ainda no mesmo worker (pipeline recém iniciada): checar local.
                 cached = local_results.get(ata_id)

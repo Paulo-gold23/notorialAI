@@ -23,25 +23,66 @@ async def db_exec(fn):
 _cached_supabase = None
 _cached_supabase_admin = None
 
-def _apply_extended_timeout(client: Client, timeout_seconds: float = 180.0):
-    """Safely extend the httpx timeout on the postgrest client after creation.
+def _force_httpx_timeout(client: Client, timeout_seconds: float = 180.0):
+    """Force httpx timeout on ALL internal httpx.Client/AsyncClient instances.
     
-    The default httpx timeout (~5s) is too short for saving large documents.
-    Blocking a sync supabase-py call for >100s triggers Cloudflare 524 errors,
-    so we extend the timeout and run these calls in run_in_executor.
+    The supabase-py library stores httpx sessions in different attributes depending
+    on version. This function brute-force walks the object tree to find them all.
     """
-    try:
-        _timeout = httpx.Timeout(timeout_seconds, connect=10.0)
-        pg = getattr(client, 'postgrest', None)
-        if pg:
-            for attr in ('_client', '_session', 'session'):
-                sess = getattr(pg, attr, None)
-                if sess and hasattr(sess, 'timeout'):
-                    sess.timeout = _timeout
-                    logger.info(f"[database] PostgREST timeout extended to {timeout_seconds}s via .postgrest.{attr}")
-                    return
-    except Exception as e:
-        logger.warning(f"[database] Could not extend postgrest timeout: {e}")
+    _timeout = httpx.Timeout(timeout_seconds, connect=30.0)
+    applied = []
+    
+    # Strategy 1: Direct postgrest client attributes (covers most versions)
+    pg = getattr(client, 'postgrest', None)
+    if pg:
+        for attr in ('_client', '_session', 'session', 'http', '_http_client'):
+            sess = getattr(pg, attr, None)
+            if isinstance(sess, (httpx.Client, httpx.AsyncClient)):
+                sess.timeout = _timeout
+                applied.append(f"postgrest.{attr}")
+    
+    # Strategy 2: Walk ALL attributes of the postgrest object looking for httpx clients
+    if pg and not applied:
+        for attr_name in dir(pg):
+            if attr_name.startswith('__'):
+                continue
+            try:
+                val = getattr(pg, attr_name, None)
+                if isinstance(val, (httpx.Client, httpx.AsyncClient)):
+                    val.timeout = _timeout
+                    applied.append(f"postgrest.{attr_name}")
+            except Exception:
+                continue
+    
+    # Strategy 3: Walk the top-level supabase client itself
+    if not applied:
+        for attr_name in dir(client):
+            if attr_name.startswith('__'):
+                continue
+            try:
+                val = getattr(client, attr_name, None)
+                if isinstance(val, (httpx.Client, httpx.AsyncClient)):
+                    val.timeout = _timeout
+                    applied.append(f"client.{attr_name}")
+                # Also check one level deeper
+                if val and hasattr(val, '__dict__'):
+                    for sub_attr in dir(val):
+                        if sub_attr.startswith('__'):
+                            continue
+                        try:
+                            sub_val = getattr(val, sub_attr, None)
+                            if isinstance(sub_val, (httpx.Client, httpx.AsyncClient)):
+                                sub_val.timeout = _timeout
+                                applied.append(f"client.{attr_name}.{sub_attr}")
+                        except Exception:
+                            continue
+            except Exception:
+                continue
+    
+    if applied:
+        logger.info(f"[database] httpx timeout set to {timeout_seconds}s on: {', '.join(applied)}")
+    else:
+        logger.warning(f"[database] ⚠️ COULD NOT find any httpx.Client to set timeout! supabase-py internals may have changed.")
 
 def get_supabase_client() -> Client:
     """Anon key client — used for internal operations (pipeline, cleanup).
@@ -58,7 +99,7 @@ def get_supabase_client() -> Client:
         return None
     try:
         _cached_supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
-        _apply_extended_timeout(_cached_supabase)
+        _force_httpx_timeout(_cached_supabase)
         return _cached_supabase
     except Exception as e:
         print(f"\n[ALERTA] Erro ao conectar ao Supabase (anon): {e}")
@@ -131,7 +172,7 @@ def get_supabase_admin_client() -> Client:
 
     try:
         _cached_supabase_admin = create_client(url, key)
-        _apply_extended_timeout(_cached_supabase_admin)
+        _force_httpx_timeout(_cached_supabase_admin)
         if not service_key:
             print("[AVISO] SUPABASE_SERVICE_KEY nao configurada. Queries do backend usarao anon key (RLS ativo).")
             print("[INFO] Configure SUPABASE_SERVICE_KEY no .env para evitar erros de 'Perfil nao encontrado'.")
