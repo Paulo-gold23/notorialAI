@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 import logging
 from datetime import datetime, timedelta, timezone
@@ -15,15 +16,16 @@ logger = logging.getLogger(__name__)
 
 class AsaasService:
     def __init__(self):
-        self.api_key = settings.ASAAS_API_KEY
+        self.api_key = settings.ASAAS_API_KEY.strip()
         if settings.ASAAS_ENVIRONMENT == "sandbox":
-            self.base_url = "https://sandbox.asaas.com/api/v3"
+            self.base_url = "https://api-sandbox.asaas.com/v3"
         else:
             self.base_url = "https://api.asaas.com/v3"
 
         self.headers = {
             "access_token": self.api_key,
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "User-Agent": "LegisVox/1.0"
         }
 
     async def get_or_create_customer(
@@ -147,19 +149,50 @@ class AsaasService:
                 payment_data = response.json()
                 payment_id = payment_data.get("id")
 
-                # Fetch QR Code
-                qr_response = await client.get(
-                    f"{self.base_url}/payments/{payment_id}/pixQrCode",
-                    headers=self.headers,
-                )
-                qr_data = qr_response.json() if qr_response.status_code == 200 else {}
+                # Fetch QR Code with up to 3 retries (1s delay) if not ready immediately
+                encoded_image = None
+                payload_str = None
+                qr_error = None
+
+                for attempt in range(3):
+                    try:
+                        qr_response = await client.get(
+                            f"{self.base_url}/payments/{payment_id}/pixQrCode",
+                            headers=self.headers,
+                        )
+                        if qr_response.status_code == 200:
+                            qr_data = qr_response.json()
+                            encoded_image = qr_data.get("encodedImage")
+                            payload_str = qr_data.get("payload")
+                            if encoded_image or payload_str:
+                                break
+                        else:
+                            qr_error = self._extract_asaas_errors(qr_response)
+                            logger.warning(
+                                f"[ASAAS] pixQrCode attempt {attempt + 1}/3 failed | status={qr_response.status_code} | {qr_error}"
+                            )
+                    except Exception as e:
+                        logger.warning(f"[ASAAS] pixQrCode attempt {attempt + 1}/3 exception: {e}")
+
+                    if attempt < 2:
+                        await asyncio.sleep(1.0)
+
+                if not payload_str and not encoded_image:
+                    logger.error(
+                        f"[ASAAS] Failed to retrieve Pix QR Code for payment {payment_id} | error={qr_error}"
+                    )
+                    return {
+                        "success": False,
+                        "payment_id": payment_id,
+                        "error": qr_error or "Não foi possível gerar o QR Code Pix no momento. Tente novamente.",
+                    }
 
                 return {
                     "success": True,
                     "payment_id": payment_id,
                     "invoice_url": payment_data.get("invoiceUrl"),
-                    "encoded_image": qr_data.get("encodedImage"),
-                    "payload": qr_data.get("payload"),
+                    "encoded_image": encoded_image,
+                    "payload": payload_str,
                 }
 
             logger.error(
@@ -177,6 +210,17 @@ class AsaasService:
             if response.status_code == 200:
                 return response.json().get("status", "UNKNOWN")
         return "ERROR"
+
+    async def verify_connection(self) -> Dict[str, Any]:
+        """Verifica a conectividade e status da conta no Asaas."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{self.base_url}/myAccount/status", headers=self.headers)
+                if resp.status_code == 200:
+                    return {"success": True, "data": resp.json()}
+                return {"success": False, "error": self._extract_asaas_errors(resp)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
 
 # ── Asaas error code → Portuguese translations ────────────────────────────────

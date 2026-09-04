@@ -158,8 +158,10 @@ export default function Credits() {
 
 
   const handleCopy = () => {
+    if (!paymentData?.pix_payload) return;
     navigator.clipboard.writeText(paymentData.pix_payload);
     setCopied(true);
+    toast.success('Código PIX copiado!');
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -216,8 +218,21 @@ export default function Credits() {
               R$ {parseFloat(paymentData.price).toFixed(2).replace('.', ',')}
             </p>
 
-            <div className="inline-block p-4 rounded-xl mb-6 bg-white shadow-sm border border-slate-200">
-              <QRCode value={paymentData.pix_payload} size={220} />
+            <div className="inline-flex items-center justify-center p-4 rounded-xl mb-6 bg-white shadow-sm border border-slate-200 min-h-[240px] min-w-[240px]">
+              {paymentData.qr_code ? (
+                <img
+                  src={`data:image/png;base64,${paymentData.qr_code}`}
+                  alt="QR Code Pix Asaas"
+                  className="w-[220px] h-[220px] object-contain"
+                />
+              ) : paymentData.pix_payload ? (
+                <QRCode value={paymentData.pix_payload} size={220} />
+              ) : (
+                <div className="flex flex-col items-center justify-center p-6 text-slate-500">
+                  <AlertCircle size={36} className="text-amber-500 mb-2" />
+                  <span className="text-sm font-medium">QR Code em processamento...</span>
+                </div>
+              )}
             </div>
 
             <div className="max-w-md mx-auto space-y-4">
@@ -228,7 +243,7 @@ export default function Credits() {
                 <input
                   type="text"
                   readOnly
-                  value={paymentData.pix_payload}
+                  value={paymentData.pix_payload || ''}
                   className="input-base"
                   style={{ paddingRight: '120px' }}
                 />
@@ -240,6 +255,21 @@ export default function Credits() {
                   {copied ? <CheckCircle2 size={14} /> : 'Copiar Pix'}
                 </button>
               </div>
+
+              {paymentData.invoice_url && (
+                <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                  Precisa pagar pelo navegador?{' '}
+                  <a
+                    href={paymentData.invoice_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline font-medium hover:opacity-80"
+                    style={{ color: 'var(--gold-to)' }}
+                  >
+                    Abrir fatura Asaas
+                  </a>
+                </p>
+              )}
 
               <div className="flex items-center justify-center gap-2 mt-8 py-3 rounded-lg" style={{ background: 'rgba(245, 158, 11, 0.1)', color: 'var(--gold-to)' }}>
                 <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent"></div>

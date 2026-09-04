@@ -12,9 +12,9 @@ class Settings:
     SUPABASE_SERVICE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")  # service role (backend only)
     GOTENBERG_URL: str = os.getenv("GOTENBERG_URL", "http://localhost:3000")
     PDF_CONVERTER_URL: str = os.getenv("PDF_CONVERTER_URL", "")
-    ASAAS_API_KEY: str = os.getenv("ASAAS_API_KEY", "")
-    ASAAS_ENVIRONMENT: str = os.getenv("ASAAS_ENVIRONMENT", "sandbox")
-    ASAAS_WEBHOOK_TOKEN: str = os.getenv("ASAAS_WEBHOOK_TOKEN", "")
+    ASAAS_API_KEY: str = os.getenv("ASAAS_API_KEY", "").strip()
+    ASAAS_ENVIRONMENT: str = os.getenv("ASAAS_ENVIRONMENT", "sandbox").strip().lower()
+    ASAAS_WEBHOOK_TOKEN: str = os.getenv("ASAAS_WEBHOOK_TOKEN", "").strip()
     
     # SMTP/E-mail Configuration
     SMTP_HOST: str = os.getenv("SMTP_HOST", "sandbox.smtp.mailtrap.io")

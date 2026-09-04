@@ -3,11 +3,14 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 import base64
 import hashlib
+import logging
 
 from database import supabase, supabase_admin
 from services.credits import credits_service
 from services.asaas import asaas_service
 from middleware.auth import get_current_user_id
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/credits", tags=["Credits"])
 
@@ -111,13 +114,18 @@ async def purchase_package(req: PurchaseRequest, user_id: str = Depends(get_curr
         )
     except ValueError as e:
         logger.warning(f"[CREDITS] Asaas customer creation ValueError for user {user_id}: {e}")
+        err_msg = str(e)
+        if "Asaas:" in err_msg:
+            detail = err_msg.replace("Asaas:", "").strip()
+        else:
+            detail = "Não foi possível registrar os dados de pagamento. Verifique seu CPF/CNPJ e tente novamente."
         raise HTTPException(
             status_code=422,
-            detail="Não foi possível registrar os dados de pagamento. Verifique seu CPF/CNPJ e tente novamente."
+            detail=detail
         )
     
     if not customer_id:
-        raise HTTPException(status_code=400, detail="Falha ao registrar cliente no Asaas. Verifique seus dados.")
+        raise HTTPException(status_code=400, detail="Falha ao registrar cliente no gateway de pagamento. Verifique seus dados.")
         
     # 4. Criar pagamento
     if is_custom:
@@ -128,9 +136,10 @@ async def purchase_package(req: PurchaseRequest, user_id: str = Depends(get_curr
     if req.payment_method == "PIX":
         pay_res = await asaas_service.create_pix_payment(customer_id, total_price_cents, desc)
         
-        if not pay_res["success"]:
-            logger.warning(f"[CREDITS] PIX payment creation failed for user {user_id}: {pay_res.get('error')}")
-            raise HTTPException(status_code=400, detail="Falha ao criar pagamento PIX. Tente novamente.")
+        if not pay_res.get("success"):
+            err_msg = pay_res.get("error") or "Falha ao criar pagamento PIX. Tente novamente."
+            logger.warning(f"[CREDITS] PIX payment creation failed for user {user_id}: {err_msg}")
+            raise HTTPException(status_code=400, detail=err_msg)
             
         # 5. Registrar no banco local
         payment_data = {
