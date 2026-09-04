@@ -258,7 +258,7 @@ _UUID_REGEX = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 
 
 @router.post("/upload/chunk")
-@limiter.limit("60/minute")
+@limiter.limit("180/minute")
 async def upload_chunk(
     request: Request,
     chunk: UploadFile = File(...),

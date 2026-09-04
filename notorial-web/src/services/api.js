@@ -92,7 +92,7 @@ export async function uploadZip(file, options = {}) {
 }
 
 export async function uploadInChunks(file, onProgress = null) {
-    const CHUNK_SIZE = 20 * 1024 * 1024; // 20 MB por fatia (bem abaixo do teto de 100MB do Cloudflare)
+    const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB por fatia (otimizado para redes lentas <= 1Mbps e seguro contra timeout de 100s do Cloudflare)
     const uploadId = (typeof crypto !== 'undefined' && crypto.randomUUID) 
         ? crypto.randomUUID() 
         : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
