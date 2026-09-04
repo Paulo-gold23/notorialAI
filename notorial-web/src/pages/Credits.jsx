@@ -29,6 +29,7 @@ export default function Credits() {
   const [cpfForCheckout, setCpfForCheckout] = useState('');
   const [cpfError, setCpfError] = useState('');
   const [purchaseConfirm, setPurchaseConfirm] = useState(null); // { credits, totalCents, pricePerPage, cpf }
+  const [pendingPurchase, setPendingPurchase] = useState(null);
   const toast = useToast();
 
   useEffect(() => {
@@ -150,6 +151,7 @@ export default function Credits() {
     if (cpf && cpf.length >= 11) {
       handlePurchase(pkg, overrideCredits, cpf);
     } else {
+      setPendingPurchase({ pkg, overrideCredits });
       setCpfForCheckout('');
       setCpfError('');
       setShowCpfPrompt(true);
@@ -633,7 +635,9 @@ export default function Credits() {
                       return;
                     }
                     setShowCpfPrompt(false);
-                    handlePurchase(customPkg, customCredits, clean);
+                    const targetPkg = pendingPurchase?.pkg || customPkg;
+                    const targetCredits = pendingPurchase?.overrideCredits !== undefined ? pendingPurchase.overrideCredits : customCredits;
+                    handlePurchase(targetPkg, targetCredits, clean);
                   }}
                   className="btn-gradient w-full py-3 rounded-xl font-semibold text-sm cursor-pointer"
                 >

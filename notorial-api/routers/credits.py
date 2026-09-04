@@ -61,11 +61,13 @@ async def purchase_package(req: PurchaseRequest, user_id: str = Depends(get_curr
             detail="O CPF ou CNPJ para emissão do Pix é obrigatório."
         )
 
-    # Validar se o CPF enviado confere com o cadastrado no banco (SHA-256 ou fallback Base64)
+    # Validar se o CPF enviado confere com o cadastrado no banco (SHA-256, plaintext ou fallback Base64)
     hashed_sent = hashlib.sha256(raw_cpf.encode("utf-8")).hexdigest()
     
     is_valid_user_cpf = False
-    if db_cpf_cnpj == hashed_sent:
+    clean_db_cpf = "".join(c for c in (db_cpf_cnpj or "") if c.isdigit())
+
+    if db_cpf_cnpj == hashed_sent or clean_db_cpf == raw_cpf:
         is_valid_user_cpf = True
     else:
         # Fallback: tentar decodificar Base64 (usuários antigos)
