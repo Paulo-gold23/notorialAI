@@ -82,8 +82,8 @@ async def _persist_log(record: dict) -> None:
     Falhas são capturadas internamente e logadas — nunca propagadas.
     """
     try:
-        from database import get_supabase_client, db_exec
-        supabase = get_supabase_client()
+        from database import get_supabase_client, get_supabase_admin_client, db_exec
+        supabase = get_supabase_admin_client() or get_supabase_client()
         if supabase is None:
             logger.warning("[ai_usage] Supabase indisponível — registro de auditoria descartado")
             return

@@ -4,7 +4,7 @@ import time
 import asyncio
 import logging
 from config import settings
-from database import get_supabase_client, _db_executor
+from database import get_supabase_client, get_supabase_admin_client, _db_executor
 from services.whatsapp_parser import parse_whatsapp_zip
 from services.transcription import transcribe_all
 from services.ai_organizer import organize_chat_with_ai
@@ -41,11 +41,10 @@ def _update_status(ata_id: str, is_local: bool, supabase, status_name: str, prog
     })
 
 async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str = None, end_date: str = None, token: str = None, advogado_id: str = None, zip_bytes: bytes = None, temp_path: str = None):
-    # IMPORTANT: Use the global Supabase client (anon key) for the pipeline.
-    # Do NOT use the user's JWT token here — it expires during long processing
-    # (transcription + AI can take 5-15 mins) causing "JWT expired" errors.
-    # RLS policies already allow anon access via "Service can manage" policies.
-    supabase = get_supabase_client()
+    # IMPORTANT: Use the service role client for background pipeline processing.
+    # It bypasses RLS and inherits the default statement_timeout (no 3s limit).
+    # Falls back to anon client if SUPABASE_SERVICE_KEY is not configured.
+    supabase = get_supabase_admin_client() or get_supabase_client()
 
     def update(status_name, message="", progress=0):
         _update_status(ata_id, is_local, supabase, status_name, progress=progress, message=message)
@@ -405,7 +404,7 @@ async def _process_pipeline(ata_id: str, is_local: bool, start_date: str = None,
     sem = _get_pipeline_semaphore()
     if sem.locked():
         logger.info(f"[{ata_id}] Pipeline aguardando na fila (concorrência máxima: {_MAX_CONCURRENT_PIPELINES})")
-        supabase = get_supabase_client()
+        supabase = get_supabase_admin_client() or get_supabase_client()
         _update_status(ata_id, is_local, supabase, "uploading", progress=0, message="Aguardando liberação na fila de processamento...")
 
     # Timeout dinâmico: base de 20 minutos (1200s). Para conversas gigantes (> 100 páginas),
@@ -427,7 +426,7 @@ async def _process_pipeline(ata_id: str, is_local: bool, start_date: str = None,
             )
         except asyncio.TimeoutError:
             logger.error(f"[{ata_id}] Pipeline excedeu o tempo limite de {timeout_minutes} minutos.")
-            supabase = get_supabase_client()
+            supabase = get_supabase_admin_client() or get_supabase_client()
             err_msg = f'O processamento demorou mais do que o esperado (limite de {timeout_minutes} minutos) e foi cancelado. Tente arquivos menores.'
             if supabase and not is_local:
                 def _sync_timeout_error():

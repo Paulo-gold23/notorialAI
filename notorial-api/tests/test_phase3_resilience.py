@@ -77,6 +77,7 @@ async def test_transcribe_cache_hit():
         'services.ai_usage_service': mock_ai_usage,
         'database': MagicMock(
             get_supabase_client=MagicMock(return_value=mock_cache_client),
+            get_supabase_admin_client=MagicMock(return_value=mock_cache_client),
             db_exec=mock_db_exec,
             _db_executor=mock_db_executor,
         ),
@@ -137,6 +138,7 @@ async def test_transcribe_cache_miss_calls_api():
         'services.ai_usage_service': mock_ai_usage,
         'database': MagicMock(
             get_supabase_client=MagicMock(return_value=mock_cache_client),
+            get_supabase_admin_client=MagicMock(return_value=mock_cache_client),
             db_exec=mock_db_exec,
             _db_executor=mock_db_executor,
         ),

@@ -82,8 +82,8 @@ async def _transcribe_single_audio(
     # ── Cache lookup: evita reprocessamento (e custo) de áudios já transcritos ──
     audio_hash = hashlib.sha256(audio_bytes).hexdigest()
     try:
-        from database import get_supabase_client, db_exec, _db_executor
-        _cache_client = get_supabase_client()
+        from database import get_supabase_client, get_supabase_admin_client, db_exec, _db_executor
+        _cache_client = get_supabase_admin_client() or get_supabase_client()
         if _cache_client:
             cache_resp = await db_exec(lambda: _cache_client.table("audio_transcription_cache")
                 .select("transcription_text,hit_count")
@@ -174,8 +174,8 @@ async def _transcribe_single_audio(
                 )
                 # ── Cache write: salva transcrição para evitar custo em reprocessamentos (fire-and-forget) ──
                 try:
-                    from database import get_supabase_client, _db_executor as _cw_exec
-                    _cache_w = get_supabase_client()
+                    from database import get_supabase_client, get_supabase_admin_client, _db_executor as _cw_exec
+                    _cache_w = get_supabase_admin_client() or get_supabase_client()
                     if _cache_w:
                         _cw_record = {
                             "audio_hash": audio_hash,

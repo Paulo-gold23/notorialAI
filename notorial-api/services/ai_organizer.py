@@ -1255,8 +1255,8 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
             current_zip_hash = None
             if ata_id:
                 try:
-                    from database import get_supabase_client, db_exec as _db_exec
-                    _sc = get_supabase_client()
+                    from database import get_supabase_client, get_supabase_admin_client, db_exec as _db_exec
+                    _sc = get_supabase_admin_client() or get_supabase_client()
                     if _sc:
                         _ata_row = await _db_exec(lambda: _sc.table("atas").select("zip_hash").eq("id", ata_id).execute())
                         if _ata_row.data and _ata_row.data[0].get("zip_hash"):
@@ -1275,8 +1275,8 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
                     # ── Checkpoint lookup: reutiliza chunk já processado ──
                     if ata_id:
                         try:
-                            from database import get_supabase_client, db_exec as _db_exec, _db_executor
-                            _chunk_cache = get_supabase_client()
+                            from database import get_supabase_client, get_supabase_admin_client, db_exec as _db_exec, _db_executor
+                            _chunk_cache = get_supabase_admin_client() or get_supabase_client()
                             if _chunk_cache:
                                 # 1. Match pelo ata_id + índice
                                 _ci, _tc = i, len(chunks)
@@ -1371,8 +1371,8 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
                     # ── Checkpoint write: salva chunk processado para retomada futura (fire-and-forget) ──
                     if ata_id:
                         try:
-                            from database import get_supabase_client, _db_executor
-                            _chunk_w = get_supabase_client()
+                            from database import get_supabase_client, get_supabase_admin_client, _db_executor
+                            _chunk_w = get_supabase_admin_client() or get_supabase_client()
                             if _chunk_w:
                                 _cw_rec = {
                                     "ata_id": ata_id,
