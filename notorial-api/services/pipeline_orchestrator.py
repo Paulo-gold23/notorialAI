@@ -4,7 +4,7 @@ import time
 import asyncio
 import logging
 from config import settings
-from database import get_supabase_client
+from database import get_supabase_client, _db_executor
 from services.whatsapp_parser import parse_whatsapp_zip
 from services.transcription import transcribe_all
 from services.ai_organizer import organize_chat_with_ai
@@ -15,18 +15,20 @@ logger = logging.getLogger(__name__)
 local_results = {}
 
 def _update_status(ata_id: str, is_local: bool, supabase, status_name: str, progress: int = 0, message: str = ""):
-    """Persiste status no Supabase. Atualiza local_results apenas em modo local."""
+    """Persiste status no Supabase. Fire-and-forget via thread pool (NÃO bloqueia o event loop)."""
     formatted_message = f"{progress}%: {message}" if progress > 0 else message
     
-    # Em modo com Supabase, a fonte de verdade é o banco — sem escrita em memória.
+    # Em modo com Supabase, submete a atualização ao thread pool — retorno imediato.
     if not is_local and supabase:
-        try:
-            supabase.table('atas').update({
-                'status': status_name,
-                'status_message': formatted_message
-            }).eq('id', ata_id).execute()
-        except Exception as e:
-            logger.warning(f"Erro ao atualizar status no Supabase: {e}")
+        def _sync():
+            try:
+                supabase.table('atas').update({
+                    'status': status_name,
+                    'status_message': formatted_message
+                }).eq('id', ata_id).execute()
+            except Exception as e:
+                logger.warning(f"Erro ao atualizar status no Supabase: {e}")
+        _db_executor.submit(_sync)
         return
 
     # Modo local (sem Supabase): usa local_results como fallback.
@@ -324,53 +326,51 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
             err_category = 'INTERNAL'
             err_msg = 'Ocorreu um erro inesperado no processamento. Nossa equipe foi notificada. Tente novamente.'
 
-        # Persiste erro no banco (fonte de verdade).
+        # Persiste erro no banco e faz estorno — tudo via thread pool (fire-and-forget).
         if supabase:
-            try:
-                supabase.table('atas').update({
-                    'status': 'error',
-                    'status_message': err_msg,
-                    'error_message': err_msg
-                }).eq('id', ata_id).execute()
-            except Exception:
-                pass
+            def _sync_error_and_refund():
+                try:
+                    supabase.table('atas').update({
+                        'status': 'error',
+                        'status_message': err_msg,
+                        'error_message': err_msg
+                    }).eq('id', ata_id).execute()
+                except Exception:
+                    pass
 
-        # ── Estorno automático de créditos em falha ──
-        # Se créditos foram debitados para esta ata e nenhum refund foi feito,
-        # devolve integralmente para o advogado.
-        if supabase and not is_local and advogado_id:
-            try:
-                # Verifica se houve débito para esta ata
-                debit_resp = supabase.table('credit_transactions') \
-                    .select('amount') \
-                    .eq('ata_id', ata_id) \
-                    .eq('type', 'debit') \
-                    .execute()
-                if debit_resp.data and len(debit_resp.data) > 0:
-                    charged = debit_resp.data[0].get('amount', 0)
-                    # Verifica se já houve refund para esta ata (idempotência)
-                    refund_resp = supabase.table('credit_transactions') \
-                        .select('id') \
-                        .eq('ata_id', ata_id) \
-                        .eq('type', 'refund') \
-                        .execute()
-                    if not refund_resp.data or len(refund_resp.data) == 0:
-                        from services.credits import credits_service
-                        refund_ok = credits_service.refund_credits(
-                            advogado_id, ata_id,
-                            estimated=charged, actual=0
-                        )
-                        if refund_ok:
-                            logger.info(
-                                f"[{ata_id}] AUTO-REFUND: {charged} créditos devolvidos "
-                                f"ao advogado {advogado_id} após falha no pipeline ({err_category})"
-                            )
-                        else:
-                            logger.warning(f"[{ata_id}] AUTO-REFUND: refund_credits retornou False")
-                    else:
-                        logger.info(f"[{ata_id}] AUTO-REFUND: refund já existe, ignorando duplicata")
-            except Exception as refund_err:
-                logger.error(f"[{ata_id}] AUTO-REFUND falhou (não-bloqueante): {refund_err}")
+                # ── Estorno automático de créditos em falha ──
+                if not is_local and advogado_id:
+                    try:
+                        debit_resp = supabase.table('credit_transactions') \
+                            .select('amount') \
+                            .eq('ata_id', ata_id) \
+                            .eq('type', 'debit') \
+                            .execute()
+                        if debit_resp.data and len(debit_resp.data) > 0:
+                            charged = debit_resp.data[0].get('amount', 0)
+                            refund_resp = supabase.table('credit_transactions') \
+                                .select('id') \
+                                .eq('ata_id', ata_id) \
+                                .eq('type', 'refund') \
+                                .execute()
+                            if not refund_resp.data or len(refund_resp.data) == 0:
+                                from services.credits import credits_service
+                                refund_ok = credits_service.refund_credits(
+                                    advogado_id, ata_id,
+                                    estimated=charged, actual=0
+                                )
+                                if refund_ok:
+                                    logger.info(
+                                        f"[{ata_id}] AUTO-REFUND: {charged} créditos devolvidos "
+                                        f"ao advogado {advogado_id} após falha no pipeline ({err_category})"
+                                    )
+                                else:
+                                    logger.warning(f"[{ata_id}] AUTO-REFUND: refund_credits retornou False")
+                            else:
+                                logger.info(f"[{ata_id}] AUTO-REFUND: refund já existe, ignorando duplicata")
+                    except Exception as refund_err:
+                        logger.error(f"[{ata_id}] AUTO-REFUND falhou (não-bloqueante): {refund_err}")
+            _db_executor.submit(_sync_error_and_refund)
 
         # Fallback local (modo sem Supabase).
         if is_local:
@@ -428,47 +428,49 @@ async def _process_pipeline(ata_id: str, is_local: bool, start_date: str = None,
             supabase = get_supabase_client()
             err_msg = f'O processamento demorou mais do que o esperado (limite de {timeout_minutes} minutos) e foi cancelado. Tente arquivos menores.'
             if supabase and not is_local:
-                try:
-                    supabase.table('atas').update({
-                        'status': 'error',
-                        'status_message': err_msg,
-                        'error_message': err_msg
-                    }).eq('id', ata_id).execute()
-                except Exception:
-                    pass
+                def _sync_timeout_error():
+                    try:
+                        supabase.table('atas').update({
+                            'status': 'error',
+                            'status_message': err_msg,
+                            'error_message': err_msg
+                        }).eq('id', ata_id).execute()
+                    except Exception:
+                        pass
 
-            # ── Estorno automático de créditos em timeout ──
-            if supabase and not is_local and advogado_id:
-                try:
-                    debit_resp = supabase.table('credit_transactions') \
-                        .select('amount') \
-                        .eq('ata_id', ata_id) \
-                        .eq('type', 'debit') \
-                        .execute()
-                    if debit_resp.data and len(debit_resp.data) > 0:
-                        charged = debit_resp.data[0].get('amount', 0)
-                        refund_resp = supabase.table('credit_transactions') \
-                            .select('id') \
-                            .eq('ata_id', ata_id) \
-                            .eq('type', 'refund') \
-                            .execute()
-                        if not refund_resp.data or len(refund_resp.data) == 0:
-                            from services.credits import credits_service
-                            refund_ok = credits_service.refund_credits(
-                                advogado_id, ata_id,
-                                estimated=charged, actual=0
-                            )
-                            if refund_ok:
-                                logger.info(
-                                    f"[{ata_id}] AUTO-REFUND (TIMEOUT): {charged} créditos devolvidos "
-                                    f"ao advogado {advogado_id}"
-                                )
-                            else:
-                                logger.warning(f"[{ata_id}] AUTO-REFUND (TIMEOUT): refund_credits retornou False")
-                        else:
-                            logger.info(f"[{ata_id}] AUTO-REFUND (TIMEOUT): refund já existe")
-                except Exception as refund_err:
-                    logger.error(f"[{ata_id}] AUTO-REFUND (TIMEOUT) falhou: {refund_err}")
+                    # ── Estorno automático de créditos em timeout ──
+                    if advogado_id:
+                        try:
+                            debit_resp = supabase.table('credit_transactions') \
+                                .select('amount') \
+                                .eq('ata_id', ata_id) \
+                                .eq('type', 'debit') \
+                                .execute()
+                            if debit_resp.data and len(debit_resp.data) > 0:
+                                charged = debit_resp.data[0].get('amount', 0)
+                                refund_resp = supabase.table('credit_transactions') \
+                                    .select('id') \
+                                    .eq('ata_id', ata_id) \
+                                    .eq('type', 'refund') \
+                                    .execute()
+                                if not refund_resp.data or len(refund_resp.data) == 0:
+                                    from services.credits import credits_service
+                                    refund_ok = credits_service.refund_credits(
+                                        advogado_id, ata_id,
+                                        estimated=charged, actual=0
+                                    )
+                                    if refund_ok:
+                                        logger.info(
+                                            f"[{ata_id}] AUTO-REFUND (TIMEOUT): {charged} créditos devolvidos "
+                                            f"ao advogado {advogado_id}"
+                                        )
+                                    else:
+                                        logger.warning(f"[{ata_id}] AUTO-REFUND (TIMEOUT): refund_credits retornou False")
+                                else:
+                                    logger.info(f"[{ata_id}] AUTO-REFUND (TIMEOUT): refund já existe")
+                        except Exception as refund_err:
+                            logger.error(f"[{ata_id}] AUTO-REFUND (TIMEOUT) falhou: {refund_err}")
+                _db_executor.submit(_sync_timeout_error)
 
             if is_local:
                 if ata_id not in local_results:

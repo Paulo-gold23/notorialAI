@@ -1255,10 +1255,10 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
             current_zip_hash = None
             if ata_id:
                 try:
-                    from database import get_supabase_client
+                    from database import get_supabase_client, db_exec as _db_exec
                     _sc = get_supabase_client()
                     if _sc:
-                        _ata_row = _sc.table("atas").select("zip_hash").eq("id", ata_id).execute()
+                        _ata_row = await _db_exec(lambda: _sc.table("atas").select("zip_hash").eq("id", ata_id).execute())
                         if _ata_row.data and _ata_row.data[0].get("zip_hash"):
                             current_zip_hash = _ata_row.data[0]["zip_hash"]
                 except Exception:
@@ -1275,27 +1275,29 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
                     # ── Checkpoint lookup: reutiliza chunk já processado ──
                     if ata_id:
                         try:
-                            from database import get_supabase_client
+                            from database import get_supabase_client, db_exec as _db_exec, _db_executor
                             _chunk_cache = get_supabase_client()
                             if _chunk_cache:
                                 # 1. Match pelo ata_id + índice
-                                cached = _chunk_cache.table("ata_chunks_cache") \
-                                    .select("content") \
-                                    .eq("ata_id", ata_id) \
-                                    .eq("chunk_index", i) \
-                                    .eq("total_chunks", len(chunks)) \
-                                    .execute()
+                                _ci, _tc = i, len(chunks)
+                                cached = await _db_exec(lambda: _chunk_cache.table("ata_chunks_cache")
+                                    .select("content")
+                                    .eq("ata_id", ata_id)
+                                    .eq("chunk_index", _ci)
+                                    .eq("total_chunks", _tc)
+                                    .execute())
                                 if cached.data and len(cached.data) > 0:
                                     logger.info(f"[{tipo}] Chunk {i+1}/{len(chunks)} — CACHE HIT (ata_id), reutilizando")
                                     completed_chunks += 1
                                     return cached.data[0]["content"]
 
                                 # 2. Match global pelo hash do conteúdo do chunk (reaproveitamento mesmo com novo upload)
-                                cached_hash = _chunk_cache.table("ata_chunks_cache") \
-                                    .select("content") \
-                                    .eq("chunk_hash", chunk_hash) \
-                                    .limit(1) \
-                                    .execute()
+                                _ch = chunk_hash
+                                cached_hash = await _db_exec(lambda: _chunk_cache.table("ata_chunks_cache")
+                                    .select("content")
+                                    .eq("chunk_hash", _ch)
+                                    .limit(1)
+                                    .execute())
                                 if cached_hash.data and len(cached_hash.data) > 0:
                                     logger.info(f"[{tipo}] Chunk {i+1}/{len(chunks)} — CACHE HIT (chunk_hash), reutilizando")
                                     completed_chunks += 1
@@ -1304,11 +1306,12 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
                                 # 3. Match global pelo zip_hash da ata (re-upload do mesmo arquivo)
                                 if current_zip_hash:
                                     try:
-                                        cached_zip = _chunk_cache.rpc("get_cached_chunk_by_zip_hash", {
-                                            "p_zip_hash": current_zip_hash,
-                                            "p_chunk_index": i,
-                                            "p_total_chunks": len(chunks)
-                                        }).execute()
+                                        _zh, _ci2, _tc2 = current_zip_hash, i, len(chunks)
+                                        cached_zip = await _db_exec(lambda: _chunk_cache.rpc("get_cached_chunk_by_zip_hash", {
+                                            "p_zip_hash": _zh,
+                                            "p_chunk_index": _ci2,
+                                            "p_total_chunks": _tc2
+                                        }).execute())
                                         if cached_zip.data and len(cached_zip.data) > 0 and cached_zip.data[0].get("content"):
                                             logger.info(f"[{tipo}] Chunk {i+1}/{len(chunks)} — CACHE HIT (zip_hash), reutilizando")
                                             completed_chunks += 1
@@ -1365,19 +1368,20 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
                             logger.info(f"[AUDIO_RESTORE] Chunk {i+1}: IA removeu {len(missing_audio)} marcadores — re-inserindo: {missing_audio[:10]}")
                             res = _restore_missing_audio_markers(res, expected_audio_in_chunk)
 
-                    # ── Checkpoint write: salva chunk processado para retomada futura ──
+                    # ── Checkpoint write: salva chunk processado para retomada futura (fire-and-forget) ──
                     if ata_id:
                         try:
-                            from database import get_supabase_client
+                            from database import get_supabase_client, _db_executor
                             _chunk_w = get_supabase_client()
                             if _chunk_w:
-                                _chunk_w.table("ata_chunks_cache").upsert({
+                                _cw_rec = {
                                     "ata_id": ata_id,
                                     "chunk_index": i,
                                     "total_chunks": len(chunks),
                                     "chunk_hash": chunk_hash,
                                     "content": res,
-                                }).execute()
+                                }
+                                _db_executor.submit(lambda r=_cw_rec, c=_chunk_w: c.table("ata_chunks_cache").upsert(r).execute())
                         except Exception as cw_err:
                             logger.warning(f"[{tipo}] Chunk cache write failed (non-critical): {cw_err}")
 

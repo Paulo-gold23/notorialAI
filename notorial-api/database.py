@@ -1,9 +1,24 @@
 from supabase import create_client, Client
 from config import settings
+import asyncio
 import httpx
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
+
+# ── Shared thread pool for non-blocking database operations ──
+# Sync supabase-py calls (.execute()) block the asyncio event loop.
+# Running them in this executor keeps FastAPI responsive during pipeline processing.
+_db_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="db")
+
+async def db_exec(fn):
+    """Run a synchronous database call in a thread — never blocks the event loop.
+    
+    Usage:
+        result = await db_exec(lambda: supabase.table("x").select("*").execute())
+    """
+    return await asyncio.get_running_loop().run_in_executor(_db_executor, fn)
 
 _cached_supabase = None
 _cached_supabase_admin = None

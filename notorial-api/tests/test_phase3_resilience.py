@@ -66,9 +66,20 @@ async def test_transcribe_cache_hit():
     mock_settings = MagicMock()
     mock_settings.GROQ_API_KEY = "fake-key"
 
+    # Mock db_exec to run the lambda synchronously (returns awaitable via AsyncMock)
+    async def mock_db_exec(fn):
+        return fn()
+    
+    mock_db_executor = MagicMock()
+    mock_db_executor.submit = MagicMock(side_effect=lambda fn, *a, **kw: fn())
+
     with patch.dict(sys.modules, {
         'services.ai_usage_service': mock_ai_usage,
-        'database': MagicMock(get_supabase_client=MagicMock(return_value=mock_cache_client)),
+        'database': MagicMock(
+            get_supabase_client=MagicMock(return_value=mock_cache_client),
+            db_exec=mock_db_exec,
+            _db_executor=mock_db_executor,
+        ),
     }):
         with patch('services.transcription.settings', mock_settings):
             from services.transcription import _transcribe_single_audio
@@ -116,9 +127,19 @@ async def test_transcribe_cache_miss_calls_api():
     mock_settings = MagicMock()
     mock_settings.GROQ_API_KEY = "fake-key"
 
+    async def mock_db_exec(fn):
+        return fn()
+    
+    mock_db_executor = MagicMock()
+    mock_db_executor.submit = MagicMock(side_effect=lambda fn, *a, **kw: fn())
+
     with patch.dict(sys.modules, {
         'services.ai_usage_service': mock_ai_usage,
-        'database': MagicMock(get_supabase_client=MagicMock(return_value=mock_cache_client)),
+        'database': MagicMock(
+            get_supabase_client=MagicMock(return_value=mock_cache_client),
+            db_exec=mock_db_exec,
+            _db_executor=mock_db_executor,
+        ),
     }):
         with patch('services.transcription.settings', mock_settings):
             import importlib

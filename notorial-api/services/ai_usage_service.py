@@ -82,13 +82,13 @@ async def _persist_log(record: dict) -> None:
     Falhas são capturadas internamente e logadas — nunca propagadas.
     """
     try:
-        from database import get_supabase_client
+        from database import get_supabase_client, db_exec
         supabase = get_supabase_client()
         if supabase is None:
             logger.warning("[ai_usage] Supabase indisponível — registro de auditoria descartado")
             return
 
-        supabase.table('ai_usage_log').insert(record).execute()
+        await db_exec(lambda: supabase.table('ai_usage_log').insert(record).execute())
 
     except Exception as e:
         # PRINCÍPIO: falha de auditoria NÃO interrompe o pipeline

@@ -82,21 +82,23 @@ async def _transcribe_single_audio(
     # ── Cache lookup: evita reprocessamento (e custo) de áudios já transcritos ──
     audio_hash = hashlib.sha256(audio_bytes).hexdigest()
     try:
-        from database import get_supabase_client
+        from database import get_supabase_client, db_exec, _db_executor
         _cache_client = get_supabase_client()
         if _cache_client:
-            cache_resp = _cache_client.table("audio_transcription_cache") \
-                .select("transcription_text") \
-                .eq("audio_hash", audio_hash) \
-                .execute()
+            cache_resp = await db_exec(lambda: _cache_client.table("audio_transcription_cache")
+                .select("transcription_text,hit_count")
+                .eq("audio_hash", audio_hash)
+                .execute())
             if cache_resp.data and len(cache_resp.data) > 0:
                 cached_text = cache_resp.data[0]["transcription_text"]
-                # Incrementa hit_count para auditoria
+                # Incrementa hit_count para auditoria (fire-and-forget)
                 try:
-                    _cache_client.table("audio_transcription_cache") \
-                        .update({"hit_count": cache_resp.data[0].get("hit_count", 0) + 1, "last_hit_at": "now()"}) \
-                        .eq("audio_hash", audio_hash) \
-                        .execute()
+                    _hit = cache_resp.data[0].get("hit_count", 0) + 1
+                    _db_hash = audio_hash
+                    _db_executor.submit(lambda: _cache_client.table("audio_transcription_cache")
+                        .update({"hit_count": _hit, "last_hit_at": "now()"})
+                        .eq("audio_hash", _db_hash)
+                        .execute())
                 except Exception:
                     pass  # hit_count é nice-to-have, não crítico
                 logger.info(f"[{filename}] Cache HIT — hash={audio_hash[:12]}... reutilizando transcrição")
@@ -170,18 +172,19 @@ async def _transcribe_single_audio(
                     cost_category="confirmed",
                     duration_ms=timer.duration_ms,
                 )
-                # ── Cache write: salva transcrição para evitar custo em reprocessamentos ──
+                # ── Cache write: salva transcrição para evitar custo em reprocessamentos (fire-and-forget) ──
                 try:
-                    from database import get_supabase_client
+                    from database import get_supabase_client, _db_executor as _cw_exec
                     _cache_w = get_supabase_client()
                     if _cache_w:
-                        _cache_w.table("audio_transcription_cache").upsert({
+                        _cw_record = {
                             "audio_hash": audio_hash,
                             "transcription_text": text,
                             "audio_size_bytes": audio_size,
                             "audio_duration_sec": estimated_duration,
                             "filename_sample": os.path.basename(filename),
-                        }).execute()
+                        }
+                        _cw_exec.submit(lambda r=_cw_record, c=_cache_w: c.table("audio_transcription_cache").upsert(r).execute())
                 except Exception as cw_err:
                     logger.warning(f"[{filename}] Cache write failed (non-critical): {cw_err}")
                 return filename, text
