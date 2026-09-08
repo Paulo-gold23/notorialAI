@@ -228,8 +228,8 @@ export default function Dashboard({ isAdmin = false }) {
                 </div>
             </div>
 
-            {/* Metrics Cards — only show when there are atas */}
-            {!loading && atas.length > 0 && (
+            {/* Metrics Cards — always visible when loaded */}
+            {!loading && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
                     <div className="card flex items-center gap-4 p-4" style={{ background: 'var(--panel-bg)' }}>
                         <div className="p-2.5 rounded-lg" style={{ background: 'var(--primary-glow)', color: 'var(--primary-color)' }}>

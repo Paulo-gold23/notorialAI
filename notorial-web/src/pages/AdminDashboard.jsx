@@ -87,6 +87,8 @@ export default function AdminDashboard() {
   const [adjustCreditsModal, setAdjustCreditsModal] = useState({ isOpen: false, targetUser: null, amount: 10, description: '', loading: false });
   const [transactionsModal, setTransactionsModal] = useState({ isOpen: false, targetUser: null, transactions: [], loading: false });
   const [aiUsageStats, setAiUsageStats] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState(null);
 
   const navigate = useNavigate();
   const toast = useToast();
@@ -121,6 +123,20 @@ export default function AdminDashboard() {
     }
   }, []);
 
+  const fetchAiStats = useCallback(async () => {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const data = await getAiUsageStats();
+      setAiUsageStats(data);
+    } catch (err) {
+      console.error('Erro ao carregar dados de IA:', err);
+      setAiError(err.message || 'Erro ao carregar dados de IA');
+    } finally {
+      setAiLoading(false);
+    }
+  }, []);
+
   const loadAll = async () => {
     try {
       const [s, adv, atas, weekly, byStatus, logs, errors, aiStats] = await Promise.all([
@@ -131,7 +147,10 @@ export default function AdminDashboard() {
         getAtasByStatus().catch(() => []),
         getSystemLogs(100).catch(() => []),
         getErrorAtas(50).catch(() => []),
-        getAiUsageStats().catch(() => null),
+        getAiUsageStats().catch(err => {
+          setAiError(err.message || 'Erro ao carregar dados de IA');
+          return null;
+        }),
       ]);
       setStats(s);
       setAdvogados(adv);
@@ -150,6 +169,12 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => { loadAll(); }, []);
+
+  useEffect(() => {
+    if (activeTab === 'ai_costs' && !aiUsageStats && !aiLoading) {
+      fetchAiStats();
+    }
+  }, [activeTab, aiUsageStats, aiLoading, fetchAiStats]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -958,9 +983,24 @@ export default function AdminDashboard() {
         {/* === IA & CUSTOS TAB === */}
         {activeTab === 'ai_costs' && (
           <div style={{ animation: 'fadeSlideIn 0.3s ease-out' }}>
-            {!aiUsageStats ? (
-              <div className="card" style={{ padding: '2rem', textAlign: 'center' }}>
-                <p style={{ color: 'var(--text-muted)' }}>Carregando dados de IA...</p>
+            {aiLoading ? (
+              <div className="card" style={{ padding: '3rem 2rem', textAlign: 'center' }}>
+                <div className="sp-wave" style={{ width: 28, height: 28, margin: '0 auto 1rem' }} />
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Calculando consumo de tokens e custos de IA...</p>
+              </div>
+            ) : !aiUsageStats ? (
+              <div className="card" style={{ padding: '2.5rem 2rem', textAlign: 'center' }}>
+                <AlertTriangle size={32} style={{ color: COLORS.amber, margin: '0 auto 0.75rem' }} />
+                <p style={{ color: 'var(--text-main)', fontWeight: 600, marginBottom: '0.5rem' }}>
+                  {aiError || 'Nenhum dado de IA encontrado para o período.'}
+                </p>
+                <button
+                  className="btn-secondary"
+                  style={{ marginTop: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+                  onClick={fetchAiStats}
+                >
+                  <RefreshCw size={14} /> Tentar Novamente
+                </button>
               </div>
             ) : (
               <>
