@@ -298,8 +298,8 @@ function App() {
                 </>
               ) : (
                 <>
-                  {/* Logado: raiz redireciona para o dashboard */}
-                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                  {/* Logado: vê a Landing Page com botão de acesso rápido ao painel */}
+                  <Route path="/" element={<LandingPage session={session} />} />
                   <Route path="/dashboard" element={<Dashboard isAdmin={isAdmin} />} />
                   <Route path="/upload" element={<Upload />} />
                   <Route path="/review/:id" element={<Review />} />

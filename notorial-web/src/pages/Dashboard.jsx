@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, FileText, LogOut, Trash2, Plus, Settings, Upload, Sparkles, FileCheck, Shield, Edit2, Check, X, User, Clock, DownloadCloud, Scale } from 'lucide-react';
+import { Search, FileText, LogOut, Trash2, Plus, Settings, Upload, Sparkles, FileCheck, Shield, Edit2, Check, X, User, Clock, DownloadCloud, Scale, BarChart3, Filter } from 'lucide-react';
 import { listAtas, deleteAta, updateAtaTitle } from '../services/api';
 import { creditsApi } from '../services/creditsApi';
 import { supabase } from '../services/supabase';
@@ -40,7 +40,8 @@ export default function Dashboard({ isAdmin = false }) {
     const [isTutorialOpen, setIsTutorialOpen] = useState(false);
     const [editingId, setEditingId] = useState(null);
     const [editTitle, setEditTitle] = useState('');
-
+    const [statusFilter, setStatusFilter] = useState('all');
+    const [creditBalance, setCreditBalance] = useState(null);
     const navigate = useNavigate();
     const toast = useToast();
 
@@ -71,6 +72,11 @@ export default function Dashboard({ isAdmin = false }) {
             }
             const data = await listAtas();
             setAtas(Array.isArray(data) ? data : []);
+            // Fetch credit balance for metrics card (non-blocking)
+            try {
+                const bal = await creditsApi.getBalance();
+                setCreditBalance(bal);
+            } catch { /* ignore */ }
         } catch (err) {
             console.error('Erro ao carregar atas:', err);
             toast.error(err.message || 'Erro ao carregar documentos.');
@@ -128,9 +134,21 @@ export default function Dashboard({ isAdmin = false }) {
         }
     };
 
-    const filteredAtas = atas.filter(ata =>
-        (ata.titulo || '').toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const filteredAtas = atas.filter(ata => {
+        const matchesSearch = (ata.titulo || '').toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesStatus = statusFilter === 'all' 
+            || (statusFilter === 'ready' && ata.status === 'ready')
+            || (statusFilter === 'processing' && ['uploading', 'parsing', 'transcribing', 'organizing'].includes(ata.status))
+            || (statusFilter === 'error' && ata.status === 'error');
+        return matchesSearch && matchesStatus;
+    });
+
+    // Computed metrics from atas data
+    const totalAtas = atas.length;
+    const totalPages = atas.reduce((sum, a) => sum + (a.actual_pages || a.estimated_pages || 0), 0);
+    const atasReady = atas.filter(a => a.status === 'ready').length;
+    const atasProcessing = atas.filter(a => ['uploading', 'parsing', 'transcribing', 'organizing'].includes(a.status)).length;
+    const atasError = atas.filter(a => a.status === 'error').length;
 
     return (
         <div className="page-enter container-centered pt-8 md:pt-10 pb-12">
@@ -209,6 +227,69 @@ export default function Dashboard({ isAdmin = false }) {
                     </button>
                 </div>
             </div>
+
+            {/* Metrics Cards — only show when there are atas */}
+            {!loading && atas.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                    <div className="card flex items-center gap-4 p-4" style={{ background: 'var(--panel-bg)' }}>
+                        <div className="p-2.5 rounded-lg" style={{ background: 'var(--primary-glow)', color: 'var(--primary-color)' }}>
+                            <FileText size={22} />
+                        </div>
+                        <div>
+                            <div className="text-2xl font-bold" style={{ color: 'var(--text-main)' }}>{totalAtas}</div>
+                            <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Total de Atas</div>
+                        </div>
+                    </div>
+                    <div className="card flex items-center gap-4 p-4" style={{ background: 'var(--panel-bg)' }}>
+                        <div className="p-2.5 rounded-lg" style={{ background: 'rgba(74, 222, 128, 0.1)', color: 'var(--success)' }}>
+                            <BarChart3 size={22} />
+                        </div>
+                        <div>
+                            <div className="text-2xl font-bold" style={{ color: 'var(--text-main)' }}>{totalPages}</div>
+                            <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Páginas Geradas</div>
+                        </div>
+                    </div>
+                    <div className="card flex items-center gap-4 p-4 cursor-pointer" style={{ background: 'var(--panel-bg)' }}
+                        onClick={() => navigate('/credits')}
+                    >
+                        <div className="p-2.5 rounded-lg" style={{ background: 'rgba(245, 158, 11, 0.1)', color: 'var(--gold-to)' }}>
+                            <Sparkles size={22} />
+                        </div>
+                        <div>
+                            <div className="text-2xl font-bold" style={{ color: 'var(--text-main)' }}>
+                                {creditBalance !== null ? Math.floor(creditBalance) : '—'}
+                            </div>
+                            <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Créditos Disponíveis</div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Status Filter Pills — only show when there are atas */}
+            {!loading && atas.length > 0 && (
+                <div className="flex gap-2 mb-6 flex-wrap items-center">
+                    <Filter size={16} style={{ color: 'var(--text-muted)', marginRight: '0.25rem' }} />
+                    {[
+                        { key: 'all', label: 'Todas', count: totalAtas },
+                        { key: 'ready', label: 'Prontas', count: atasReady },
+                        { key: 'processing', label: 'Processando', count: atasProcessing },
+                        { key: 'error', label: 'Com Erro', count: atasError },
+                    ].map(f => (
+                        <button
+                            key={f.key}
+                            onClick={() => setStatusFilter(f.key)}
+                            className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer"
+                            style={{
+                                background: statusFilter === f.key ? 'var(--primary-color)' : 'var(--surface-color)',
+                                color: statusFilter === f.key ? '#fff' : 'var(--text-muted)',
+                                border: `1px solid ${statusFilter === f.key ? 'var(--primary-color)' : 'var(--border-color)'}`,
+                            }}
+                        >
+                            {f.label} {f.count > 0 && <span style={{ opacity: 0.7 }}>({f.count})</span>}
+                        </button>
+                    ))}
+                </div>
+            )}
 
             {/* Content */}
             {loading ? (
