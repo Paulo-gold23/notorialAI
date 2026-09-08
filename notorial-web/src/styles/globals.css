@@ -1828,3 +1828,15 @@ input:focus, select:focus {
 
 
 
+/* ── Review: Internal Text Search Highlights ─────────────────────────── */
+.review-search-highlight {
+  background: rgba(250, 204, 21, 0.35);
+  border-radius: 2px;
+  padding: 0 1px;
+  transition: background 0.15s;
+}
+.review-search-highlight.review-search-active {
+  background: rgba(245, 158, 11, 0.6);
+  outline: 2px solid rgba(245, 158, 11, 0.8);
+  outline-offset: 1px;
+}

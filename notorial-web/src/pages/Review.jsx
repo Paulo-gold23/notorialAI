@@ -20,7 +20,7 @@ import {
     Users, MessageSquare, Mic, CalendarRange,
     Coins, RefreshCw, X, AlertTriangle, Phone,
     AlignLeft, AlignCenter, AlignRight, AlignJustify, Lock,
-    StickyNote, Pencil, Trash2
+    StickyNote, Pencil, Trash2, Search
 } from 'lucide-react';
 import Logo from '../components/Logo';
 import { supabase } from '../services/supabase';
@@ -80,6 +80,12 @@ export default function Review() {
     const savedSelectionRef = useRef(null);
     const [showConfirmButton, setShowConfirmButton] = useState(false);
     const [buttonPosition, setButtonPosition] = useState({ top: 0, left: 0 });
+
+    // ── Internal text search ─────────────────────────────────────────────────
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [searchResults, setSearchResults] = useState({ count: 0, current: 0 });
+    const searchInputRef = useRef(null);
 
     const tabsRef = useRef(null);
     // Callback ref that attaches copy-protection listeners as soon as the DOM node mounts.
@@ -765,6 +771,112 @@ export default function Review() {
         );
     }
 
+    // ── Internal text search functions ─────────────────────────────────────
+    const handleSearchToggle = useCallback(() => {
+        setSearchOpen(prev => {
+            if (!prev) {
+                setTimeout(() => searchInputRef.current?.focus(), 100);
+            } else {
+                setSearchQuery('');
+                setSearchResults({ count: 0, current: 0 });
+                // Remove existing highlights
+                document.querySelectorAll('.review-search-highlight').forEach(el => {
+                    const parent = el.parentNode;
+                    parent.replaceChild(document.createTextNode(el.textContent), el);
+                    parent.normalize();
+                });
+            }
+            return !prev;
+        });
+    }, []);
+
+    const performSearch = useCallback((query) => {
+        // Remove old highlights first
+        document.querySelectorAll('.review-search-highlight').forEach(el => {
+            const parent = el.parentNode;
+            parent.replaceChild(document.createTextNode(el.textContent), el);
+            parent.normalize();
+        });
+
+        if (!query || query.length < 2) {
+            setSearchResults({ count: 0, current: 0 });
+            return;
+        }
+
+        const editorEl = document.querySelector('.ProseMirror');
+        if (!editorEl) return;
+
+        const treeWalker = document.createTreeWalker(editorEl, NodeFilter.SHOW_TEXT);
+        const matches = [];
+        const lowerQuery = query.toLowerCase();
+
+        while (treeWalker.nextNode()) {
+            const node = treeWalker.currentNode;
+            const text = node.textContent.toLowerCase();
+            let idx = text.indexOf(lowerQuery);
+            while (idx !== -1) {
+                matches.push({ node, index: idx });
+                idx = text.indexOf(lowerQuery, idx + 1);
+            }
+        }
+
+        // Highlight matches (reverse order to preserve indices)
+        matches.reverse().forEach((m, i) => {
+            const range = document.createRange();
+            range.setStart(m.node, m.index);
+            range.setEnd(m.node, m.index + query.length);
+            const mark = document.createElement('mark');
+            mark.className = 'review-search-highlight';
+            mark.dataset.searchIdx = matches.length - 1 - i;
+            range.surroundContents(mark);
+        });
+
+        const total = matches.length;
+        setSearchResults({ count: total, current: total > 0 ? 1 : 0 });
+
+        // Scroll to first match
+        const first = document.querySelector('.review-search-highlight[data-search-idx="0"]');
+        if (first) {
+            first.classList.add('review-search-active');
+            first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, []);
+
+    const navigateSearch = useCallback((direction) => {
+        const highlights = document.querySelectorAll('.review-search-highlight');
+        if (highlights.length === 0) return;
+
+        // Remove active from current
+        document.querySelectorAll('.review-search-active').forEach(el => el.classList.remove('review-search-active'));
+
+        const next = direction === 'next'
+            ? (searchResults.current % searchResults.count) + 1
+            : (searchResults.current - 2 + searchResults.count) % searchResults.count + 1;
+
+        setSearchResults(prev => ({ ...prev, current: next }));
+
+        const target = document.querySelector(`.review-search-highlight[data-search-idx="${next - 1}"]`);
+        if (target) {
+            target.classList.add('review-search-active');
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, [searchResults]);
+
+    // Intercept Ctrl+F for custom search
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+                e.preventDefault();
+                handleSearchToggle();
+            }
+            if (e.key === 'Escape' && searchOpen) {
+                handleSearchToggle();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [searchOpen, handleSearchToggle]);
+
     const metaItems = ata ? [
         { icon: Users, label: 'Participantes', value: ata.participantes?.join(', ') || '—' },
         { icon: MessageSquare, label: 'Mensagens', value: ata.total_mensagens || 0 },
@@ -909,6 +1021,16 @@ export default function Review() {
                             Preencher Números Faltantes
                         </button>
 
+                        {/* ── Search toggle ── */}
+                        <button
+                            className="btn-secondary"
+                            onClick={handleSearchToggle}
+                            style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem', color: searchOpen ? 'var(--primary-color)' : 'var(--text-muted)' }}
+                            title="Buscar no documento (Ctrl+F)"
+                        >
+                            <Search className="w-4 h-4" />
+                        </button>
+
                         {/* ── Ressalva button ── */}
                         <button
                             id="btn-adicionar-ressalva"
@@ -930,6 +1052,48 @@ export default function Review() {
                         </button>
                     </div>
                 </div>
+
+                {/* ── Search bar (expandable) ── */}
+                {searchOpen && (
+                    <div style={{
+                        display: 'flex', alignItems: 'center', gap: '0.5rem',
+                        padding: '0.5rem 1rem',
+                        background: 'var(--surface-color)',
+                        borderBottom: '1px solid var(--border-color)',
+                        animation: 'slideUp 0.2s ease-out',
+                    }}>
+                        <Search size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                        <input
+                            ref={searchInputRef}
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => { setSearchQuery(e.target.value); performSearch(e.target.value); }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') navigateSearch(e.shiftKey ? 'prev' : 'next');
+                            }}
+                            placeholder="Buscar no documento..."
+                            style={{
+                                flex: 1, border: 'none', outline: 'none',
+                                background: 'transparent', color: 'var(--text-main)',
+                                fontSize: '0.85rem', padding: '0.25rem 0',
+                            }}
+                        />
+                        {searchResults.count > 0 && (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                                {searchResults.current} de {searchResults.count}
+                            </span>
+                        )}
+                        <button onClick={() => navigateSearch('prev')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.2rem', color: 'var(--text-muted)' }} title="Anterior (Shift+Enter)">
+                            <ArrowUp size={14} />
+                        </button>
+                        <button onClick={() => navigateSearch('next')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.2rem', color: 'var(--text-muted)' }} title="Próximo (Enter)">
+                            <ArrowDown size={14} />
+                        </button>
+                        <button onClick={handleSearchToggle} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.2rem', color: 'var(--text-muted)' }} title="Fechar busca (Esc)">
+                            <X size={14} />
+                        </button>
+                    </div>
+                )}
 
                 {/* ── Annotation mode banner ── */}
                 {annotationMode && (
