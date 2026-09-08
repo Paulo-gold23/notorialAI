@@ -1007,30 +1007,56 @@ export default function AdminDashboard() {
                 {/* Primary AI Metrics */}
                 <div className="adm-primary-grid">
                   <StatCard icon={Zap} label="Total Tokens" value={aiUsageStats.total_tokens?.toLocaleString('pt-BR') || 0} color={COLORS.blue} sub="Últimos 30 dias" delay={0} />
-                  <StatCard icon={Coins} label="Custo Estimado" value={`$${aiUsageStats.total_cost_usd || '0.00'}`} color={COLORS.amber} sub="OpenAI + Groq" delay={50} />
-                  <StatCard icon={Mic} label="Áudio (min)" value={aiUsageStats.total_audio_minutes || 0} color={COLORS.indigo} sub="Whisper/Groq" delay={100} />
+                  <StatCard icon={Coins} label="Custo OpenAI" value={`$${aiUsageStats.total_cost_usd || '0.00'} USD`} color={COLORS.amber} sub="Groq em Free Tier ($0.00)" delay={50} />
+                  <StatCard icon={Mic} label="Áudio Transcrito" value={`${aiUsageStats.total_audio_minutes || 0} min`} color={COLORS.indigo} sub="Groq Whisper (Gratuito)" delay={100} />
                   <StatCard icon={AlertTriangle} label="Taxa de Erro" value={aiUsageStats.total_requests > 0 ? `${((aiUsageStats.total_errors / aiUsageStats.total_requests) * 100).toFixed(1)}%` : '0%'} color={aiUsageStats.total_errors > 0 ? COLORS.red : COLORS.emerald} sub={`${aiUsageStats.total_errors} de ${aiUsageStats.total_requests} chamadas`} delay={150} />
                 </div>
 
-                {/* Service Breakdown + Cost per Lawyer */}
+                {/* Service Breakdown + Daily Trend */}
                 <div className="adm-charts-grid" style={{ marginTop: '1.25rem' }}>
                   {/* By Service */}
                   <div className="card" style={{ padding: '1.25rem' }}>
                     <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <Server size={16} style={{ color: COLORS.blue }} /> Custo por Serviço
+                      <Server size={16} style={{ color: COLORS.blue }} /> Consumo por Provedor
                     </h3>
                     {aiUsageStats.by_service && aiUsageStats.by_service.length > 0 ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                         {aiUsageStats.by_service.map((s, i) => {
-                          const maxCost = Math.max(...aiUsageStats.by_service.map(x => x.cost_usd));
-                          const pct = maxCost > 0 ? (s.cost_usd / maxCost) * 100 : 0;
+                          const isFree = s.is_free_tier || s.service?.toLowerCase().includes('groq');
                           return (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                              <span style={{ fontSize: '0.78rem', color: 'var(--text-main)', fontWeight: 500, width: '80px', flexShrink: 0 }}>{s.service}</span>
-                              <div style={{ flex: 1, height: '20px', background: 'var(--bg-color)', borderRadius: '4px', overflow: 'hidden' }}>
-                                <div style={{ width: `${pct}%`, height: '100%', background: `linear-gradient(90deg, ${COLORS.blue}, ${COLORS.cyan})`, borderRadius: '4px', transition: 'width 0.5s' }} />
+                            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <span style={{ fontWeight: 600, color: 'var(--text-main)', textTransform: 'capitalize' }}>{s.service}</span>
+                                  {isFree && (
+                                    <span style={{
+                                      fontSize: '0.65rem',
+                                      background: 'rgba(74, 222, 128, 0.15)',
+                                      color: '#4ade80',
+                                      border: '1px solid rgba(74, 222, 128, 0.3)',
+                                      padding: '0.1rem 0.4rem',
+                                      borderRadius: '9999px',
+                                      fontWeight: 600
+                                    }}>
+                                      Free Tier (Sem Custo)
+                                    </span>
+                                  )}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                  <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{s.requests?.toLocaleString('pt-BR')} reqs</span>
+                                  <span style={{ fontWeight: 700, color: isFree ? '#4ade80' : COLORS.amber }}>
+                                    {isFree ? '$0.00' : `$${s.cost_usd} USD`}
+                                  </span>
+                                </div>
                               </div>
-                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', width: '60px', textAlign: 'right' }}>${s.cost_usd}</span>
+                              <div style={{ height: '8px', background: 'var(--bg-color)', borderRadius: '4px', overflow: 'hidden' }}>
+                                <div style={{
+                                  width: isFree ? '100%' : `${Math.min(100, Math.max(10, (s.cost_usd / 2) * 100))}%`,
+                                  height: '100%',
+                                  background: isFree ? 'linear-gradient(90deg, #4ade80, #22d3ee)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
+                                  borderRadius: '4px'
+                                }} />
+                              </div>
                             </div>
                           );
                         })}
@@ -1042,30 +1068,58 @@ export default function AdminDashboard() {
 
                   {/* Daily Trend */}
                   <div className="card" style={{ padding: '1.25rem' }}>
-                    <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <TrendingUp size={16} style={{ color: COLORS.emerald }} /> Tendência 30 Dias (Custo)
-                    </h3>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                      <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <TrendingUp size={16} style={{ color: COLORS.emerald }} /> Histórico Diário de Custo (OpenAI)
+                      </h3>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Últimos 30 dias</span>
+                    </div>
+
                     {aiUsageStats.daily_trend && aiUsageStats.daily_trend.length > 0 ? (
-                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '120px' }}>
-                        {aiUsageStats.daily_trend.map((d, i) => {
-                          const maxCost = Math.max(...aiUsageStats.daily_trend.map(x => x.cost_usd));
-                          const h = maxCost > 0 ? (d.cost_usd / maxCost) * 100 : 0;
-                          return (
-                            <div key={i} title={`${d.day}: $${d.cost_usd} (${d.requests} reqs)`}
-                              style={{
-                                flex: 1, minWidth: '4px', height: `${Math.max(h, 2)}%`,
-                                background: `linear-gradient(180deg, ${COLORS.emerald}, ${COLORS.blue})`,
-                                borderRadius: '2px 2px 0 0', transition: 'height 0.3s',
-                                cursor: 'pointer', opacity: 0.8,
-                              }}
-                              onMouseOver={(e) => e.currentTarget.style.opacity = '1'}
-                              onMouseOut={(e) => e.currentTarget.style.opacity = '0.8'}
-                            />
-                          );
-                        })}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        {/* Chart Area */}
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'flex-end',
+                          gap: '0.75rem',
+                          height: '140px',
+                          padding: '0.5rem 0',
+                          borderBottom: '1px solid var(--border-color)',
+                          overflowX: 'auto'
+                        }}>
+                          {aiUsageStats.daily_trend.map((d, i) => {
+                            const costNum = parseFloat(d.cost_usd) || 0;
+                            return (
+                              <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: '55px', height: '100%', justifyContent: 'flex-end' }}>
+                                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: COLORS.amber, marginBottom: '0.35rem' }}>
+                                  ${d.cost_usd}
+                                </span>
+                                <div
+                                  title={`${d.day}: $${d.cost_usd} (${d.requests} reqs, ${d.tokens?.toLocaleString('pt-BR')} tokens)`}
+                                  style={{
+                                    width: '32px',
+                                    height: `${Math.max(25, Math.min(100, costNum > 0 ? (costNum / 1.5) * 100 : 25))}%`,
+                                    background: 'linear-gradient(180deg, #fbbf24, #f59e0b)',
+                                    borderRadius: '4px 4px 0 0',
+                                    transition: 'transform 0.2s',
+                                    cursor: 'pointer'
+                                  }}
+                                  onMouseOver={(e) => e.currentTarget.style.transform = 'scaleY(1.05)'}
+                                  onMouseOut={(e) => e.currentTarget.style.transform = 'scaleY(1)'}
+                                />
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.4rem', fontWeight: 500 }}>
+                                  {d.day_label || d.day?.slice(5)}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
+                          <span>💡 Custos referem-se exclusivamente às chamadas de reorganização e sumarização (OpenAI).</span>
+                        </div>
                       </div>
                     ) : (
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>Nenhum dado disponível.</p>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>Nenhum dado diário registrado no período.</p>
                     )}
                   </div>
                 </div>

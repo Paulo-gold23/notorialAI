@@ -183,7 +183,7 @@ export default function Review() {
     const editor = useEditor({
         editable: false,
         extensions: [
-            StarterKit.configure({ heading: false }),
+            StarterKit.configure({ heading: false, link: false }),
             Heading.extend({
                 addAttributes() {
                     return {
@@ -746,32 +746,7 @@ export default function Review() {
         }
     };
 
-    // Loading skeleton
-    if (loading) {
-        return (
-            <div className="page-enter container-centered" style={{ paddingTop: '2rem', paddingBottom: '2rem' }}>
-                <BackButton />
-                <Skeleton width="200px" height="1.75rem" style={{ marginBottom: '1.5rem' }} />
-                <div className="card" style={{ marginBottom: '1.5rem' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
-                        {[1,2,3,4].map(i => <Skeleton key={i} height="2.5rem" />)}
-                    </div>
-                </div>
-                <Skeleton height="2rem" width="280px" style={{ marginBottom: '1.5rem' }} />
-                <div className="card" style={{ padding: 0 }}>
-                    <Skeleton height="40px" style={{ borderRadius: '0.75rem 0.75rem 0 0' }} />
-                    <div style={{ padding: '1.5rem' }}>
-                        <Skeleton height="0.75rem" style={{ marginBottom: '0.75rem' }} />
-                        <Skeleton height="0.75rem" width="80%" style={{ marginBottom: '0.75rem' }} />
-                        <Skeleton height="0.75rem" width="90%" style={{ marginBottom: '0.75rem' }} />
-                        <Skeleton height="0.75rem" width="60%" />
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    // ── Internal text search functions ─────────────────────────────────────
+    // ── Internal text search functions (MUST be before any conditional returns) ──
     const handleSearchToggle = useCallback(() => {
         setSearchOpen(prev => {
             if (!prev) {
@@ -782,8 +757,8 @@ export default function Review() {
                 // Remove existing highlights
                 document.querySelectorAll('.review-search-highlight').forEach(el => {
                     const parent = el.parentNode;
-                    parent.replaceChild(document.createTextNode(el.textContent), el);
-                    parent.normalize();
+                    parent?.replaceChild(document.createTextNode(el.textContent), el);
+                    parent?.normalize();
                 });
             }
             return !prev;
@@ -794,8 +769,8 @@ export default function Review() {
         // Remove old highlights first
         document.querySelectorAll('.review-search-highlight').forEach(el => {
             const parent = el.parentNode;
-            parent.replaceChild(document.createTextNode(el.textContent), el);
-            parent.normalize();
+            parent?.replaceChild(document.createTextNode(el.textContent), el);
+            parent?.normalize();
         });
 
         if (!query || query.length < 2) {
@@ -876,6 +851,31 @@ export default function Review() {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [searchOpen, handleSearchToggle]);
+
+    // Loading skeleton
+    if (loading) {
+        return (
+            <div className="page-enter container-centered" style={{ paddingTop: '2rem', paddingBottom: '2rem' }}>
+                <BackButton />
+                <Skeleton width="200px" height="1.75rem" style={{ marginBottom: '1.5rem' }} />
+                <div className="card" style={{ marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
+                        {[1,2,3,4].map(i => <Skeleton key={i} height="2.5rem" />)}
+                    </div>
+                </div>
+                <Skeleton height="2rem" width="280px" style={{ marginBottom: '1.5rem' }} />
+                <div className="card" style={{ padding: 0 }}>
+                    <Skeleton height="40px" style={{ borderRadius: '0.75rem 0.75rem 0 0' }} />
+                    <div style={{ padding: '1.5rem' }}>
+                        <Skeleton height="0.75rem" style={{ marginBottom: '0.75rem' }} />
+                        <Skeleton height="0.75rem" width="80%" style={{ marginBottom: '0.75rem' }} />
+                        <Skeleton height="0.75rem" width="90%" style={{ marginBottom: '0.75rem' }} />
+                        <Skeleton height="0.75rem" width="60%" />
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     const metaItems = ata ? [
         { icon: Users, label: 'Participantes', value: ata.participantes?.join(', ') || '—' },
