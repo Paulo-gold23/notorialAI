@@ -102,6 +102,7 @@ export async function uploadInChunks(file, onProgress = null) {
 
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     const headers = await getAuthHeader();
+    const uploadStartTime = Date.now();
 
     for (let i = 0; i < totalChunks; i++) {
         const start = i * CHUNK_SIZE;
@@ -136,7 +137,13 @@ export async function uploadInChunks(file, onProgress = null) {
                 success = true;
                 if (onProgress) {
                     const percent = Math.round(((i + 1) / totalChunks) * 100);
-                    onProgress(percent, i + 1, totalChunks);
+                    const elapsedMs = Date.now() - uploadStartTime;
+                    const bytesSent = end;
+                    const speedBps = bytesSent / (elapsedMs / 1000);
+                    const speedMBps = parseFloat((speedBps / (1024 * 1024)).toFixed(1));
+                    const remainingBytes = file.size - bytesSent;
+                    const etaSeconds = speedBps > 0 ? Math.ceil(remainingBytes / speedBps) : 0;
+                    onProgress(percent, i + 1, totalChunks, speedMBps, etaSeconds);
                 }
             } catch (err) {
                 lastError = err;
@@ -163,8 +170,8 @@ export async function estimateUpload(file, options = {}, onProgress = null) {
     try {
         if (file && file.size > CHUNK_THRESHOLD) {
             // Upload em fatias para contornar com segurança o limite de 100MB do Cloudflare
-            const uploadId = await uploadInChunks(file, (percent, current, total) => {
-                if (onProgress) onProgress('uploading_chunks', percent, current, total);
+            const uploadId = await uploadInChunks(file, (percent, current, total, speedMBps, etaSeconds) => {
+                if (onProgress) onProgress('uploading_chunks', percent, current, total, speedMBps, etaSeconds);
             });
 
             if (onProgress) onProgress('estimating', 100);

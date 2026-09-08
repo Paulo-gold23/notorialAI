@@ -318,10 +318,12 @@ export default function Upload() {
         setStatusMessage('Analisando conversa e estimando custo...');
 
         try {
-            const data = await estimateUpload(fileToUpload, { startDate, endDate }, (stage, percent, current, total) => {
+            const data = await estimateUpload(fileToUpload, { startDate, endDate }, (stage, percent, current, total, speedMBps, etaSeconds) => {
                 if (stage === 'uploading_chunks') {
                     setCurrentStatus('uploading_chunks');
-                    setStatusMessage(`Enviando arquivo: parte ${current} de ${total} (${percent}%)...`);
+                    const speedInfo = speedMBps ? ` • ${speedMBps} MB/s` : '';
+                    const etaInfo = etaSeconds > 0 ? ` • ~${etaSeconds < 60 ? `${etaSeconds}s` : `${Math.ceil(etaSeconds / 60)}min`} restante` : '';
+                    setStatusMessage(`Enviando arquivo: parte ${current} de ${total} (${percent}%)${speedInfo}${etaInfo}`);
                     setProgress(percent);
                 } else if (stage === 'estimating') {
                     setCurrentStatus('estimating');
