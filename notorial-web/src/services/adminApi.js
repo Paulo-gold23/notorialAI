@@ -96,4 +96,8 @@ export async function getErrorAtas(limit = 50) {
   return data || [];
 }
 
-
+export async function getAiUsageStats() {
+  const { data, error } = await supabase.rpc('admin_get_ai_usage_stats');
+  if (error) throw new Error('Erro ao buscar dados de IA: ' + error.message);
+  return data || {};
+}

@@ -6,7 +6,7 @@ import {
   LogOut, Shield, RefreshCw, UserCheck, MessageSquare,
   Mic, TrendingUp, Calendar, Activity, BarChart3,
   Coins, History, Terminal, Server, Globe, Cpu, Database,
-  AlertOctagon, Info, Copy, Check
+  AlertOctagon, Info, Copy, Check, Zap, Download
 } from 'lucide-react';
 import {
   getAdminStats,
@@ -19,7 +19,8 @@ import {
   adjustCredits,
   getUserTransactions,
   getSystemLogs,
-  getErrorAtas
+  getErrorAtas,
+  getAiUsageStats
 } from '../services/adminApi';
 import { supabase } from '../services/supabase';
 import AnimatedNumber from '../components/AnimatedNumber';
@@ -85,6 +86,7 @@ export default function AdminDashboard() {
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, id: null, nome: '' });
   const [adjustCreditsModal, setAdjustCreditsModal] = useState({ isOpen: false, targetUser: null, amount: 10, description: '', loading: false });
   const [transactionsModal, setTransactionsModal] = useState({ isOpen: false, targetUser: null, transactions: [], loading: false });
+  const [aiUsageStats, setAiUsageStats] = useState(null);
 
   const navigate = useNavigate();
   const toast = useToast();
@@ -121,7 +123,7 @@ export default function AdminDashboard() {
 
   const loadAll = async () => {
     try {
-      const [s, adv, atas, weekly, byStatus, logs, errors] = await Promise.all([
+      const [s, adv, atas, weekly, byStatus, logs, errors, aiStats] = await Promise.all([
         getAdminStats(),
         listAdvogados(),
         getRecentAtas(15),
@@ -129,6 +131,7 @@ export default function AdminDashboard() {
         getAtasByStatus().catch(() => []),
         getSystemLogs(100).catch(() => []),
         getErrorAtas(50).catch(() => []),
+        getAiUsageStats().catch(() => null),
       ]);
       setStats(s);
       setAdvogados(adv);
@@ -137,6 +140,7 @@ export default function AdminDashboard() {
       setStatusData(byStatus);
       setSystemLogs(logs);
       setErrorAtas(errors);
+      if (aiStats) setAiUsageStats(aiStats);
       checkInfraHealth();
     } catch (err) {
       toast.error(err.message);
@@ -517,6 +521,7 @@ export default function AdminDashboard() {
             { key: 'overview', label: 'Visão Geral', icon: BarChart3 },
             { key: 'users', label: 'Usuários', icon: Users },
             { key: 'activity', label: 'Atividade', icon: Activity },
+            { key: 'ai_costs', label: 'IA & Custos', icon: Zap },
             { key: 'logs', label: 'Logs & Sistema', icon: Terminal },
           ].map(tab => (
             <button
@@ -946,6 +951,141 @@ export default function AdminDashboard() {
                   );
                 })}
               </div>
+            )}
+          </div>
+        )}
+
+        {/* === IA & CUSTOS TAB === */}
+        {activeTab === 'ai_costs' && (
+          <div style={{ animation: 'fadeSlideIn 0.3s ease-out' }}>
+            {!aiUsageStats ? (
+              <div className="card" style={{ padding: '2rem', textAlign: 'center' }}>
+                <p style={{ color: 'var(--text-muted)' }}>Carregando dados de IA...</p>
+              </div>
+            ) : (
+              <>
+                {/* Primary AI Metrics */}
+                <div className="adm-primary-grid">
+                  <StatCard icon={Zap} label="Total Tokens" value={aiUsageStats.total_tokens?.toLocaleString('pt-BR') || 0} color={COLORS.blue} sub="Últimos 30 dias" delay={0} />
+                  <StatCard icon={Coins} label="Custo Estimado" value={`$${aiUsageStats.total_cost_usd || '0.00'}`} color={COLORS.amber} sub="OpenAI + Groq" delay={50} />
+                  <StatCard icon={Mic} label="Áudio (min)" value={aiUsageStats.total_audio_minutes || 0} color={COLORS.indigo} sub="Whisper/Groq" delay={100} />
+                  <StatCard icon={AlertTriangle} label="Taxa de Erro" value={aiUsageStats.total_requests > 0 ? `${((aiUsageStats.total_errors / aiUsageStats.total_requests) * 100).toFixed(1)}%` : '0%'} color={aiUsageStats.total_errors > 0 ? COLORS.red : COLORS.emerald} sub={`${aiUsageStats.total_errors} de ${aiUsageStats.total_requests} chamadas`} delay={150} />
+                </div>
+
+                {/* Service Breakdown + Cost per Lawyer */}
+                <div className="adm-charts-grid" style={{ marginTop: '1.25rem' }}>
+                  {/* By Service */}
+                  <div className="card" style={{ padding: '1.25rem' }}>
+                    <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Server size={16} style={{ color: COLORS.blue }} /> Custo por Serviço
+                    </h3>
+                    {aiUsageStats.by_service && aiUsageStats.by_service.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        {aiUsageStats.by_service.map((s, i) => {
+                          const maxCost = Math.max(...aiUsageStats.by_service.map(x => x.cost_usd));
+                          const pct = maxCost > 0 ? (s.cost_usd / maxCost) * 100 : 0;
+                          return (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                              <span style={{ fontSize: '0.78rem', color: 'var(--text-main)', fontWeight: 500, width: '80px', flexShrink: 0 }}>{s.service}</span>
+                              <div style={{ flex: 1, height: '20px', background: 'var(--bg-color)', borderRadius: '4px', overflow: 'hidden' }}>
+                                <div style={{ width: `${pct}%`, height: '100%', background: `linear-gradient(90deg, ${COLORS.blue}, ${COLORS.cyan})`, borderRadius: '4px', transition: 'width 0.5s' }} />
+                              </div>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', width: '60px', textAlign: 'right' }}>${s.cost_usd}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>Nenhum dado disponível.</p>
+                    )}
+                  </div>
+
+                  {/* Daily Trend */}
+                  <div className="card" style={{ padding: '1.25rem' }}>
+                    <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <TrendingUp size={16} style={{ color: COLORS.emerald }} /> Tendência 30 Dias (Custo)
+                    </h3>
+                    {aiUsageStats.daily_trend && aiUsageStats.daily_trend.length > 0 ? (
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '120px' }}>
+                        {aiUsageStats.daily_trend.map((d, i) => {
+                          const maxCost = Math.max(...aiUsageStats.daily_trend.map(x => x.cost_usd));
+                          const h = maxCost > 0 ? (d.cost_usd / maxCost) * 100 : 0;
+                          return (
+                            <div key={i} title={`${d.day}: $${d.cost_usd} (${d.requests} reqs)`}
+                              style={{
+                                flex: 1, minWidth: '4px', height: `${Math.max(h, 2)}%`,
+                                background: `linear-gradient(180deg, ${COLORS.emerald}, ${COLORS.blue})`,
+                                borderRadius: '2px 2px 0 0', transition: 'height 0.3s',
+                                cursor: 'pointer', opacity: 0.8,
+                              }}
+                              onMouseOver={(e) => e.currentTarget.style.opacity = '1'}
+                              onMouseOut={(e) => e.currentTarget.style.opacity = '0.8'}
+                            />
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>Nenhum dado disponível.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Cost per Lawyer Table + CSV Export */}
+                <div className="card" style={{ padding: '1.25rem', marginTop: '1.25rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Users size={16} style={{ color: COLORS.amber }} /> Custo por Advogado (30 dias)
+                    </h3>
+                    <button
+                      className="btn-secondary"
+                      style={{ padding: '0.3rem 0.75rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+                      onClick={() => {
+                        if (!aiUsageStats.by_advogado?.length) return;
+                        const csv = 'Nome,Requests,Tokens,Custo USD\n' +
+                          aiUsageStats.by_advogado.map(a => `"${a.nome || 'Sem nome'}",${a.requests},${a.tokens},${a.cost_usd}`).join('\n');
+                        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url; a.download = `legisvox_custos_ia_${new Date().toISOString().split('T')[0]}.csv`;
+                        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                        toast.success('CSV exportado com sucesso!');
+                      }}
+                    >
+                      <Download size={14} /> Exportar CSV
+                    </button>
+                  </div>
+                  {aiUsageStats.by_advogado && aiUsageStats.by_advogado.length > 0 ? (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                            <th style={{ textAlign: 'left', padding: '0.5rem', color: 'var(--text-muted)', fontWeight: 600 }}>Advogado</th>
+                            <th style={{ textAlign: 'right', padding: '0.5rem', color: 'var(--text-muted)', fontWeight: 600 }}>Chamadas</th>
+                            <th style={{ textAlign: 'right', padding: '0.5rem', color: 'var(--text-muted)', fontWeight: 600 }}>Tokens</th>
+                            <th style={{ textAlign: 'right', padding: '0.5rem', color: 'var(--text-muted)', fontWeight: 600 }}>Custo (USD)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {aiUsageStats.by_advogado.map((a, i) => (
+                            <tr key={i} style={{ borderBottom: '1px solid var(--border-color)' }}
+                              onMouseOver={(e) => e.currentTarget.style.background = 'var(--surface-color)'}
+                              onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                            >
+                              <td style={{ padding: '0.5rem', color: 'var(--text-main)' }}>{a.nome || 'Sem nome'}</td>
+                              <td style={{ padding: '0.5rem', color: 'var(--text-muted)', textAlign: 'right' }}>{a.requests}</td>
+                              <td style={{ padding: '0.5rem', color: 'var(--text-muted)', textAlign: 'right' }}>{a.tokens?.toLocaleString('pt-BR')}</td>
+                              <td style={{ padding: '0.5rem', color: COLORS.amber, textAlign: 'right', fontWeight: 600 }}>${a.cost_usd}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>Nenhum dado de advogado disponível.</p>
+                  )}
+                </div>
+              </>
             )}
           </div>
         )}
