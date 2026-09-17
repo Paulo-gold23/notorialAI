@@ -24,6 +24,12 @@ class Settings:
     SMTP_FROM: str = os.getenv("SMTP_FROM", "no-reply@legisvox.com.br")
     RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
 
+    # PDF owner password derivation secret (for deterministic PDF encryption)
+    PDF_OWNER_SECRET: str = os.getenv(
+        "PDF_OWNER_SECRET",
+        os.getenv("CPF_HASH_SECRET", "")
+    )
+
 settings = Settings()
 
 # Validate critical configs on startup — fail immediately instead of corrupted runtime

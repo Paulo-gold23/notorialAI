@@ -7,6 +7,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import OfflineBanner from './components/OfflineBanner';
 import CPFPromptModal from './components/CPFPromptModal';
 import AdminMfaGate from './components/AdminMfaGate';
+import BackgroundNotificationListener from './components/BackgroundNotificationListener';
 
 const Login = lazy(() => import('./pages/Login'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -310,6 +311,8 @@ function App() {
                 </>
               )}
             </Routes>
+            {/* Background notification listener — only active when logged in */}
+            {session && <BackgroundNotificationListener session={session} />}
           </Suspense>
         </BrowserRouter>
       </ToastProvider>

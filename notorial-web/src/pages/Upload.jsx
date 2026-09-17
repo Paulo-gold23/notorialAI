@@ -15,6 +15,7 @@ const STEPS = [
     { key: 'optimizing', label: 'Otimizando arquivo', desc: 'Filtrando mídias fora do período' },
     { key: 'estimating', label: 'Analisando conteúdo', desc: 'Estimando custo de processamento' },
     { key: 'uploading', label: 'Preparando processamento', desc: 'Debitando créditos e iniciando' },
+    { key: 'in_queue', label: 'Aguardando na fila', desc: 'Servidor processando outros documentos — você será notificado ao concluir' },
     { key: 'parsing', label: 'Extraindo mensagens', desc: 'Processando conversas e metadados' },
     { key: 'transcribing', label: 'Transcrevendo áudios', desc: 'Convertendo áudio em texto com IA' },
     { key: 'organizing', label: 'Organizando documento', desc: 'Estruturando conteúdo cronologicamente' },
@@ -735,6 +736,60 @@ export default function Upload() {
                             border: '1px solid rgba(59,130,246,0.2)',
                         }}>
                             {statusMessage}
+                        </div>
+                    )}
+
+                    {/* Queue info card — shown when pipeline is waiting for server capacity */}
+                    {currentStatus === 'in_queue' && (
+                        <div style={{
+                            marginTop: '1.5rem',
+                            padding: '1.25rem',
+                            background: 'linear-gradient(135deg, rgba(251, 191, 36, 0.06), rgba(245, 158, 11, 0.04))',
+                            borderRadius: '0.75rem',
+                            border: '1px solid rgba(251, 191, 36, 0.25)',
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                                <div style={{
+                                    width: 36, height: 36, borderRadius: '50%',
+                                    background: 'rgba(251, 191, 36, 0.15)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    flexShrink: 0, fontSize: '1.1rem',
+                                }}>
+                                    ⏳
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-main)', marginBottom: '0.35rem' }}>
+                                        Seu documento está na fila de processamento
+                                    </div>
+                                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.6 }}>
+                                        O servidor está processando outros documentos no momento.
+                                        Você pode continuar navegando — será notificado automaticamente quando sua ata estiver pronta.
+                                    </p>
+                                </div>
+                            </div>
+                            <div style={{
+                                display: 'flex', gap: '0.75rem', marginTop: '1rem',
+                                flexWrap: 'wrap',
+                            }}>
+                                <button
+                                    className="btn-gradient"
+                                    onClick={() => navigate('/dashboard')}
+                                    style={{ flex: 1, minWidth: '160px', padding: '0.65rem 1rem', fontSize: '0.85rem' }}
+                                >
+                                    Ir para o Painel
+                                </button>
+                                <button
+                                    className="btn-ghost"
+                                    onClick={() => {}}
+                                    style={{
+                                        flex: 1, minWidth: '120px', padding: '0.65rem 1rem',
+                                        fontSize: '0.8rem', opacity: 0.7, cursor: 'default',
+                                    }}
+                                    disabled
+                                >
+                                    Aguardando nesta tela...
+                                </button>
+                            </div>
                         </div>
                     )}
 

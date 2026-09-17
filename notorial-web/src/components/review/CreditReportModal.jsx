@@ -1,7 +1,15 @@
-import React, { useEffect } from 'react';
-import { Coins, FileText, RefreshCw, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Coins, FileText, RefreshCw, X, Copy, Check } from 'lucide-react';
 
 export default function CreditReportModal({ report, onClose, onDownload }) {
+    const [hashCopied, setHashCopied] = useState(false);
+    const copyHash = () => {
+        if (report?.pdfHash) {
+            navigator.clipboard.writeText(report.pdfHash);
+            setHashCopied(true);
+            setTimeout(() => setHashCopied(false), 2000);
+        }
+    };
     // Lock scroll when open
     useEffect(() => {
         if (report) {
@@ -173,28 +181,38 @@ export default function CreditReportModal({ report, onClose, onDownload }) {
                             <span style={{ fontWeight: 600, color: 'var(--primary-color)' }}>{Math.floor(report.balanceAfter)} créditos</span>
                         </div>
                         {report.pdfHash && (
-                            <div style={{
-                                marginTop: '0.6rem',
-                                paddingTop: '0.6rem',
-                                borderTop: '1px dashed var(--border-color)',
-                            }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                    <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap', fontSize: '0.78rem' }}>SHA-256 do PDF:</span>
-                                    <span
-                                        title={report.pdfHash}
-                                        style={{
-                                            fontFamily: 'monospace',
-                                            fontSize: '0.7rem',
-                                            color: 'var(--text-muted)',
-                                            wordBreak: 'break-all',
-                                            textAlign: 'right',
-                                            cursor: 'help',
-                                        }}
-                                    >
-                                        {report.pdfHash.slice(0, 14)}…{report.pdfHash.slice(-8)}
-                                    </span>
+                                <div style={{
+                                    marginTop: '0.6rem',
+                                    paddingTop: '0.6rem',
+                                    borderTop: '1px dashed var(--border-color)',
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                        <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap', fontSize: '0.78rem' }}>SHA-256 do PDF:</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                            <span
+                                                title={report.pdfHash}
+                                                style={{
+                                                    fontFamily: 'monospace',
+                                                    fontSize: '0.7rem',
+                                                    color: 'var(--text-muted)',
+                                                    wordBreak: 'break-all',
+                                                    textAlign: 'right',
+                                                    cursor: 'help',
+                                                }}
+                                            >
+                                                {report.pdfHash.slice(0, 14)}…{report.pdfHash.slice(-8)}
+                                            </span>
+                                            <button
+                                                onClick={copyHash}
+                                                title="Copiar hash completo"
+                                                className="btn-ghost"
+                                                style={{ padding: '0.15rem', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+                                            >
+                                                {hashCopied ? <Check size={12} color="#4ade80" /> : <Copy size={12} />}
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
                         )}
                     </div>
 

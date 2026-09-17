@@ -5,6 +5,7 @@ import json
 import re
 import unicodedata
 import asyncio
+import random
 import base64
 import io
 import os
@@ -280,7 +281,7 @@ async def _call_openai(
 
     input_chars = len(user_content)
     
-    max_retries = 3
+    max_retries = 5
     for attempt in range(1, max_retries + 1):
         timer = AICallTimer()
         is_retry = attempt > 1
@@ -317,9 +318,16 @@ async def _call_openai(
             
             # Rate limit or server error — log e retry
             if response.status_code in [429, 500, 502, 503, 504]:
-                wait = 2 ** attempt
+                # Read retry-after header (OpenAI may send it on 429), fallback to exponential backoff
+                retry_after_raw = response.headers.get("retry-after", "")
+                try:
+                    base_wait = int(retry_after_raw) if retry_after_raw else (2 ** attempt)
+                except (ValueError, TypeError):
+                    base_wait = 2 ** attempt
+                # Add ±20% jitter to prevent thundering herd
+                wait = base_wait * random.uniform(0.8, 1.2)
                 retry_reason = "rate_limit" if response.status_code == 429 else "server_error"
-                logger.warning(f"OpenAI {response.status_code} na tentativa {attempt}. Aguardando {wait}s...")
+                logger.warning(f"OpenAI {response.status_code} na tentativa {attempt}. Aguardando {wait:.1f}s (retry-after={retry_after_raw or 'N/A'})...")
                 log_ai_call(
                     ata_id=ata_id, advogado_id=advogado_id,
                     service="openai", model=settings.OPENAI_MODEL,
@@ -358,11 +366,11 @@ async def _call_openai(
 
         except (httpx.TimeoutException, httpx.ConnectError) as e:
             timer.stop()
-            wait = 2 ** attempt
+            wait = (2 ** attempt) * random.uniform(0.8, 1.2)
             exc_name = type(e).__name__
             is_timeout = isinstance(e, httpx.TimeoutException)
             retry_reason = "timeout" if is_timeout else "connection_error"
-            logger.warning(f"Conexão OpenAI falhou ({exc_name}). Tentativa {attempt}. Aguardando {wait}s...")
+            logger.warning(f"Conexão OpenAI falhou ({exc_name}). Tentativa {attempt}. Aguardando {wait:.1f}s...")
             log_ai_call(
                 ata_id=ata_id, advogado_id=advogado_id,
                 service="openai", model=settings.OPENAI_MODEL,
@@ -1264,7 +1272,7 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
                 except Exception:
                     pass
 
-            sem = asyncio.Semaphore(6)
+            sem = asyncio.Semaphore(4)  # Reduced from 6 to save ~100-160MB peak RAM per pipeline
             completed_chunks = 0
 
             async def _process_chunk(i: int, chunk: str) -> str:

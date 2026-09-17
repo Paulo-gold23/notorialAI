@@ -44,6 +44,8 @@ services:
     environment:
       - GOTENBERG_URL=http://gotenberg:3000/forms/chromium/convert/html
       - PORT=8000
+      - MAX_PIPELINE_WEIGHT_CAPACITY=${MAX_PIPELINE_WEIGHT_CAPACITY:-4}
+      - DEFAULT_HEAVY_PAGE_THRESHOLD=${DEFAULT_HEAVY_PAGE_THRESHOLD:-100}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 15s
@@ -59,7 +61,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 3G
     logging:
       driver: "json-file"
       options:
@@ -78,7 +80,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1.5G
+          memory: 2.5G
     logging:
       driver: "json-file"
       options:

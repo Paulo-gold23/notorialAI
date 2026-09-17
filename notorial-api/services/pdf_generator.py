@@ -1,10 +1,12 @@
 import httpx
 import hashlib
+import hmac
 import logging
 import os
 import re
 import io
 import secrets
+import asyncio
 import nh3
 from config import settings
 
@@ -531,21 +533,53 @@ def _wrap_html_for_pdf(html_str: str) -> str:
 MAX_PDF_RETRIES = 3
 PDF_RETRY_BASE_DELAY = 2  # seconds
 
+# Gotenberg Guard: limits concurrent PDF generations to prevent RAM spikes.
+# Created lazily to avoid event-loop-not-running errors at module import time.
+_pdf_semaphore: asyncio.Semaphore | None = None
+
+def _get_pdf_semaphore() -> asyncio.Semaphore:
+    global _pdf_semaphore
+    if _pdf_semaphore is None:
+        _pdf_semaphore = asyncio.Semaphore(2)
+    return _pdf_semaphore
+
 
 class PdfGenerationError(Exception):
     """Raised when PDF generation fails with a user-friendly message."""
     pass
 
 
-def _protect_and_hash_pdf_sync(pdf_content: bytes) -> tuple[bytes, str]:
-    """CPU-bound encryption and cloning of PDF. Executed in a thread pool to avoid blocking asyncio."""
+def _protect_and_hash_pdf_sync(pdf_content: bytes, ata_id: str = "") -> tuple[bytes, str]:
+    """CPU-bound encryption and cloning of PDF. Executed in a thread pool to avoid blocking asyncio.
+
+    The owner password is derived deterministically from ata_id + PDF_OWNER_SECRET
+    so that regenerations of the same ata produce identical encrypted PDFs and
+    therefore identical SHA-256 hashes (enabling reliable public hash verification).
+    """
     protected_content = pdf_content
     try:
         from pypdf import PdfReader, PdfWriter
         reader = PdfReader(io.BytesIO(pdf_content))
         writer = PdfWriter()
         writer.clone_reader_document_root(reader)
-        owner_pass = secrets.token_hex(16)
+
+        # Deterministic owner password: HMAC(ata_id, secret) → stable across regenerations
+        pdf_secret = settings.PDF_OWNER_SECRET
+        if pdf_secret and ata_id:
+            owner_pass = hmac.new(
+                pdf_secret.encode("utf-8"),
+                ata_id.encode("utf-8"),
+                hashlib.sha256
+            ).hexdigest()[:32]
+        else:
+            # Fallback: random (original behavior if no secret configured)
+            if ata_id:
+                logger.warning(
+                    f"[PDF] PDF_OWNER_SECRET não configurado — usando owner password aleatória para ata {ata_id}. "
+                    "Hash do PDF será diferente a cada regeneração (verificação pública pode falhar)."
+                )
+            owner_pass = secrets.token_hex(16)
+
         writer.encrypt(
             user_password="",
             owner_password=owner_pass,
@@ -561,12 +595,23 @@ def _protect_and_hash_pdf_sync(pdf_content: bytes) -> tuple[bytes, str]:
     return protected_content, pdf_hash
 
 
-async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_hash: str = "") -> tuple[bytes, str] | tuple[None, None]:
+async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "") -> tuple[bytes, str] | tuple[None, None]:
     """
     Consome a API do Gotenberg via URL do Env.
     Inclui retry automático com backoff para lidar com instabilidades do Gotenberg.
     Retorna uma tuple (pdf_bytes, pdf_sha256_hash) onde o hash é do PDF final protegido.
+    Limitado a 2 chamadas concorrentes via semáforo para proteger RAM do Gotenberg.
     """
+    sem = _get_pdf_semaphore()
+    if sem.locked():
+        logger.info("[PDF] Aguardando liberação do semáforo de PDF (máximo 2 concorrentes)")
+
+    async with sem:
+        return await _generate_pdf_from_html_inner(html_str, reviewer_name, zip_hash, ata_id)
+
+
+async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "") -> tuple[bytes, str] | tuple[None, None]:
+    """Inner implementation of PDF generation (called within semaphore guard)."""
     url = getattr(settings, 'PDF_CONVERTER_URL', getattr(settings, 'GOTENBERG_URL', "http://localhost:3000/forms/chromium/convert/html"))
 
     if "convert/html" not in url:
@@ -651,7 +696,7 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_has
         try:
             from database import get_http_client
             client = get_http_client()
-            response = await client.post(url, files=files, data=data, timeout=90.0)
+            response = await client.post(url, files=files, data=data, timeout=180.0)
 
             if response.status_code == 200:
                 if attempt > 1:
@@ -662,7 +707,7 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_has
                 # Offload CPU-bound PDF protection/encryption to thread pool (avoids blocking asyncio)
                 loop = asyncio.get_running_loop()
                 pdf_content, pdf_hash = await loop.run_in_executor(
-                    None, _protect_and_hash_pdf_sync, pdf_content
+                    None, lambda: _protect_and_hash_pdf_sync(pdf_content, ata_id)
                 )
                 logger.info(f"PDF gerado e protegido — SHA-256: {pdf_hash[:16]}...")
                 return pdf_content, pdf_hash

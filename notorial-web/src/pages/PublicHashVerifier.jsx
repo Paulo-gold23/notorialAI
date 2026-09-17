@@ -6,6 +6,7 @@ import {
   ExternalLink, Calendar, UserCheck, Hash, Info, AlertTriangle
 } from 'lucide-react';
 import { supabase } from '../services/supabase';
+import { useToast } from '../components/ToastContext';
 import LegalFooter from '../components/LegalFooter';
 import Logo from '../components/Logo';
 
@@ -22,6 +23,7 @@ export default function PublicHashVerifier() {
   const [isDragOver, setIsDragOver] = useState(false);
 
   const navigate = useNavigate();
+  const toast = useToast();
 
   // Auto-verify if query param ?hash=... is passed
   React.useEffect(() => {
@@ -40,6 +42,7 @@ export default function PublicHashVerifier() {
       const hashArray = Array.from(new Uint8Array(hashBuffer));
       const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
       setInputHash(hashHex);
+      toast.success(`Hash SHA-256 calculado com sucesso — ${hashHex.slice(0, 12)}…`);
       await handleVerifyHash(hashHex);
     } catch (err) {
       alert('Erro ao calcular hash do arquivo: ' + err.message);
@@ -170,7 +173,7 @@ export default function PublicHashVerifier() {
           {/* Method 1: Drag & Drop File */}
           <div style={{ marginBottom: '1.75rem' }}>
             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.5rem' }}>
-              Opção 1: Selecione ou arraste o arquivo PDF/ZIP para conferência automática
+              Opção 1: Selecione ou arraste o arquivo (PDF, ZIP ou outro) para conferência automática
             </label>
             <div
               onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
@@ -191,13 +194,13 @@ export default function PublicHashVerifier() {
               <input
                 id="file-verifier-input"
                 type="file"
-                accept=".pdf,.zip"
+                accept="*/*"
                 style={{ display: 'none' }}
                 onChange={handleFileSelect}
               />
               <UploadCloud size={38} style={{ color: 'var(--primary-color)', margin: '0 auto 0.75rem' }} />
               <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.25rem' }}>
-                {calculatingHash ? 'Calculando Hash SHA-256 no seu navegador...' : (selectedFileName ? `Arquivo: ${selectedFileName}` : 'Clique para selecionar ou arraste o PDF/ZIP aqui')}
+                {calculatingHash ? 'Calculando Hash SHA-256 no seu navegador...' : (selectedFileName ? `Arquivo: ${selectedFileName}` : 'Clique para selecionar ou arraste o arquivo aqui')}
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-dimmed)' }}>
                 🔒 <strong>Privacidade Total:</strong> O cálculo matemático do hash é executado 100% no seu navegador (WebCrypto). Seu documento não é transmitido a servidores para o cálculo.
@@ -226,8 +229,18 @@ export default function PublicHashVerifier() {
                   value={inputHash}
                   onChange={(e) => setInputHash(e.target.value)}
                   className="input-field"
-                  style={{ paddingLeft: '2.5rem', fontFamily: 'monospace', fontSize: '0.825rem', width: '100%', height: '44px' }}
+                  style={{ paddingLeft: '2.5rem', paddingRight: inputHash ? '2.5rem' : '0.75rem', fontFamily: 'monospace', fontSize: '0.825rem', width: '100%', height: '44px' }}
                 />
+                {inputHash && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleCopyHash(inputHash); }}
+                    title="Copiar hash"
+                    className="btn-ghost"
+                    style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', padding: '0.25rem', display: 'flex', alignItems: 'center' }}
+                  >
+                    {copied ? <Check size={14} color="#4ade80" /> : <Copy size={14} />}
+                  </button>
+                )}
               </div>
               <button
                 onClick={() => handleVerifyHash()}
@@ -366,58 +379,93 @@ export default function PublicHashVerifier() {
               /* FAILURE / NOT FOUND CARD */
               <div className="card" style={{
                 padding: '2rem',
-                border: '2px solid rgba(239, 68, 68, 0.4)',
-                background: 'linear-gradient(180deg, rgba(239, 68, 68, 0.04) 0%, var(--panel-bg) 100%)',
-                boxShadow: '0 12px 35px rgba(239, 68, 68, 0.1)'
+                border: `2px solid ${result.error ? 'rgba(250, 204, 21, 0.4)' : 'rgba(239, 68, 68, 0.4)'}`,
+                background: result.error
+                  ? 'linear-gradient(180deg, rgba(250, 204, 21, 0.04) 0%, var(--panel-bg) 100%)'
+                  : 'linear-gradient(180deg, rgba(239, 68, 68, 0.04) 0%, var(--panel-bg) 100%)',
+                boxShadow: result.error
+                  ? '0 12px 35px rgba(250, 204, 21, 0.1)'
+                  : '0 12px 35px rgba(239, 68, 68, 0.1)'
               }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
                   <div style={{
                     width: 48, height: 48, borderRadius: '50%',
-                    background: 'rgba(239, 68, 68, 0.15)',
+                    background: result.error ? 'rgba(250, 204, 21, 0.15)' : 'rgba(239, 68, 68, 0.15)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     flexShrink: 0
                   }}>
-                    <ShieldAlert size={28} color="#ef4444" />
+                    {result.error
+                      ? <AlertTriangle size={28} color="#eab308" />
+                      : <ShieldAlert size={28} color="#ef4444" />
+                    }
                   </div>
                   <div style={{ flex: 1, minWidth: '240px' }}>
                     <div style={{
                       display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
-                      background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444',
-                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                      background: result.error ? 'rgba(250, 204, 21, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                      color: result.error ? '#eab308' : '#ef4444',
+                      border: `1px solid ${result.error ? 'rgba(250, 204, 21, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
                       padding: '0.2rem 0.6rem', borderRadius: '9999px',
                       fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.04em',
                       marginBottom: '0.4rem'
                     }}>
-                      ✕ HASH NÃO ENCONTRADO
+                      {result.error ? '⚠ ERRO DE COMUNICAÇÃO' : '✕ HASH NÃO LOCALIZADO'}
                     </div>
                     <h2 className="font-serif" style={{ fontSize: '1.35rem', margin: 0, color: 'var(--text-main)' }}>
-                      Incompatibilidade ou Registro Inexistente
+                      {result.error
+                        ? 'Falha ao Consultar o Validador'
+                        : 'Hash Não Encontrado nos Registros'
+                      }
                     </h2>
                     <p style={{ margin: '0.4rem 0 1rem', fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                      O código hash pesquisado não coincide com nenhum documento válido emitido pela plataforma LegisVox.
+                      {result.error
+                        ? result.error
+                        : 'O hash SHA-256 calculado do arquivo selecionado não coincide com nenhum documento emitido e registrado pela plataforma LegisVox.'
+                      }
                     </p>
 
-                    <div style={{
-                      background: 'rgba(0,0,0,0.3)', padding: '1rem',
-                      borderRadius: '0.5rem', border: '1px solid var(--border-color)',
-                      marginBottom: '1rem', fontSize: '0.8rem', color: 'var(--text-muted)'
-                    }}>
-                      <div style={{ fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.4rem' }}>
-                        Possíveis causas:
+                    {!result.error && (
+                      <div style={{
+                        background: 'rgba(0,0,0,0.3)', padding: '1rem',
+                        borderRadius: '0.5rem', border: '1px solid var(--border-color)',
+                        marginBottom: '1rem', fontSize: '0.8rem', color: 'var(--text-muted)'
+                      }}>
+                        <div style={{ fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.4rem' }}>
+                          Possíveis causas:
+                        </div>
+                        <ul style={{ margin: 0, paddingLeft: '1.2rem', lineHeight: 1.7 }}>
+                          <li><strong>Arquivo Modificado:</strong> O PDF foi re-salvo, compactado ou editado após ser gerado pelo LegisVox.</li>
+                          <li><strong>Arquivo Diferente:</strong> O arquivo selecionado não é o relatório final original exportado pelo sistema.</li>
+                          <li><strong>Código Incorreto:</strong> Houve erro de digitação ou truncamento no código SHA-256 colado.</li>
+                          <li><strong>Documento Externo:</strong> O arquivo não foi gerado pela plataforma LegisVox.</li>
+                        </ul>
                       </div>
-                      <ul style={{ margin: 0, paddingLeft: '1.2rem', lineHeight: 1.7 }}>
-                        <li><strong>Adulteração Pós-Emissão:</strong> O arquivo PDF foi re-salvo, compactado ou teve páginas editadas após ser gerado.</li>
-                        <li><strong>Divergência de Arquivo:</strong> O arquivo selecionado não é o relatório final original exportado pelo sistema.</li>
-                        <li><strong>Código Incorreto:</strong> Houve erro de digitação ou truncamento no código SHA-256 colado.</li>
-                      </ul>
-                    </div>
+                    )}
 
+                    {/* Hash display with copy button */}
                     <div style={{
-                      fontFamily: 'monospace', fontSize: '0.75rem', color: '#f87171',
-                      wordBreak: 'break-all', background: 'rgba(0,0,0,0.4)', padding: '0.5rem 0.75rem',
-                      borderRadius: '0.35rem'
+                      background: 'rgba(0,0,0,0.4)', padding: '0.6rem 0.75rem',
+                      borderRadius: '0.35rem', border: '1px solid var(--border-color)',
                     }}>
-                      Hash testado: {result.searched_hash || inputHash}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+                        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>
+                          Hash SHA-256 Pesquisado:
+                        </span>
+                        <button
+                          onClick={() => handleCopyHash(result.searched_hash || inputHash)}
+                          className="btn-ghost"
+                          style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                        >
+                          {copied ? <Check size={11} color="#4ade80" /> : <Copy size={11} />}
+                          {copied ? 'Copiado' : 'Copiar'}
+                        </button>
+                      </div>
+                      <div style={{
+                        fontFamily: 'monospace', fontSize: '0.75rem', color: '#f87171',
+                        wordBreak: 'break-all',
+                      }}>
+                        {result.searched_hash || inputHash}
+                      </div>
                     </div>
                   </div>
                 </div>

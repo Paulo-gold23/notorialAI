@@ -884,7 +884,7 @@ async def generate_pdf(
             logger.warning(f"[{ata_id}] Falha ao mesclar HTML com banco para PDF (usando original do frontend): {e}")
 
     try:
-        pdf_bytes, pdf_hash = await generate_pdf_from_html(html_for_pdf, reviewer_name=reviewer, zip_hash=zip_hash)
+        pdf_bytes, pdf_hash = await generate_pdf_from_html(html_for_pdf, reviewer_name=reviewer, zip_hash=zip_hash, ata_id=str(ata_id))
     except PdfGenerationError as e:
         logger.error(f"[PDF] Falha na geração do PDF para ata {ata_id}: {e}")
         raise HTTPException(status_code=503, detail="Falha ao gerar o PDF. O serviço pode estar temporariamente indisponível. Tente novamente.")

@@ -391,21 +391,75 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
             except Exception as e:
                 logger.error(f"Erro ao remover arquivo temporario do pipeline: {e}")
 
-_MAX_CONCURRENT_PIPELINES = int(os.getenv("MAX_CONCURRENT_PIPELINES", "5"))
-_pipeline_semaphore: asyncio.Semaphore | None = None
+_MAX_PIPELINE_WEIGHT_CAPACITY = int(os.getenv("MAX_PIPELINE_WEIGHT_CAPACITY", "4"))
+_HEAVY_PAGE_THRESHOLD = int(os.getenv("DEFAULT_HEAVY_PAGE_THRESHOLD", "100"))
 
-def _get_pipeline_semaphore() -> asyncio.Semaphore:
-    global _pipeline_semaphore
-    if _pipeline_semaphore is None:
-        _pipeline_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_PIPELINES)
-    return _pipeline_semaphore
+# ── Adaptive Pipeline Queue ──────────────────────────────────────────────────
+# Weighted concurrency: light pipelines use 1 slot, heavy ones use 2-3.
+# Total capacity = _MAX_PIPELINE_WEIGHT_CAPACITY (default 4).
+# Created lazily to avoid event-loop-not-running errors at import time.
+
+class AdaptivePipelineQueue:
+    """Weighted semaphore for pipeline concurrency control."""
+
+    def __init__(self, capacity: int):
+        self._capacity = capacity
+        self._current_weight = 0
+        self._lock = asyncio.Lock()
+        self._can_proceed = asyncio.Condition(self._lock)
+        self._queue_position = 0
+        self._next_position = 0
+
+    def _calculate_weight(self, estimated_pages: int | None) -> int:
+        pages = estimated_pages or 0
+        if pages > 300:
+            return 3
+        elif pages > _HEAVY_PAGE_THRESHOLD:
+            return 2
+        return 1
+
+    async def acquire(self, estimated_pages: int | None = None) -> int:
+        """Acquire slots. Returns the weight consumed. Blocks if capacity full."""
+        weight = self._calculate_weight(estimated_pages)
+        async with self._can_proceed:
+            self._next_position += 1
+            my_position = self._next_position
+            while self._current_weight + weight > self._capacity:
+                await self._can_proceed.wait()
+            self._current_weight += weight
+        return weight
+
+    async def release(self, weight: int):
+        """Release previously acquired slots."""
+        async with self._can_proceed:
+            self._current_weight -= weight
+            self._can_proceed.notify_all()
+
+    @property
+    def available_capacity(self) -> int:
+        return self._capacity - self._current_weight
+
+    @property
+    def is_full(self) -> bool:
+        return self._current_weight >= self._capacity
+
+
+_adaptive_queue: AdaptivePipelineQueue | None = None
+
+def _get_adaptive_queue() -> AdaptivePipelineQueue:
+    global _adaptive_queue
+    if _adaptive_queue is None:
+        _adaptive_queue = AdaptivePipelineQueue(_MAX_PIPELINE_WEIGHT_CAPACITY)
+    return _adaptive_queue
 
 async def _process_pipeline(ata_id: str, is_local: bool, start_date: str = None, end_date: str = None, token: str = None, advogado_id: str = None, zip_bytes: bytes = None, temp_path: str = None, estimated_pages: int = None):
-    sem = _get_pipeline_semaphore()
-    if sem.locked():
-        logger.info(f"[{ata_id}] Pipeline aguardando na fila (concorrência máxima: {_MAX_CONCURRENT_PIPELINES})")
+    queue = _get_adaptive_queue()
+    weight = queue._calculate_weight(estimated_pages)
+
+    if queue.is_full:
+        logger.info(f"[{ata_id}] Pipeline aguardando na fila adaptativa (peso={weight}, capacidade disponível={queue.available_capacity}/{_MAX_PIPELINE_WEIGHT_CAPACITY})")
         supabase = get_supabase_admin_client() or get_supabase_client()
-        _update_status(ata_id, is_local, supabase, "uploading", progress=0, message="Aguardando liberação na fila de processamento...")
+        _update_status(ata_id, is_local, supabase, "in_queue", progress=0, message="Aguardando recursos na fila de processamento...")
 
     # Timeout dinâmico: base de 20 minutos (1200s). Para conversas gigantes (> 100 páginas),
     # escala proporcionalmente até 50 minutos (3000s) para garantir conclusão sem cortes.
@@ -416,9 +470,10 @@ async def _process_pipeline(ata_id: str, is_local: bool, start_date: str = None,
         pipeline_timeout = 1200.0
 
     timeout_minutes = int(pipeline_timeout // 60)
-    logger.info(f"[{ata_id}] Pipeline timeout configurado: {pipeline_timeout:.0f}s ({timeout_minutes} min) para {pages} páginas")
+    logger.info(f"[{ata_id}] Pipeline timeout configurado: {pipeline_timeout:.0f}s ({timeout_minutes} min) para {pages} páginas (peso={weight})")
 
-    async with sem:
+    acquired_weight = await queue.acquire(estimated_pages)
+    try:
         try:
             await asyncio.wait_for(
                 _inner_process_pipeline(ata_id, is_local, start_date, end_date, token, advogado_id, zip_bytes, temp_path),
@@ -481,3 +536,6 @@ async def _process_pipeline(ata_id: str, is_local: bool, start_date: str = None,
                     'status_message': err_msg, 'error_message': err_msg,
                     'error_category': 'API_TIMEOUT'
                 })
+    finally:
+        await queue.release(acquired_weight)
+
