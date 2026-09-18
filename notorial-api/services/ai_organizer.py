@@ -152,12 +152,9 @@ def _chat_to_text(chat_json: dict) -> tuple[str, list[dict], list[dict]]:
             lines.append(f"{timestamp} {remetente}: [Vídeo: {vid_name}]")
             i += 1
         elif tipo == "midia_omitida":
-            # Trata mídia oculta como imagem potencial — gera marcador %%IMG_N%%
-            # para que o schedule possa mapear bytes reais do ZIP via FIFO
-            arquivo_str = f"midia_oculta_{img_counter}.jpg"
-            img_schedule.append({"pos": img_counter, "ts": ts_raw, "remetente": remetente, "arquivo": arquivo_str})
-            lines.append(f"{timestamp} {remetente}: %%IMG_{img_counter}%%")
-            img_counter += 1
+            # Mídia oculta: NÃO gera marcador %%IMG_N%% — apenas texto informativo.
+            # Evita inflar o contador de imagens e roubar bytes de imagens reais via FIFO.
+            lines.append(f"{timestamp} {remetente}: [Mídia não disponível no export]")
             i += 1
         elif tipo == "figurinha":
             i += 1
@@ -753,17 +750,10 @@ def _compress_image_to_base64(img_bytes: bytes, max_width: int = 800, quality: i
 def _build_positional_image_schedule(image_bytes_dict: dict, chat_json: dict) -> list[dict]:
     """
     Constrói schedule posicional de imagens alinhado com os marcadores %%IMG_N%%
-    emitidos por _chat_to_text. Cada mensagem tipo 'imagem' ou 'midia_omitida'
-    (em ordem cronológica) produz UMA entrada no schedule.
+    emitidos por _chat_to_text. Apenas mensagens tipo 'imagem' produzem entradas.
 
-    Estratégia em 2 passes para evitar que midia_oculta "roube" bytes de imagens reais:
-
-    Pass 1 — Resolve TODAS as mensagens na ordem cronológica:
-      - tipo 'imagem' com filename → match exato ou basename (consome key)
-      - tipo 'imagem' sem filename → FIFO fallback (consome key)
-      - tipo 'midia_omitida' → reserva slot vazio (NÃO consome key)
-
-    Pass 2 — Preenche slots vazios (midia_omitida) com bytes restantes via FIFO.
+    Resolução por filename exato → basename. Sem FIFO fallback — imagens não
+    resolvidas viram placeholder para evitar redistribuição incorreta.
     """
     if not image_bytes_dict:
         return []
@@ -777,12 +767,12 @@ def _build_positional_image_schedule(image_bytes_dict: dict, chat_json: dict) ->
         bn = os.path.basename(key).lower().replace('\u200e', '').replace('\u200f', '')
         basename_index.setdefault(bn, key)
 
-    # ── Pass 1: Resolve imagens com filename; reserva slots para midia_omitida ──
-    schedule: list[dict | None] = []  # None = slot vazio (midia_omitida pendente)
+    # ── Resolve imagens por filename exato ou basename ──
+    schedule: list[dict | None] = []
 
     for msg in mensagens:
         msg_tipo = msg.get('tipo', '')
-        if msg_tipo not in ('imagem', 'midia_omitida'):
+        if msg_tipo != 'imagem':
             continue
 
         arquivo = msg.get('arquivo') or ''
@@ -803,13 +793,9 @@ def _build_positional_image_schedule(image_bytes_dict: dict, chat_json: dict) ->
                     if candidate and candidate not in used_keys:
                         matched_key = candidate
 
-            if matched_key is None:
-                # FIFO fallback para imagens sem filename resolvido
-                for key in image_bytes_dict:
-                    if key not in used_keys:
-                        matched_key = key
-                        break
 
+            # SEM FIFO fallback: se não achou por filename exato ou basename,
+            # marca como missing_image. Nunca atribuir imagem aleatória.
             if matched_key:
                 used_keys.add(matched_key)
                 schedule.append({
@@ -831,70 +817,16 @@ def _build_positional_image_schedule(image_bytes_dict: dict, chat_json: dict) ->
                     'hora': hora,
                     'remetente': remetente,
                 })
-        else:
-            # midia_omitida: reserva slot vazio, será preenchido no Pass 2
-            schedule.append({
-                '_pending': True,
-                'ts': ts,
-                'data': data,
-                'hora': hora,
-                'remetente': remetente,
-            })
-
-    # ── Pass 2: Preenche slots de midia_omitida com bytes restantes (FIFO) ──
-    fifo_keys = [k for k in image_bytes_dict if k not in used_keys]
-    fifo_iter = iter(fifo_keys)
-    pass2_filled = 0
-    pass2_empty = 0
-
-    final_schedule: list[dict] = []
-    for entry in schedule:
-        if entry is None:
-            # Não deve acontecer com a nova lógica, mas mantém segurança
-            final_schedule.append({'_placeholder': 'missing_image'})
-            continue
-
-        if entry.get('_pending'):
-            # midia_omitida — tenta FIFO
-            next_key = next(fifo_iter, None)
-            if next_key:
-                used_keys.add(next_key)
-                final_schedule.append({
-                    'filename': os.path.basename(next_key),
-                    'bytes': image_bytes_dict[next_key],
-                    'ts': entry['ts'],
-                    'data': entry['data'],
-                    'hora': entry['hora'],
-                    'remetente': entry['remetente'],
-                })
-                pass2_filled += 1
-            else:
-                # Sem bytes restantes — slot de mídia oculta sem imagem física
-                final_schedule.append({
-                    '_placeholder': 'midia_omitida',
-                    'ts': entry['ts'],
-                    'data': entry['data'],
-                    'hora': entry['hora'],
-                    'remetente': entry['remetente'],
-                })
-                pass2_empty += 1
-        else:
-            # Imagem já resolvida no Pass 1
-            final_schedule.append(entry)
-
-    # Remove Nones do final (marcadores sem bytes serão ignorados pela injeção)
-    # Mas mantém Nones intermediários para preservar alinhamento posicional com %%IMG_N%%
 
     image_msgs = [m for m in mensagens if m.get('tipo') == 'imagem']
-    omitida_msgs = [m for m in mensagens if m.get('tipo') == 'midia_omitida']
-    resolved = sum(1 for e in final_schedule if e is not None)
+    resolved_count = sum(1 for e in schedule if e.get('bytes'))
+    missing_count = sum(1 for e in schedule if e.get('_placeholder'))
 
-    logger.info(f"[IMG_SCHEDULE] ZIP={len(image_bytes_dict)} imgs | imagem={len(image_msgs)} | midia_omitida={len(omitida_msgs)}")
-    logger.info(f"[IMG_SCHEDULE] Pass 1: {len(image_msgs)} imagens resolvidas por filename/FIFO")
-    logger.info(f"[IMG_SCHEDULE] Pass 2: {pass2_filled} midia_omitida preenchidas, {pass2_empty} sem bytes")
-    logger.info(f"[IMG_SCHEDULE] FINAL: {resolved}/{len(final_schedule)} entradas com bytes")
+    logger.info(f"[IMG_SCHEDULE] ZIP={len(image_bytes_dict)} imgs | mensagens imagem={len(image_msgs)}")
+    logger.info(f"[IMG_SCHEDULE] Resolvidas por filename: {resolved_count} | sem match: {missing_count}")
+    logger.info(f"[IMG_SCHEDULE] FINAL: {resolved_count}/{len(schedule)} entradas com bytes")
 
-    return final_schedule
+    return schedule
 
 async def _compress_images_in_schedule(schedule: list[dict]) -> None:
     """Comprime imagens do schedule em paralelo em threads para não bloquear o event loop."""

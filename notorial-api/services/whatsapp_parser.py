@@ -690,26 +690,17 @@ def parse_whatsapp_zip(zip_bytes, start_date: str = None, end_date: str = None, 
                     z, all_files, set(all_image_paths), IMAGE_EXTENSIONS_TUPLE
                 )
 
-                # Converte midia_omitida → imagem (arquivo=None).
-                # Assim recebem marcador %%IMG_N%% no texto da IA e o FIFO do
-                # _build_positional_image_schedule atribui a próxima imagem disponível.
-                midia_omitida_count = 0
-                for m in mensagens:
-                    if m.get("tipo") == "midia_omitida":
-                        m["tipo"] = "imagem"
-                        m["arquivo"] = None
-                        midia_omitida_count += 1
-
                 needed_image_files = {
                     m.get("arquivo")
                     for m in mensagens
                     if m.get("tipo") == "imagem" and m.get("arquivo")
                 }
 
+                midia_omitida_count = sum(1 for m in mensagens if m.get("tipo") == "midia_omitida")
                 logger.info(
                     f"Imagens ZIP: {len(all_image_paths)} | "
                     f"Msgs imagem: {sum(1 for m in mensagens if m.get('tipo') == 'imagem')} | "
-                    f"midia_omitida convertidas: {midia_omitida_count}"
+                    f"midia_omitida (preservadas): {midia_omitida_count}"
                 )
 
             logger.info(f"Imagens: {len(arquivos_imagens)} | refs: {len(needed_image_files)}")
