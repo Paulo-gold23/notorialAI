@@ -883,8 +883,20 @@ async def generate_pdf(
         except Exception as e:
             logger.warning(f"[{ata_id}] Falha ao mesclar HTML com banco para PDF (usando original do frontend): {e}")
 
+    # ── Feature flag: PDF template v2 (Corporativo Moderno) for admins only ──
+    use_new_pdf = False
     try:
-        pdf_bytes, pdf_hash = await generate_pdf_from_html(html_for_pdf, reviewer_name=reviewer, zip_hash=zip_hash, ata_id=str(ata_id))
+        admin_client = get_supabase_admin_client()
+        adm_resp = admin_client.table("advogados") \
+            .select("is_admin").eq("id", auth_ctx.advogado_id).execute()
+        if adm_resp.data and adm_resp.data[0].get("is_admin"):
+            use_new_pdf = True
+            logger.info(f"[PDF] Admin {auth_ctx.advogado_id} — usando template v2")
+    except Exception as e:
+        logger.warning(f"[PDF] Falha ao verificar is_admin (fallback para template legado): {e}")
+
+    try:
+        pdf_bytes, pdf_hash = await generate_pdf_from_html(html_for_pdf, reviewer_name=reviewer, zip_hash=zip_hash, ata_id=str(ata_id), use_new_template=use_new_pdf)
     except PdfGenerationError as e:
         logger.error(f"[PDF] Falha na geração do PDF para ata {ata_id}: {e}")
         raise HTTPException(status_code=503, detail="Falha ao gerar o PDF. O serviço pode estar temporariamente indisponível. Tente novamente.")

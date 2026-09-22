@@ -530,7 +530,343 @@ def _wrap_html_for_pdf(html_str: str) -> str:
 </html>"""
 
 
-MAX_PDF_RETRIES = 3
+# ══════════════════════════════════════════════════════════════════
+# PDF TEMPLATE V2 — Opção B "Corporativo Moderno"
+# Feature-flagged via is_admin. Legacy _wrap_html_for_pdf above is untouched.
+# ══════════════════════════════════════════════════════════════════
+
+# Simplified horizontal logo — color version (for header)
+_LOGO_SVG_COLOR = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="28" height="28"><defs><linearGradient id="gl" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#FEF08A"/><stop offset="100%" stop-color="#F59E0B"/></linearGradient><linearGradient id="gr" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#F59E0B"/><stop offset="100%" stop-color="#B45309"/></linearGradient><linearGradient id="bl" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#3B82F6"/><stop offset="100%" stop-color="#1E3A8A"/></linearGradient><linearGradient id="br" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#1D4ED8"/><stop offset="100%" stop-color="#0F172A"/></linearGradient></defs><path d="M 256 30 L 90 70 L 90 270 C 90 400 256 480 256 480 Z" fill="url(#gl)"/><path d="M 256 30 L 422 70 L 422 270 C 422 400 256 480 256 480 Z" fill="url(#gr)"/><path d="M 256 50 L 110 86 L 110 266 C 110 380 256 456 256 456 Z" fill="url(#bl)"/><path d="M 256 50 L 402 86 L 402 266 C 402 380 256 456 256 456 Z" fill="url(#br)"/><rect x="240" y="200" width="16" height="148" fill="url(#gl)"/><rect x="256" y="200" width="16" height="148" fill="url(#gr)"/><rect x="150" y="136" width="106" height="8" fill="url(#gl)"/><rect x="256" y="136" width="106" height="8" fill="url(#gr)"/><polygon points="256,90 244,108 256,126" fill="url(#gl)"/><polygon points="256,90 268,108 256,126" fill="url(#gr)"/><line x1="160" y1="144" x2="124" y2="240" stroke="url(#gl)" stroke-width="2"/><line x1="160" y1="144" x2="196" y2="240" stroke="url(#gl)" stroke-width="2"/><path d="M 124 240 C 124 270, 196 270, 196 240 Z" fill="url(#gl)"/><line x1="352" y1="144" x2="316" y2="240" stroke="url(#gr)" stroke-width="2"/><line x1="352" y1="144" x2="388" y2="240" stroke="url(#gr)" stroke-width="2"/><path d="M 316 240 C 316 270, 388 270, 388 240 Z" fill="url(#gr)"/><rect x="236" y="348" width="20" height="16" fill="url(#gl)"/><rect x="256" y="348" width="20" height="16" fill="url(#gr)"/><rect x="226" y="364" width="30" height="16" fill="url(#gl)"/><rect x="256" y="364" width="30" height="16" fill="url(#gr)"/><rect x="216" y="380" width="40" height="16" fill="url(#gl)"/><rect x="256" y="380" width="40" height="16" fill="url(#gr)"/></svg>'''
+
+# Simplified logo — monochrome version (for footer)
+_LOGO_SVG_MONO = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="14" height="14"><path d="M 256 30 L 90 70 L 90 270 C 90 400 256 480 256 480 Z" fill="#94a3b8"/><path d="M 256 30 L 422 70 L 422 270 C 422 400 256 480 256 480 Z" fill="#64748b"/><path d="M 256 50 L 110 86 L 110 266 C 110 380 256 456 256 456 Z" fill="#475569"/><path d="M 256 50 L 402 86 L 402 266 C 402 380 256 456 256 456 Z" fill="#334155"/><rect x="240" y="200" width="16" height="148" fill="#94a3b8"/><rect x="256" y="200" width="16" height="148" fill="#64748b"/><rect x="150" y="136" width="106" height="8" fill="#94a3b8"/><rect x="256" y="136" width="106" height="8" fill="#64748b"/><polygon points="256,90 244,108 256,126" fill="#94a3b8"/><polygon points="256,90 268,108 256,126" fill="#64748b"/><line x1="160" y1="144" x2="124" y2="240" stroke="#94a3b8" stroke-width="2"/><line x1="160" y1="144" x2="196" y2="240" stroke="#94a3b8" stroke-width="2"/><path d="M 124 240 C 124 270, 196 270, 196 240 Z" fill="#94a3b8"/><line x1="352" y1="144" x2="316" y2="240" stroke="#64748b" stroke-width="2"/><line x1="352" y1="144" x2="388" y2="240" stroke="#64748b" stroke-width="2"/><path d="M 316 240 C 316 270, 388 270, 388 240 Z" fill="#64748b"/></svg>'''
+
+
+def _wrap_html_for_pdf_v2(html_str: str) -> str:
+    """
+    V2 PDF template — Opção B "Corporativo Moderno".
+    Source Serif 4 + Inter, Navy+Gold palette, no watermark.
+    Content processing pipeline is identical to v1 (same inject_ressalva/index/verification calls).
+    Only CSS and HTML wrapper differ.
+    """
+    processed = inject_ressalva_blocks_for_pdf(html_str)
+    content = _format_index_as_columns(processed)
+    content = inject_final_verification_box(content)
+
+    css = """
+    @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap');
+
+    @page {
+      margin: 24mm 20mm 24mm 20mm;
+    }
+    body {
+      font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+      font-size: 11pt;
+      line-height: 1.5;
+      color: #334155;
+      text-align: justify;
+    }
+    p, li {
+      orphans: 4;
+      widows: 4;
+    }
+
+    /* ── Headings: Inter sans-serif ────────────────────────── */
+    h1, h2, h3, h4, h5, h6 {
+      font-family: 'Inter', 'Segoe UI', sans-serif;
+      color: #0f172a;
+      margin: 0.8em 0 0.35em;
+      page-break-after: avoid;
+      text-align: left;
+    }
+    h1 { font-size: 16pt; font-weight: 700; }
+    h2 { font-size: 13pt; font-weight: 700; border-bottom: 1.5pt solid #e2e8f0; padding-bottom: 4pt; }
+    h3 {
+      font-size: 10pt;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background: linear-gradient(90deg, #f1f5f9, #ffffff);
+      border-left: 3pt solid #b45309;
+      padding: 5pt 10pt;
+      border-radius: 0 4pt 4pt 0;
+      margin: 1.2em 0 0.5em;
+    }
+
+    /* ── Lists ─────────────────────────────────────────────── */
+    ul, ol { margin: 0.25em 0 0.75em; }
+
+    /* ── Index columns ────────────────────────────────────── */
+    .indice-colunas {
+      columns: 2;
+      -webkit-columns: 2;
+      column-gap: 24px;
+      padding-left: 18px;
+      margin-top: 4px;
+    }
+    .indice-colunas li {
+      break-inside: avoid;
+      margin: 0 0 2px 0;
+    }
+    .indice-inline-colunas {
+      columns: 2;
+      -webkit-columns: 2;
+      column-gap: 24px;
+    }
+    .indice-inline-colunas a {
+      display: block;
+      margin-bottom: 8px;
+      break-inside: avoid;
+      color: #1a56db;
+      text-decoration: underline;
+    }
+    .indice-inline-colunas br { display: none; }
+    .indice-colunas a {
+      color: #1a56db;
+      text-decoration: underline;
+    }
+
+    /* ── Images: minimal border (Opção C style per grill-me) ─ */
+    .ata-imagem-anexada {
+      display: block;
+      max-width: 70%;
+      max-height: 260px;
+      width: auto;
+      height: auto;
+      margin: 8px auto;
+      border: 0.5pt solid #cbd5e1;
+      border-radius: 0;
+    }
+    p:has(> .ata-imagem-anexada) {
+      display: block;
+      margin: 4px 0;
+    }
+
+    /* ── Ressalvas: amber card with gold border ──────────── */
+    .pdf-ressalvas-section {
+      display: block;
+      margin: 14pt 0 18pt 0;
+      padding: 10pt 14pt;
+      background-color: #fffbeb;
+      border: 1pt solid #fde68a;
+      border-left: 3pt solid #b45309;
+      border-radius: 0 4pt 4pt 0;
+      page-break-inside: avoid;
+    }
+    .pdf-ressalvas-title {
+      font-family: 'Inter', sans-serif;
+      font-size: 8.5pt;
+      font-weight: 700;
+      color: #92400e;
+      border-bottom: 1pt solid #fde68a;
+      padding-bottom: 4pt;
+      margin-bottom: 8pt;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .pdf-ressalva-item {
+      display: flex;
+      align-items: flex-start;
+      margin-bottom: 8pt;
+    }
+    .pdf-ressalva-item:last-child { margin-bottom: 0; }
+    .pdf-ressalva-num {
+      font-family: 'Inter', sans-serif;
+      font-weight: bold;
+      color: #b45309;
+      font-size: 9pt;
+      width: 24pt;
+      flex-shrink: 0;
+    }
+    .pdf-ressalva-body { flex-grow: 1; }
+    .pdf-ressalva-ref {
+      display: block;
+      font-style: italic;
+      font-size: 8.5pt;
+      color: #78350f;
+      margin-bottom: 2pt;
+    }
+    .pdf-ressalva-text {
+      display: block;
+      color: #1c1917;
+      font-size: 9.5pt;
+    }
+    .user-note-wrapper {
+      border-bottom: 1.5pt dashed #b45309;
+      background-color: transparent;
+    }
+    sup.pdf-ressalva-ref {
+      font-size: 7.5pt;
+      font-weight: bold;
+      color: #b45309;
+      vertical-align: super;
+      margin-left: 1pt;
+    }
+
+    /* ── Verification box: rounded card with table ────────── */
+    .pdf-verification-box {
+      display: block;
+      margin: 24pt 0 12pt 0;
+      padding: 14pt 18pt;
+      background-color: #f8fafc;
+      border: 1pt solid #e2e8f0;
+      border-radius: 6pt;
+      page-break-inside: avoid;
+    }
+    .pdf-verification-title {
+      font-family: 'Inter', sans-serif;
+      font-size: 10pt;
+      font-weight: 700;
+      color: #0f172a;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 8pt;
+      border-bottom: 1pt solid #e2e8f0;
+      padding-bottom: 6pt;
+    }
+    .pdf-verification-list {
+      margin: 0;
+      padding-left: 14pt;
+      list-style-type: disc;
+    }
+    .pdf-verification-list li {
+      font-size: 9.5pt;
+      color: #334155;
+      line-height: 1.5;
+      margin-bottom: 4pt;
+    }
+    .pdf-verification-list li:last-child { margin-bottom: 0; }
+
+    /* ── Links ─────────────────────────────────────────────── */
+    a { color: #1e40af; text-decoration: underline; }
+"""
+
+    return f"""<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+{css}
+  </style>
+</head>
+<body>
+{content}
+</body>
+</html>"""
+
+
+def _build_footer_html_v2(reviewer_name: str = "", zip_hash: str = "") -> str:
+    """
+    V2 footer template — 2-line layout per grill-me decision.
+    Line 1: Logo mono + "LegisVox" left | "Página X de Y" right
+    Line 2: Full dynamic disclaimer (reviewer, LGPD, hash) in smaller font
+    """
+    conferido_por = f"e conferido por <strong>{reviewer_name}</strong>" if reviewer_name else "e conferido por usuário"
+
+    disclaimer_extra = ""
+    if zip_hash:
+        disclaimer_extra = f" Aviso MCR e LGPD: Documento gerado por IA via LegisVox. Sem fé pública. Hash SHA-256 do ZIP: {zip_hash}."
+
+    return f"""<!DOCTYPE html>
+<html><head><style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+  body {{
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    margin: 0;
+    padding: 0 20mm 4mm 20mm;
+    box-sizing: border-box;
+    width: 100%;
+  }}
+  .footer-container {{
+    border-top: 1px solid #cbd5e1;
+    padding-top: 4px;
+  }}
+  .footer-line1 {{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 7pt;
+    color: #475569;
+    margin-bottom: 2px;
+  }}
+  .footer-brand {{
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }}
+  .footer-brand-name {{
+    font-weight: 600;
+    color: #0f172a;
+    letter-spacing: 0.04em;
+  }}
+  .footer-page {{
+    font-weight: 600;
+    color: #334155;
+  }}
+  .footer-line2 {{
+    font-size: 6pt;
+    color: #94a3b8;
+    line-height: 1.4;
+    text-align: justify;
+  }}
+</style></head>
+<body>
+<div class="footer-container">
+  <div class="footer-line1">
+    <span class="footer-brand">{_LOGO_SVG_MONO} <span class="footer-brand-name">LEGISVOX</span></span>
+    <span class="footer-page">P&#225;gina <span class="pageNumber"></span> de <span class="totalPages"></span></span>
+  </div>
+  <div class="footer-line2">
+    Conte&#250;do organizado por Intelig&#234;ncia Artificial {conferido_por}.{disclaimer_extra} As notas de ressalva s&#227;o independentes e de inteira responsabilidade do usu&#225;rio.
+  </div>
+</div>
+</body></html>"""
+
+
+def _build_header_html_v2() -> str:
+    """
+    V2 header template — repeating header on pages 2+ with brand + protocol.
+    Uses Chromium header/footer special classes for page numbering.
+    """
+    return f"""<!DOCTYPE html>
+<html><head><style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+  body {{
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    margin: 0;
+    padding: 6mm 20mm 0 20mm;
+    box-sizing: border-box;
+    width: 100%;
+  }}
+  .header-bar {{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 4px;
+    font-size: 7pt;
+    color: #64748b;
+  }}
+  .header-brand {{
+    font-weight: 600;
+    color: #0f172a;
+    letter-spacing: 0.03em;
+  }}
+  .header-protocol {{
+    color: #94a3b8;
+    font-size: 6.5pt;
+  }}
+</style></head>
+<body>
+<div class="header-bar">
+  <span><span class="header-brand">LEGISVOX</span> <span style="color:#cbd5e1">|</span> Relat&#243;rio T&#233;cnico de Prova Forense</span>
+  <span class="header-protocol"></span>
+</div>
+</body></html>"""
+
+
+
 PDF_RETRY_BASE_DELAY = 2  # seconds
 
 # Gotenberg Guard: limits concurrent PDF generations to prevent RAM spikes.
@@ -595,7 +931,7 @@ def _protect_and_hash_pdf_sync(pdf_content: bytes, ata_id: str = "") -> tuple[by
     return protected_content, pdf_hash
 
 
-async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "") -> tuple[bytes, str] | tuple[None, None]:
+async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "", use_new_template: bool = False) -> tuple[bytes, str] | tuple[None, None]:
     """
     Consome a API do Gotenberg via URL do Env.
     Inclui retry automático com backoff para lidar com instabilidades do Gotenberg.
@@ -607,10 +943,10 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_has
         logger.info("[PDF] Aguardando liberação do semáforo de PDF (máximo 2 concorrentes)")
 
     async with sem:
-        return await _generate_pdf_from_html_inner(html_str, reviewer_name, zip_hash, ata_id)
+        return await _generate_pdf_from_html_inner(html_str, reviewer_name, zip_hash, ata_id, use_new_template)
 
 
-async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "") -> tuple[bytes, str] | tuple[None, None]:
+async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "", use_new_template: bool = False) -> tuple[bytes, str] | tuple[None, None]:
     """Inner implementation of PDF generation (called within semaphore guard)."""
     url = getattr(settings, 'PDF_CONVERTER_URL', getattr(settings, 'GOTENBERG_URL', "http://localhost:3000/forms/chromium/convert/html"))
 
@@ -618,29 +954,27 @@ async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", 
         url = f"{url.rstrip('/')}/forms/chromium/convert/html"
 
     sanitized_html = sanitize_user_html(html_str)
-    # Note: inject_ressalva_blocks_for_pdf is called inside _wrap_html_for_pdf
-    html_for_pdf = _wrap_html_for_pdf(sanitized_html)
 
-    # Debug preview: only active when DEBUG_PDF_PREVIEW=true (never in production)
-    if os.getenv("DEBUG_PDF_PREVIEW", "false").lower() == "true":
-        try:
-            import pathlib
-            _diag_path = pathlib.Path(__file__).parent.parent / "debug_pdf_preview.html"
-            _diag_path.write_text(html_for_pdf, encoding='utf-8')
-            logger.info(f"[PDF_DIAG] HTML salvo em: {_diag_path} ({len(html_str):,} chars, {html_str.count('<img '):} imgs)")
-        except Exception as _e:
-            logger.warning(f"[PDF_DIAG] Falha ao salvar HTML de diagnóstico: {_e}")
+    # ── Template selection: v2 (Corporativo Moderno) vs v1 (legacy) ──
+    if use_new_template:
+        html_for_pdf = _wrap_html_for_pdf_v2(sanitized_html)
+        footer_html = _build_footer_html_v2(reviewer_name, zip_hash)
+        header_html = _build_header_html_v2()
+        logger.info(f"[PDF] Usando template v2 (Corporativo Moderno) para ata {ata_id}")
+    else:
+        # Note: inject_ressalva_blocks_for_pdf is called inside _wrap_html_for_pdf
+        html_for_pdf = _wrap_html_for_pdf(sanitized_html)
+        header_html = None  # v1 has no header
 
+        conferido_por = f"e conferido por <strong>{reviewer_name}</strong>" if reviewer_name else "e conferido por usuário"
 
-    conferido_por = f"e conferido por <strong>{reviewer_name}</strong>" if reviewer_name else "e conferido por usuário"
-    
-    disclaimer = ""
-    if zip_hash:
-        disclaimer = f"<br><strong>Aviso MCR e LGPD:</strong> Documento gerado por IA via LegisVox. Sem fé pública. A conferência com o arquivo original (Hash SHA-256 do ZIP: {zip_hash}) é obrigatória. As notas de ressalva são independentes e de inteira responsabilidade do usuário."
+        disclaimer = ""
+        if zip_hash:
+            disclaimer = f"<br><strong>Aviso MCR e LGPD:</strong> Documento gerado por IA via LegisVox. Sem fé pública. A conferência com o arquivo original (Hash SHA-256 do ZIP: {zip_hash}) é obrigatória. As notas de ressalva são independentes e de inteira responsabilidade do usuário."
 
-    # Gotenberg: margens e paginação via header nativo do Chrome
-    # O footer.html usa as classes especiais do Chromium para numeração nativa por página
-    footer_html = f"""<!DOCTYPE html>
+        # Gotenberg: margens e paginação via header nativo do Chrome
+        # O footer.html usa as classes especiais do Chromium para numeração nativa por página
+        footer_html = f"""<!DOCTYPE html>
 <html><head><style>
   body {{
     font-family: "Times New Roman", Times, serif;
@@ -676,13 +1010,33 @@ async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", 
 </div>
 </body></html>"""
 
-    data = {
-        'marginTop': '20mm',
-        'marginBottom': '16mm',
-        'marginLeft': '18mm',
-        'marginRight': '18mm',
-        'printBackground': 'true',
-    }
+    # Debug preview: only active when DEBUG_PDF_PREVIEW=true (never in production)
+    if os.getenv("DEBUG_PDF_PREVIEW", "false").lower() == "true":
+        try:
+            import pathlib
+            _diag_path = pathlib.Path(__file__).parent.parent / "debug_pdf_preview.html"
+            _diag_path.write_text(html_for_pdf, encoding='utf-8')
+            logger.info(f"[PDF_DIAG] HTML salvo em: {_diag_path} ({len(html_str):,} chars, {html_str.count('<img '):} imgs)")
+        except Exception as _e:
+            logger.warning(f"[PDF_DIAG] Falha ao salvar HTML de diagnóstico: {_e}")
+
+    # ── Gotenberg form data: margins differ between v1 and v2 ──
+    if use_new_template:
+        data = {
+            'marginTop': '24mm',
+            'marginBottom': '24mm',
+            'marginLeft': '20mm',
+            'marginRight': '20mm',
+            'printBackground': 'true',
+        }
+    else:
+        data = {
+            'marginTop': '20mm',
+            'marginBottom': '16mm',
+            'marginLeft': '18mm',
+            'marginRight': '18mm',
+            'printBackground': 'true',
+        }
 
     last_error = None
 
@@ -692,6 +1046,8 @@ async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", 
             ('files', ('index.html', html_for_pdf, 'text/html')),
             ('files', ('footer.html', footer_html, 'text/html')),
         ]
+        if header_html:
+            files.append(('files', ('header.html', header_html, 'text/html')))
 
         try:
             from database import get_http_client
