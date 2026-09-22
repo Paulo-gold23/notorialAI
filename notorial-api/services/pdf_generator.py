@@ -867,6 +867,8 @@ def _build_header_html_v2() -> str:
 
 
 
+
+MAX_PDF_RETRIES = 3
 PDF_RETRY_BASE_DELAY = 2  # seconds
 
 # Gotenberg Guard: limits concurrent PDF generations to prevent RAM spikes.
