@@ -554,8 +554,6 @@ def _wrap_html_for_pdf_v2(html_str: str) -> str:
     content = inject_final_verification_box(content)
 
     css = """
-    @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap');
-
     body {
       font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif;
       font-size: 11pt;
@@ -756,8 +754,9 @@ def _wrap_html_for_pdf_v2(html_str: str) -> str:
 def _build_footer_html_v2(reviewer_name: str = "", zip_hash: str = "") -> str:
     """
     V2 footer template — 2-line layout per grill-me decision.
-    Line 1: Logo mono + "LegisVox" left | "Página X de Y" right
+    Line 1: "LEGISVOX" left | "Página X de Y" right
     Line 2: Full dynamic disclaimer (reviewer, LGPD, hash) in smaller font
+    Uses system fonts only (no @import, no SVG) for Gotenberg compatibility.
     """
     conferido_por = f"e conferido por <strong>{reviewer_name}</strong>" if reviewer_name else "e conferido por usuário"
 
@@ -767,11 +766,10 @@ def _build_footer_html_v2(reviewer_name: str = "", zip_hash: str = "") -> str:
 
     return f"""<!DOCTYPE html>
 <html><head><style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
   body {{
-    font-family: 'Inter', 'Segoe UI', sans-serif;
+    font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
     margin: 0;
-    padding: 0 20mm 4mm 20mm;
+    padding: 0 18mm 6mm 18mm;
     box-sizing: border-box;
     width: 100%;
   }}
@@ -787,15 +785,10 @@ def _build_footer_html_v2(reviewer_name: str = "", zip_hash: str = "") -> str:
     color: #475569;
     margin-bottom: 2px;
   }}
-  .footer-brand {{
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }}
   .footer-brand-name {{
-    font-weight: 600;
+    font-weight: 700;
     color: #0f172a;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
   }}
   .footer-page {{
     font-weight: 600;
@@ -811,7 +804,7 @@ def _build_footer_html_v2(reviewer_name: str = "", zip_hash: str = "") -> str:
 <body>
 <div class="footer-container">
   <div class="footer-line1">
-    <span class="footer-brand">{_LOGO_SVG_MONO} <span class="footer-brand-name">LEGISVOX</span></span>
+    <span class="footer-brand-name">LEGISVOX</span>
     <span class="footer-page">P&#225;gina <span class="pageNumber"></span> de <span class="totalPages"></span></span>
   </div>
   <div class="footer-line2">
@@ -958,7 +951,7 @@ async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", 
     if use_new_template:
         html_for_pdf = _wrap_html_for_pdf_v2(sanitized_html)
         footer_html = _build_footer_html_v2(reviewer_name, zip_hash)
-        header_html = _build_header_html_v2()
+        header_html = None  # Disabled: reintroduce after confirming PDF works
         logger.info(f"[PDF] Usando template v2 (Corporativo Moderno) para ata {ata_id}")
     else:
         # Note: inject_ressalva_blocks_for_pdf is called inside _wrap_html_for_pdf
@@ -1022,10 +1015,10 @@ async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", 
     # ── Gotenberg form data: margins differ between v1 and v2 ──
     if use_new_template:
         data = {
-            'marginTop': '24mm',
-            'marginBottom': '24mm',
-            'marginLeft': '20mm',
-            'marginRight': '20mm',
+            'marginTop': '20mm',
+            'marginBottom': '16mm',
+            'marginLeft': '18mm',
+            'marginRight': '18mm',
             'printBackground': 'true',
         }
     else:
