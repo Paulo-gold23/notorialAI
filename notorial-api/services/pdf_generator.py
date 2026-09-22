@@ -535,63 +535,216 @@ def _wrap_html_for_pdf(html_str: str) -> str:
 # Feature-flagged via is_admin. Legacy _wrap_html_for_pdf above is untouched.
 # ══════════════════════════════════════════════════════════════════
 
-# Simplified horizontal logo — color version (for header)
-_LOGO_SVG_COLOR = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="28" height="28"><defs><linearGradient id="gl" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#FEF08A"/><stop offset="100%" stop-color="#F59E0B"/></linearGradient><linearGradient id="gr" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#F59E0B"/><stop offset="100%" stop-color="#B45309"/></linearGradient><linearGradient id="bl" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#3B82F6"/><stop offset="100%" stop-color="#1E3A8A"/></linearGradient><linearGradient id="br" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#1D4ED8"/><stop offset="100%" stop-color="#0F172A"/></linearGradient></defs><path d="M 256 30 L 90 70 L 90 270 C 90 400 256 480 256 480 Z" fill="url(#gl)"/><path d="M 256 30 L 422 70 L 422 270 C 422 400 256 480 256 480 Z" fill="url(#gr)"/><path d="M 256 50 L 110 86 L 110 266 C 110 380 256 456 256 456 Z" fill="url(#bl)"/><path d="M 256 50 L 402 86 L 402 266 C 402 380 256 456 256 456 Z" fill="url(#br)"/><rect x="240" y="200" width="16" height="148" fill="url(#gl)"/><rect x="256" y="200" width="16" height="148" fill="url(#gr)"/><rect x="150" y="136" width="106" height="8" fill="url(#gl)"/><rect x="256" y="136" width="106" height="8" fill="url(#gr)"/><polygon points="256,90 244,108 256,126" fill="url(#gl)"/><polygon points="256,90 268,108 256,126" fill="url(#gr)"/><line x1="160" y1="144" x2="124" y2="240" stroke="url(#gl)" stroke-width="2"/><line x1="160" y1="144" x2="196" y2="240" stroke="url(#gl)" stroke-width="2"/><path d="M 124 240 C 124 270, 196 270, 196 240 Z" fill="url(#gl)"/><line x1="352" y1="144" x2="316" y2="240" stroke="url(#gr)" stroke-width="2"/><line x1="352" y1="144" x2="388" y2="240" stroke="url(#gr)" stroke-width="2"/><path d="M 316 240 C 316 270, 388 270, 388 240 Z" fill="url(#gr)"/><rect x="236" y="348" width="20" height="16" fill="url(#gl)"/><rect x="256" y="348" width="20" height="16" fill="url(#gr)"/><rect x="226" y="364" width="30" height="16" fill="url(#gl)"/><rect x="256" y="364" width="30" height="16" fill="url(#gr)"/><rect x="216" y="380" width="40" height="16" fill="url(#gl)"/><rect x="256" y="380" width="40" height="16" fill="url(#gr)"/></svg>'''
+# Official LegisVox Shield Logo (vector SVG for first-page banner)
+_LOGO_SVG_SHIELD = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="38" height="38" style="vertical-align: middle;">
+  <defs>
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </linearGradient>
+    <linearGradient id="g-gold" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FEF08A"/>
+      <stop offset="100%" stop-color="#D97706"/>
+    </linearGradient>
+    <linearGradient id="g-blue" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+  </defs>
+  <rect width="100%" height="100%" rx="100" fill="url(#bg-grad)"/>
+  <path d="M 256 40 L 100 80 L 100 270 C 100 390 256 465 256 465 C 256 465 412 390 412 270 L 412 80 Z" fill="none" stroke="url(#g-gold)" stroke-width="14"/>
+  <path d="M 256 70 L 125 102 L 125 265 C 125 365 256 435 256 435 C 256 435 387 365 387 265 L 387 102 Z" fill="url(#g-blue)" opacity="0.85"/>
+  <rect x="250" y="150" width="12" height="200" fill="url(#g-gold)"/>
+  <rect x="160" y="180" width="192" height="10" rx="3" fill="url(#g-gold)"/>
+  <circle cx="256" cy="150" r="14" fill="url(#g-gold)"/>
+  <polygon points="256,110 246,140 266,140" fill="url(#g-gold)"/>
+  <line x1="175" y1="190" x2="145" y2="270" stroke="url(#g-gold)" stroke-width="4"/>
+  <line x1="175" y1="190" x2="205" y2="270" stroke="url(#g-gold)" stroke-width="4"/>
+  <path d="M 140 270 C 140 295, 210 295, 210 270 Z" fill="url(#g-gold)"/>
+  <line x1="337" y1="190" x2="307" y2="270" stroke="url(#g-gold)" stroke-width="4"/>
+  <line x1="337" y1="190" x2="367" y2="270" stroke="url(#g-gold)" stroke-width="4"/>
+  <path d="M 302 270 C 302 295, 372 295, 372 270 Z" fill="url(#g-gold)"/>
+  <rect x="216" y="345" width="80" height="20" rx="4" fill="url(#g-gold)"/>
+</svg>'''
 
 # Simplified logo — monochrome version (for footer)
 _LOGO_SVG_MONO = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="14" height="14"><path d="M 256 30 L 90 70 L 90 270 C 90 400 256 480 256 480 Z" fill="#94a3b8"/><path d="M 256 30 L 422 70 L 422 270 C 422 400 256 480 256 480 Z" fill="#64748b"/><path d="M 256 50 L 110 86 L 110 266 C 110 380 256 456 256 456 Z" fill="#475569"/><path d="M 256 50 L 402 86 L 402 266 C 402 380 256 456 256 456 Z" fill="#334155"/><rect x="240" y="200" width="16" height="148" fill="#94a3b8"/><rect x="256" y="200" width="16" height="148" fill="#64748b"/><rect x="150" y="136" width="106" height="8" fill="#94a3b8"/><rect x="256" y="136" width="106" height="8" fill="#64748b"/><polygon points="256,90 244,108 256,126" fill="#94a3b8"/><polygon points="256,90 268,108 256,126" fill="#64748b"/><line x1="160" y1="144" x2="124" y2="240" stroke="#94a3b8" stroke-width="2"/><line x1="160" y1="144" x2="196" y2="240" stroke="#94a3b8" stroke-width="2"/><path d="M 124 240 C 124 270, 196 270, 196 240 Z" fill="#94a3b8"/><line x1="352" y1="144" x2="316" y2="240" stroke="#64748b" stroke-width="2"/><line x1="352" y1="144" x2="388" y2="240" stroke="#64748b" stroke-width="2"/><path d="M 316 240 C 316 270, 388 270, 388 240 Z" fill="#64748b"/></svg>'''
 
 
-def _wrap_html_for_pdf_v2(html_str: str) -> str:
+def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "") -> str:
     """
     V2 PDF template — Opção B "Corporativo Moderno".
     Source Serif 4 + Inter, Navy+Gold palette, no watermark.
+    Injects LegisVox First Page Banner and Corporate Metadata Card.
     Content processing pipeline is identical to v1 (same inject_ressalva/index/verification calls).
-    Only CSS and HTML wrapper differ.
     """
     processed = inject_ressalva_blocks_for_pdf(html_str)
     content = _format_index_as_columns(processed)
     content = inject_final_verification_box(content)
 
+    # ── Injeção de Banner Inicial e Cartão de Metadados (Opção B Corporativo) ──
+    protocol_code = ata_id[:8].upper() if ata_id else "LVX-2026"
+    reviewer_display = reviewer_name or "Advogado / Usuário Responsável"
+
+    banner_html = f"""<div class="first-page-banner">
+  <div class="brand-group">
+    {_LOGO_SVG_SHIELD}
+    <div class="brand-text">
+      <div class="brand-name">LegisVox</div>
+    </div>
+  </div>
+  <div class="badge-tag">
+    <div><strong>PROTOCOLO:</strong> LVX-{protocol_code}</div>
+    <div>CONFORMIDADE ISO/IEC 27037</div>
+  </div>
+</div>"""
+
+    hash_row = f'<div class="meta-row"><span class="meta-label">HASH SHA-256 (ZIP):</span> <span class="meta-val hash-text">{zip_hash}</span></div>' if zip_hash else ''
+    meta_card_html = f"""<div class="doc-meta-card">
+  <div class="meta-row"><span class="meta-label">PROCEDIMENTO:</span> <span class="meta-val">Relatório Técnico de Transcrição e Fixação Probatória</span></div>
+  <div class="meta-row"><span class="meta-label">CONFERENTE:</span> <span class="meta-val">{reviewer_display}</span></div>
+  {hash_row}
+</div>"""
+
+    # Injeta o banner antes do primeiro <h1> e o cartão de metadados logo abaixo do <h1>
+    h1_match = re.search(r'(<h1[^>]*>.*?</h1>)', content, flags=re.DOTALL | re.IGNORECASE)
+    if h1_match:
+        h1_full = h1_match.group(1)
+        replacement = f"{banner_html}\n{h1_full}\n{meta_card_html}"
+        content = content[:h1_match.start()] + replacement + content[h1_match.end():]
+    else:
+        content = f"{banner_html}\n{meta_card_html}\n{content}"
+
     css = """
+    * { box-sizing: border-box; }
     body {
       font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif;
       font-size: 11pt;
-      line-height: 1.5;
-      color: #334155;
+      line-height: 1.55;
+      color: #1e293b;
       text-align: justify;
+      margin: 0;
+      padding: 0;
     }
-    p, li {
-      orphans: 4;
-      widows: 4;
+    p, li, div {
+      orphans: 3;
+      widows: 3;
+    }
+    p {
+      margin: 0.35em 0;
+      line-height: 1.5;
     }
 
-    /* ── Headings: Inter sans-serif ────────────────────────── */
+    /* ── Banner Inicial (Opção B Corporativo) ────────────────── */
+    .first-page-banner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2pt solid #b45309;
+      padding-bottom: 10pt;
+      margin-bottom: 14pt;
+    }
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 10pt;
+    }
+    .brand-text {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    .brand-name {
+      font-size: 18pt;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: #0f172a;
+      line-height: 1;
+    }
+    .badge-tag {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 8pt;
+      font-weight: 600;
+      color: #0f172a;
+      background-color: #f1f5f9;
+      border: 1pt solid #cbd5e1;
+      border-radius: 4pt;
+      padding: 4pt 8pt;
+      text-align: right;
+      line-height: 1.35;
+    }
+
+    /* ── Cartão de Metadados Corporativo ──────────────────────── */
+    .doc-meta-card {
+      background-color: #f8fafc;
+      border: 1pt solid #e2e8f0;
+      border-left: 3.5pt solid #0f172a;
+      border-radius: 4pt;
+      padding: 9pt 12pt;
+      margin: 10pt 0 16pt;
+      font-size: 9pt;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    .meta-row { margin-bottom: 3pt; line-height: 1.35; }
+    .meta-row:last-child { margin-bottom: 0; }
+    .meta-label {
+      font-weight: 600;
+      color: #475569;
+      display: inline-block;
+      min-width: 130pt;
+      font-size: 8.5pt;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .meta-val { color: #0f172a; font-weight: 500; }
+    .hash-text {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 8pt;
+      color: #334155;
+      word-break: break-all;
+    }
+
+    /* ── Títulos e Hierarquia ─────────────────────────────────── */
     h1, h2, h3, h4, h5, h6 {
-      font-family: 'Inter', 'Segoe UI', sans-serif;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       color: #0f172a;
       margin: 0.8em 0 0.35em;
       page-break-after: avoid;
       text-align: left;
     }
-    h1 { font-size: 16pt; font-weight: 700; }
-    h2 { font-size: 13pt; font-weight: 700; border-bottom: 1.5pt solid #e2e8f0; padding-bottom: 4pt; }
+    h1 {
+      font-size: 15pt;
+      font-weight: 700;
+      margin: 8pt 0 4pt;
+    }
+    h2 {
+      font-size: 11pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-bottom: 1.5pt solid #e2e8f0;
+      padding-bottom: 4pt;
+      margin: 16pt 0 8pt;
+    }
     h3 {
       font-size: 10pt;
       font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      background: linear-gradient(90deg, #f1f5f9, #ffffff);
+      color: #0f172a;
+      background: linear-gradient(90deg, #f1f5f9 0%, #ffffff 100%);
       border-left: 3pt solid #b45309;
-      padding: 5pt 10pt;
+      padding: 4pt 10pt;
+      margin: 14pt 0 8pt;
       border-radius: 0 4pt 4pt 0;
-      margin: 1.2em 0 0.5em;
     }
 
-    /* ── Lists ─────────────────────────────────────────────── */
-    ul, ol { margin: 0.25em 0 0.75em; }
+    /* ── Listas ─────────────────────────────────────────────── */
+    ul, ol {
+      margin: 0.25em 0 0.75em;
+      padding-left: 18pt;
+    }
+    li {
+      margin-bottom: 2pt;
+    }
 
-    /* ── Index columns ────────────────────────────────────── */
+    /* ── Índice em Colunas ──────────────────────────────────── */
     .indice-colunas {
       columns: 2;
       -webkit-columns: 2;
@@ -621,7 +774,7 @@ def _wrap_html_for_pdf_v2(html_str: str) -> str:
       text-decoration: underline;
     }
 
-    /* ── Images: minimal border (Opção C style per grill-me) ─ */
+    /* ── Imagens Anexadas ───────────────────────────────────── */
     .ata-imagem-anexada {
       display: block;
       max-width: 70%;
@@ -630,17 +783,17 @@ def _wrap_html_for_pdf_v2(html_str: str) -> str:
       height: auto;
       margin: 8px auto;
       border: 0.5pt solid #cbd5e1;
-      border-radius: 0;
+      border-radius: 2px;
     }
     p:has(> .ata-imagem-anexada) {
       display: block;
       margin: 4px 0;
     }
 
-    /* ── Ressalvas: amber card with gold border ──────────── */
+    /* ── Ressalvas: Card Âmbar com Destaque Dourado ─────────── */
     .pdf-ressalvas-section {
       display: block;
-      margin: 14pt 0 18pt 0;
+      margin: 14pt 0 18pt;
       padding: 10pt 14pt;
       background-color: #fffbeb;
       border: 1pt solid #fde68a;
@@ -649,7 +802,7 @@ def _wrap_html_for_pdf_v2(html_str: str) -> str:
       page-break-inside: avoid;
     }
     .pdf-ressalvas-title {
-      font-family: 'Inter', sans-serif;
+      font-family: 'Inter', -apple-system, sans-serif;
       font-size: 8.5pt;
       font-weight: 700;
       color: #92400e;
@@ -666,7 +819,7 @@ def _wrap_html_for_pdf_v2(html_str: str) -> str:
     }
     .pdf-ressalva-item:last-child { margin-bottom: 0; }
     .pdf-ressalva-num {
-      font-family: 'Inter', sans-serif;
+      font-family: 'Inter', -apple-system, sans-serif;
       font-weight: bold;
       color: #b45309;
       font-size: 9pt;
@@ -698,19 +851,19 @@ def _wrap_html_for_pdf_v2(html_str: str) -> str:
       margin-left: 1pt;
     }
 
-    /* ── Verification box: rounded card with table ────────── */
+    /* ── Caixa de Verificação Final ─────────────────────────── */
     .pdf-verification-box {
       display: block;
-      margin: 24pt 0 12pt 0;
+      margin: 24pt 0 12pt;
       padding: 14pt 18pt;
       background-color: #f8fafc;
-      border: 1pt solid #e2e8f0;
+      border: 1pt solid #cbd5e1;
       border-radius: 6pt;
       page-break-inside: avoid;
     }
     .pdf-verification-title {
-      font-family: 'Inter', sans-serif;
-      font-size: 10pt;
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 10.5pt;
       font-weight: 700;
       color: #0f172a;
       text-transform: uppercase;
@@ -732,7 +885,7 @@ def _wrap_html_for_pdf_v2(html_str: str) -> str:
     }
     .pdf-verification-list li:last-child { margin-bottom: 0; }
 
-    /* ── Links ─────────────────────────────────────────────── */
+    /* ── Links ──────────────────────────────────────────────── */
     a { color: #1e40af; text-decoration: underline; }
 """
 
@@ -741,6 +894,9 @@ def _wrap_html_for_pdf_v2(html_str: str) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
   <style>
 {css}
   </style>
@@ -949,7 +1105,7 @@ async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", 
 
     # ── Template selection: v2 (Corporativo Moderno) vs v1 (legacy) ──
     if use_new_template:
-        html_for_pdf = _wrap_html_for_pdf_v2(sanitized_html)
+        html_for_pdf = _wrap_html_for_pdf_v2(sanitized_html, reviewer_name=reviewer_name, zip_hash=zip_hash, ata_id=ata_id)
         footer_html = _build_footer_html_v2(reviewer_name, zip_hash)
         header_html = None  # Disabled: reintroduce after confirming PDF works
         logger.info(f"[PDF] Usando template v2 (Corporativo Moderno) para ata {ata_id}")
