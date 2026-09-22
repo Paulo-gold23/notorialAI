@@ -571,16 +571,80 @@ _LOGO_SVG_SHIELD = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 5
 _LOGO_SVG_MONO = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="14" height="14"><path d="M 256 30 L 90 70 L 90 270 C 90 400 256 480 256 480 Z" fill="#94a3b8"/><path d="M 256 30 L 422 70 L 422 270 C 422 400 256 480 256 480 Z" fill="#64748b"/><path d="M 256 50 L 110 86 L 110 266 C 110 380 256 456 256 456 Z" fill="#475569"/><path d="M 256 50 L 402 86 L 402 266 C 402 380 256 456 256 456 Z" fill="#334155"/><rect x="240" y="200" width="16" height="148" fill="#94a3b8"/><rect x="256" y="200" width="16" height="148" fill="#64748b"/><rect x="150" y="136" width="106" height="8" fill="#94a3b8"/><rect x="256" y="136" width="106" height="8" fill="#64748b"/><polygon points="256,90 244,108 256,126" fill="#94a3b8"/><polygon points="256,90 268,108 256,126" fill="#64748b"/><line x1="160" y1="144" x2="124" y2="240" stroke="#94a3b8" stroke-width="2"/><line x1="160" y1="144" x2="196" y2="240" stroke="#94a3b8" stroke-width="2"/><path d="M 124 240 C 124 270, 196 270, 196 240 Z" fill="#94a3b8"/><line x1="352" y1="144" x2="316" y2="240" stroke="#64748b" stroke-width="2"/><line x1="352" y1="144" x2="388" y2="240" stroke="#64748b" stroke-width="2"/><path d="M 316 240 C 316 270, 388 270, 388 240 Z" fill="#64748b"/></svg>'''
 
 
+def _format_chat_and_lists_for_v2(html_str: str) -> str:
+    """
+    Transforms plain chat paragraphs, index items, and participant lists into
+    Option B corporate cards and styled blocks matching the mock design.
+    Preserves all text, attachments, ressalvas, and chronological order 100%.
+    """
+    # 1. Transform Participant list into cards
+    def add_participantes_class(match):
+        h2 = match.group(1)
+        tag = match.group(2)
+        body = match.group(3)
+        return f'{h2}<{tag} class="participantes-list">{body}</{tag}>'
+
+    html_str = re.sub(
+        r'(<h2[^>]*>\s*Participantes\s*</h2>\s*)<(ul|ol)[^>]*>(.*?)</\2>',
+        add_participantes_class,
+        html_str,
+        flags=re.DOTALL | re.IGNORECASE
+    )
+
+    # 2. Transform Chat Messages into .msg-block cards
+    msg_pattern = re.compile(
+        r'<p>\s*\[(\d{2}/\d{2}/\d{4} \d{2}:\d{2}(?::\d{2})?)\]\s*([^:]+?):\s*(.*?)</p>',
+        flags=re.DOTALL
+    )
+
+    def msg_replacer(match):
+        ts = match.group(1).strip()
+        sender = match.group(2).strip()
+        body = match.group(3).strip()
+
+        # Check for Document attached
+        doc_match = re.match(r'^\[Documento:\s*(.*?)\]$', body, flags=re.DOTALL | re.IGNORECASE)
+        if doc_match:
+            doc_name = doc_match.group(1).strip()
+            return f"""<div class="msg-block">
+  <span class="msg-meta">[{ts}]</span> <span class="sender">{sender}:</span>
+  <div class="media-box doc-box">
+    <div class="media-title">📄 ARQUIVO DIGITAL ANEXADO: {doc_name}</div>
+  </div>
+</div>"""
+
+        # Check for Audio transcribed
+        audio_match = re.match(r'^\[(?:Áudio|Audio|AUDIO)\s+Transcrito:\s*(.*?)\]$', body, flags=re.DOTALL | re.IGNORECASE)
+        if audio_match:
+            audio_text = audio_match.group(1).strip()
+            return f"""<div class="msg-block">
+  <span class="msg-meta">[{ts}]</span> <span class="sender">{sender}:</span>
+  <div class="media-box audio-box">
+    <div class="media-title">🔊 REGISTRO FONOGRÁFICO / ÁUDIO TRANSCRITO</div>
+    <div class="media-content">{audio_text}</div>
+  </div>
+</div>"""
+
+        # Standard text message
+        return f"""<div class="msg-block">
+  <span class="msg-meta">[{ts}]</span> <span class="sender">{sender}:</span>
+  <span class="msg-text">{body}</span>
+</div>"""
+
+    return msg_pattern.sub(msg_replacer, html_str)
+
+
 def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "") -> str:
     """
     V2 PDF template — Opção B "Corporativo Moderno".
     Source Serif 4 + Inter, Navy+Gold palette, no watermark.
-    Injects LegisVox First Page Banner and Corporate Metadata Card.
+    Injects LegisVox First Page Banner, Corporate Metadata Card, and formats messages as corporate cards.
     Content processing pipeline is identical to v1 (same inject_ressalva/index/verification calls).
     """
     processed = inject_ressalva_blocks_for_pdf(html_str)
     content = _format_index_as_columns(processed)
     content = inject_final_verification_box(content)
+    content = _format_chat_and_lists_for_v2(content)
 
     # ── Injeção de Banner Inicial e Cartão de Metadados (Opção B Corporativo) ──
     protocol_code = ata_id[:8].upper() if ata_id else "LVX-2026"
@@ -629,10 +693,6 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
     p, li, div {
       orphans: 3;
       widows: 3;
-    }
-    p {
-      margin: 0.35em 0;
-      line-height: 1.5;
     }
 
     /* ── Banner Inicial (Opção B Corporativo) ────────────────── */
@@ -702,7 +762,7 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
       word-break: break-all;
     }
 
-    /* ── Títulos e Hierarquia ─────────────────────────────────── */
+    /* ── Títulos e Hierarquia (Opção B Corporativo) ──────────── */
     h1, h2, h3, h4, h5, h6 {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       color: #0f172a;
@@ -723,56 +783,144 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
       border-bottom: 1.5pt solid #e2e8f0;
       padding-bottom: 4pt;
       margin: 16pt 0 8pt;
+      display: flex;
+      align-items: center;
+    }
+    h2::before {
+      content: "";
+      display: inline-block;
+      width: 6pt;
+      height: 6pt;
+      background-color: #b45309;
+      border-radius: 1pt;
+      margin-right: 6pt;
     }
     h3 {
-      font-size: 10pt;
-      font-weight: 600;
+      font-size: 10.5pt;
+      font-weight: 700;
       color: #0f172a;
-      background: linear-gradient(90deg, #f1f5f9 0%, #ffffff 100%);
-      border-left: 3pt solid #b45309;
-      padding: 4pt 10pt;
-      margin: 14pt 0 8pt;
+      border-left: 3.5pt solid #b45309;
+      padding: 3pt 0 3pt 8pt;
+      margin: 18pt 0 8pt;
+      background: none;
+    }
+
+    /* ── Participantes: Cards Corporativos ──────────────────── */
+    .participantes-list {
+      list-style: none;
+      padding-left: 0;
+      margin: 6pt 0 14pt;
+    }
+    .participantes-list li {
+      background-color: #f8fafc;
+      border: 1pt solid #e2e8f0;
+      border-left: 3pt solid #1e3a8a;
       border-radius: 0 4pt 4pt 0;
+      padding: 5pt 10pt;
+      margin-bottom: 4pt;
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 9pt;
+      color: #0f172a;
     }
 
-    /* ── Listas ─────────────────────────────────────────────── */
-    ul, ol {
-      margin: 0.25em 0 0.75em;
-      padding-left: 18pt;
-    }
-    li {
-      margin-bottom: 2pt;
-    }
-
-    /* ── Índice em Colunas ──────────────────────────────────── */
+    /* ── Índice em Cards (Opção B Corporativo) ───────────────── */
     .indice-colunas {
       columns: 2;
       -webkit-columns: 2;
-      column-gap: 24px;
-      padding-left: 18px;
-      margin-top: 4px;
+      column-gap: 16px;
+      list-style: none;
+      padding-left: 0;
+      margin: 8pt 0 14pt;
     }
     .indice-colunas li {
       break-inside: avoid;
-      margin: 0 0 2px 0;
+      background-color: #f8fafc;
+      border: 1pt solid #e2e8f0;
+      border-radius: 4pt;
+      padding: 5pt 8pt;
+      margin-bottom: 5pt;
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 8.5pt;
+    }
+    .indice-colunas a {
+      color: #1e3a8a;
+      text-decoration: none;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+    }
+    .indice-colunas a::before {
+      content: "▪";
+      color: #b45309;
+      font-size: 8pt;
+      margin-right: 5pt;
     }
     .indice-inline-colunas {
       columns: 2;
       -webkit-columns: 2;
-      column-gap: 24px;
+      column-gap: 16px;
+      margin: 8pt 0 14pt;
     }
     .indice-inline-colunas a {
-      display: block;
-      margin-bottom: 8px;
       break-inside: avoid;
-      color: #1a56db;
-      text-decoration: underline;
+      background-color: #f8fafc;
+      border: 1pt solid #e2e8f0;
+      border-radius: 4pt;
+      padding: 5pt 8pt;
+      margin-bottom: 5pt;
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 8.5pt;
+      color: #1e3a8a;
+      text-decoration: none;
+      font-weight: 600;
+      display: block;
     }
-    .indice-inline-colunas br { display: none; }
-    .indice-colunas a {
-      color: #1a56db;
-      text-decoration: underline;
+    .indice-inline-colunas a::before {
+      content: "▪";
+      color: #b45309;
+      font-size: 8pt;
+      margin-right: 5pt;
     }
+
+    /* ── Mensagens Estruturadas (Opção B Corporativo) ────────── */
+    .msg-block {
+      margin-bottom: 7pt;
+      padding: 2pt 0 2pt 4pt;
+      line-height: 1.5;
+    }
+    .msg-meta {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 8.5pt;
+      color: #64748b;
+      font-weight: 500;
+    }
+    .sender {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-weight: 700;
+      margin: 0 4pt;
+      font-size: 9.5pt;
+      color: #1e3a8a;
+    }
+    .msg-text {
+      font-family: 'Source Serif 4', Georgia, serif;
+      color: #1e293b;
+      font-size: 10.5pt;
+    }
+
+    /* ── Mídias e Anexos (Cards com Ícones) ───────────────────── */
+    .media-box {
+      margin: 4pt 0 6pt 0;
+      padding: 6pt 10pt;
+      border: 1pt solid #cbd5e1;
+      border-radius: 4pt;
+      background-color: #f8fafc;
+      font-size: 9pt;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    .audio-box { border-left: 3.5pt solid #3b82f6; }
+    .doc-box { border-left: 3.5pt solid #10b981; }
+    .media-title { font-weight: 600; color: #0f172a; font-size: 8.5pt; }
+    .media-content { font-family: 'Source Serif 4', Georgia, serif; font-style: italic; color: #334155; margin-top: 3pt; font-size: 9.5pt; }
 
     /* ── Imagens Anexadas ───────────────────────────────────── */
     .ata-imagem-anexada {
