@@ -556,9 +556,6 @@ def _wrap_html_for_pdf_v2(html_str: str) -> str:
     css = """
     @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap');
 
-    @page {
-      margin: 24mm 20mm 24mm 20mm;
-    }
     body {
       font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif;
       font-size: 11pt;
