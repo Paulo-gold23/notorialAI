@@ -5,7 +5,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Heading from '@tiptap/extension-heading';
 import Placeholder from '@tiptap/extension-placeholder';
-import Image from '@tiptap/extension-image';
+import { ImagePlaceholder } from '../extensions/ImagePlaceholder';
 import TextAlign from '@tiptap/extension-text-align';
 import { apiRequest } from '../services/api';
 import { UserNote, extractRessalvas } from '../extensions/UserNote';
@@ -216,7 +216,7 @@ export default function Review() {
             Placeholder.configure({
                 placeholder: 'O conteúdo organizado aparecerá aqui...',
             }),
-            Image.configure({
+            ImagePlaceholder.configure({
                 inline: true,
                 allowBase64: true,
                 HTMLAttributes: {
