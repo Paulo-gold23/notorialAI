@@ -1138,6 +1138,34 @@ input:focus, select:focus {
   cursor: default;
 }
 
+/* ── Editor: document badge (converted from backend <div>) ─────────── */
+.tiptap .ata-doc-badge,
+.ProseMirror .ata-doc-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  margin: 2px 0;
+  background: rgba(59, 130, 246, 0.06);
+  border: 1px dashed rgba(59, 130, 246, 0.3);
+  border-radius: 4px;
+  font-size: 0.8em;
+  color: #3b82f6;
+  font-style: italic;
+}
+
+/* ── Editor: missing media badge (converted from backend <div>) ─────── */
+.tiptap .ata-midia-badge,
+.ProseMirror .ata-midia-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  margin: 2px 0;
+  background: rgba(107, 114, 128, 0.06);
+  border: 1px dashed rgba(107, 114, 128, 0.25);
+  border-radius: 4px;
+  font-size: 0.8em;
+  color: var(--text-muted, #9ca3af);
+  font-style: italic;
+}
+
 /* ========================================
    CUSTOM RANGE SLIDER (Pricing)
    ======================================== */

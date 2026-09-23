@@ -33,9 +33,71 @@ import MissingNumbersModal from '../components/review/MissingNumbersModal';
 
 function normalizeEditorContent(value) {
     if (!value) return '<p>Conteúdo não disponível</p>';
-    if (typeof value === 'string') return value;
-    if (typeof value === 'object' && typeof value.conteudo === 'string') return value.conteudo;
-    return '<p>Conteúdo recebido em formato não suportado para edição.</p>';
+    if (typeof value === 'object' && typeof value.conteudo === 'string') value = value.conteudo;
+    if (typeof value !== 'string') return '<p>Conteúdo recebido em formato não suportado para edição.</p>';
+
+    // ── Sanitize HTML for Tiptap compatibility ────────────────────────────
+    // The backend generates <div> elements (document badges, image section
+    // wrappers, missing media placeholders) that Tiptap's schema doesn't
+    // recognize. When <div> appears inside <p>, the browser auto-closes the
+    // <p>, creating orphaned content that Tiptap silently drops — causing
+    // entire days of messages to vanish from the editor.
+    //
+    // This function converts all <div> structures into <p>-based equivalents
+    // that Tiptap can parse. The saved HTML and PDF are NOT affected because
+    // the save flow re-fetches content from the database.
+    try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(value, 'text/html');
+
+        // 1. Document badges: <div style="...inline-flex..."> → <p>[Documento: filename]</p>
+        doc.body.querySelectorAll('div[style*="inline-flex"]').forEach(div => {
+            const spans = div.querySelectorAll('span');
+            let filename = '';
+            for (const span of spans) {
+                const text = span.textContent.trim();
+                if (text && text !== 'Documento Anexado') {
+                    filename = text;
+                    break;
+                }
+            }
+            const p = doc.createElement('p');
+            p.className = 'ata-doc-badge';
+            p.textContent = `[Documento: ${filename || 'anexo'}]`;
+            div.replaceWith(p);
+        });
+
+        // 2. Missing media: <div class="ata-midia-ausente"> → <p>
+        doc.body.querySelectorAll('div.ata-midia-ausente').forEach(div => {
+            const p = doc.createElement('p');
+            p.className = 'ata-midia-badge';
+            p.textContent = div.textContent.trim();
+            div.replaceWith(p);
+        });
+
+        // 3. Image section wrapper: <div class="ata-imagens-secao"> → unwrap
+        doc.body.querySelectorAll('div.ata-imagens-secao').forEach(div => {
+            const fragment = doc.createDocumentFragment();
+            while (div.firstChild) fragment.appendChild(div.firstChild);
+            div.replaceWith(fragment);
+        });
+
+        // 4. Any remaining <div> → unwrap (keep children, remove wrapper)
+        let remaining = doc.body.querySelectorAll('div');
+        while (remaining.length > 0) {
+            remaining.forEach(div => {
+                const fragment = doc.createDocumentFragment();
+                while (div.firstChild) fragment.appendChild(div.firstChild);
+                div.replaceWith(fragment);
+            });
+            remaining = doc.body.querySelectorAll('div');
+        }
+
+        return doc.body.innerHTML;
+    } catch {
+        // Fallback: return raw HTML if DOMParser fails
+        return value;
+    }
 }
 
 
