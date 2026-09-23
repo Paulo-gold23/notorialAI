@@ -27,11 +27,11 @@ export default function BackgroundNotificationListener({ session }) {
     if (!session?.user?.id) return;
 
     try {
-      // Find advogado_id for this user
+      // Find advogado_id for this user (advogados.id maps directly to auth user id)
       const { data: advData } = await supabase
         .from('advogados')
         .select('id')
-        .eq('user_id', session.user.id)
+        .eq('id', session.user.id)
         .single();
 
       if (!advData?.id) return;

@@ -1319,7 +1319,7 @@ def _protect_and_hash_pdf_sync(pdf_content: bytes, ata_id: str = "") -> tuple[by
     return protected_content, pdf_hash
 
 
-async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "", use_new_template: bool = False) -> tuple[bytes, str] | tuple[None, None]:
+async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "", use_new_template: bool = True) -> tuple[bytes, str] | tuple[None, None]:
     """
     Consome a API do Gotenberg via URL do Env.
     Inclui retry automático com backoff para lidar com instabilidades do Gotenberg.
@@ -1334,7 +1334,7 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_has
         return await _generate_pdf_from_html_inner(html_str, reviewer_name, zip_hash, ata_id, use_new_template)
 
 
-async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "", use_new_template: bool = False) -> tuple[bytes, str] | tuple[None, None]:
+async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "", use_new_template: bool = True) -> tuple[bytes, str] | tuple[None, None]:
     """Inner implementation of PDF generation (called within semaphore guard)."""
     url = getattr(settings, 'PDF_CONVERTER_URL', getattr(settings, 'GOTENBERG_URL', "http://localhost:3000/forms/chromium/convert/html"))
 
