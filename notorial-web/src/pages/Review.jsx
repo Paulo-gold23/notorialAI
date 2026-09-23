@@ -87,6 +87,12 @@ export default function Review() {
     const [searchResults, setSearchResults] = useState({ count: 0, current: 0 });
     const searchInputRef = useRef(null);
 
+    // ── Guard against redundant content hydration ─────────────────────────────
+    // Tracks which content was last successfully loaded into the editor.
+    // Prevents React 19 Strict Mode double-invocations and editor instance
+    // changes from wiping content that is already correctly displayed.
+    const loadedContentRef = useRef({ tab: null, hash: null });
+
     const tabsRef = useRef(null);
     // Callback ref that attaches copy-protection listeners as soon as the DOM node mounts.
     // A plain ref + useEffect won't work here because editorWrapperRef.current is not
@@ -535,9 +541,12 @@ export default function Review() {
         }
 
         if (count > 0) {
+            const normalized = normalizeEditorContent(updatedHtml);
             editor.setOptions({ editable: true });
-            editor.commands.setContent(normalizeEditorContent(updatedHtml));
+            editor.commands.setContent(normalized);
             editor.setOptions({ editable: false });
+            // Keep hydration guard in sync so the useEffect won't overwrite this
+            loadedContentRef.current = { tab: activeTab, hash: normalized.length + ':' + normalized.slice(0, 200) };
             toast.success(`${count} número(s) preenchido(s). Lembre-se de salvar o documento.`);
         }
         
@@ -599,9 +608,30 @@ export default function Review() {
     }, [loadAta]);
 
     useEffect(() => {
-        if (!conteudo || !editor) return;
+        if (!conteudo || !editor || editor.isDestroyed) return;
         const raw = activeTab === 'formal' ? conteudo.conteudo_formal : conteudo.conteudo_preparatorio;
-        editor.commands.setContent(normalizeEditorContent(raw));
+        const normalized = normalizeEditorContent(raw);
+
+        // Deduplicate: skip if this exact content is already loaded
+        const contentHash = normalized.length + ':' + normalized.slice(0, 200);
+        if (loadedContentRef.current.tab === activeTab && loadedContentRef.current.hash === contentHash) {
+            return;
+        }
+
+        editor.commands.setContent(normalized);
+        loadedContentRef.current = { tab: activeTab, hash: contentHash };
+
+        // Post-load validation: detect silent content truncation by Tiptap parser
+        requestAnimationFrame(() => {
+            if (!editor || editor.isDestroyed) return;
+            const docTextLen = editor.state.doc.textContent.length;
+            const rawTextLen = normalized.replace(/<[^>]*>/g, '').replace(/&[a-z]+;/gi, ' ').length;
+            // If the editor captured less than 30% of the raw text, something went wrong
+            if (rawTextLen > 100 && docTextLen < rawTextLen * 0.3) {
+                console.warn('[LegisVox] Content may have been truncated by Tiptap. Retrying setContent. Raw:', rawTextLen, 'Doc:', docTextLen);
+                editor.commands.setContent(normalized);
+            }
+        });
     }, [activeTab, conteudo, editor]);
 
     const triggerPinVerification = (callback) => {

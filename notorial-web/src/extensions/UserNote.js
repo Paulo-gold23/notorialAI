@@ -6,9 +6,20 @@ import { Mark, mergeAttributes } from '@tiptap/core';
 export const UserNote = Mark.create({
     name: 'userNote',
 
+    // Allow the mark to span across multiple inline nodes (e.g. bold + plain text)
+    spanning: true,
+
     addAttributes() {
         return {
-            note: { default: null },
+            note: {
+                default: null,
+                // Explicit round-trip: parse from data-user-note, render to data-user-note
+                parseHTML: element => element.getAttribute('data-user-note') || null,
+                renderHTML: attributes => {
+                    if (!attributes.note) return {};
+                    return { 'data-user-note': attributes.note };
+                },
+            },
         };
     },
 
@@ -20,7 +31,6 @@ export const UserNote = Mark.create({
         return [
             'span',
             mergeAttributes(HTMLAttributes, {
-                'data-user-note': HTMLAttributes.note ?? '',
                 class: 'user-note-wrapper',
             }),
             0,
