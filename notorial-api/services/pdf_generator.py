@@ -273,9 +273,11 @@ def inject_ressalva_blocks_for_pdf(html_content: str) -> str:
     return "".join(processed_parts)
 
 
-def inject_final_verification_box(html_str: str) -> str:
+def inject_final_verification_box(html_str: str, use_v2_style: bool = False) -> str:
     """
-    Injeta uma caixa de auditoria formal ("Verificação Final") no final do PDF.
+    Injeta uma caixa de auditoria formal no final do PDF.
+    v1: UL/LI list layout ("Verificação final:")
+    v2: TABLE key-value layout ("CERTIDÃO DE AUDITORIA E INTEGRIDADE FORENSE DIGITAL")
     Calcula dinamicamente a contagem de mensagens, imagens, áudios e documentos.
     """
     # 1. Contar mensagens com padrão [DD/MM/AAAA HH:MM] ou [DD/MM/AAAA HH:MM:SS]
@@ -305,7 +307,42 @@ def inject_final_verification_box(html_str: str) -> str:
 
     media_desc = ", ".join(media_parts) if media_parts else "nenhuma mídia"
 
-    verification_html = f"""
+    if use_v2_style:
+        # V2: Table layout matching mock verification-container
+        num_midias_total = num_images + num_docs
+        midias_desc = f"{num_midias_total:02d} arquivo" + ("s preservados" if num_midias_total != 1 else " preservado") + " com integridade e carimbo temporal intactos" if num_midias_total > 0 else "nenhum arquivo anexado"
+        audios_desc = f"{num_audios:02d} mídia" + ("s transcritas" if num_audios != 1 else " transcrita") + " via inteligência artificial com estrita fidelidade semântica" if num_audios > 0 else "nenhum registro fonográfico"
+        ressalvas_desc = f"{num_ressalvas:02d} observaç" + ("ões técnicas numeradas" if num_ressalvas != 1 else "ão técnica numerada") + " e vinculadas aos respectivos parágrafos" if num_ressalvas > 0 else "nenhuma ressalva inserida"
+
+        verification_html = f"""
+<div class="verification-container">
+  <div class="verif-title">CERTIDÃO DE AUDITORIA E INTEGRIDADE FORENSE DIGITAL</div>
+  <div class="verif-intro">
+    O presente documento técnico foi gerado por intermédio da plataforma LegisVox, submetido aos parâmetros da norma técnica <strong>ABNT NBR ISO/IEC 27037:2013</strong> (Diretrizes para Identificação, Coleta, Aquisição e Preservação de Evidência Digital):
+  </div>
+  <table class="verif-table">
+    <tr>
+      <td class="tb-key">Mensagens Transcritas:</td>
+      <td class="tb-val">{num_messages} registros (100% de paridade com o arquivo de exportação)</td>
+    </tr>
+    <tr>
+      <td class="tb-key">Registros Fonográficos (Áudios):</td>
+      <td class="tb-val">{audios_desc}</td>
+    </tr>
+    <tr>
+      <td class="tb-key">Documentos e Imagens Anexados:</td>
+      <td class="tb-val">{midias_desc}</td>
+    </tr>
+    <tr>
+      <td class="tb-key">Ressalvas e Notas Inseridas:</td>
+      <td class="tb-val">{ressalvas_desc}</td>
+    </tr>
+  </table>
+</div>
+"""
+    else:
+        # V1: UL/LI list layout (legacy)
+        verification_html = f"""
 <div class="pdf-verification-box">
   <div class="pdf-verification-title">Verificação final:</div>
   <ul class="pdf-verification-list">
@@ -536,7 +573,7 @@ def _wrap_html_for_pdf(html_str: str) -> str:
 # ══════════════════════════════════════════════════════════════════
 
 # Official LegisVox Shield Logo (vector SVG for first-page banner)
-_LOGO_SVG_SHIELD = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="38" height="38" style="vertical-align: middle;">
+_LOGO_SVG_SHIELD = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="42" height="42" style="vertical-align: middle;">
   <defs>
     <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#0F172A"/>
@@ -591,23 +628,32 @@ def _format_chat_and_lists_for_v2(html_str: str) -> str:
         flags=re.DOTALL | re.IGNORECASE
     )
 
-    # 2. Transform Chat Messages into .msg-block cards
+    # 2. Transform Chat Messages into .msg-block cards with sender differentiation
     msg_pattern = re.compile(
         r'<p>\s*\[(\d{2}/\d{2}/\d{4} \d{2}:\d{2}(?::\d{2})?)\]\s*([^:]+?):\s*(.*?)</p>',
         flags=re.DOTALL
     )
 
+    # Pre-scan to find the first sender (treated as "me" / owner of the chat)
+    first_match = msg_pattern.search(html_str)
+    first_sender = first_match.group(2).strip() if first_match else ""
+
+    def _sender_class(sender_name: str) -> str:
+        """Return CSS class based on whether this sender is the chat owner."""
+        return "sender sender-me" if sender_name == first_sender else "sender sender-other"
+
     def msg_replacer(match):
         ts = match.group(1).strip()
         sender = match.group(2).strip()
         body = match.group(3).strip()
+        s_class = _sender_class(sender)
 
         # Check for Document attached
         doc_match = re.match(r'^\[Documento:\s*(.*?)\]$', body, flags=re.DOTALL | re.IGNORECASE)
         if doc_match:
             doc_name = doc_match.group(1).strip()
             return f"""<div class="msg-block">
-  <span class="msg-meta">[{ts}]</span> <span class="sender">{sender}:</span>
+  <span class="msg-meta">[{ts}]</span> <span class="{s_class}">{sender}:</span>
   <div class="media-box doc-box">
     <div class="media-title">📄 ARQUIVO DIGITAL ANEXADO: {doc_name}</div>
   </div>
@@ -618,7 +664,7 @@ def _format_chat_and_lists_for_v2(html_str: str) -> str:
         if audio_match:
             audio_text = audio_match.group(1).strip()
             return f"""<div class="msg-block">
-  <span class="msg-meta">[{ts}]</span> <span class="sender">{sender}:</span>
+  <span class="msg-meta">[{ts}]</span> <span class="{s_class}">{sender}:</span>
   <div class="media-box audio-box">
     <div class="media-title">🔊 REGISTRO FONOGRÁFICO / ÁUDIO TRANSCRITO</div>
     <div class="media-content">{audio_text}</div>
@@ -627,7 +673,7 @@ def _format_chat_and_lists_for_v2(html_str: str) -> str:
 
         # Standard text message
         return f"""<div class="msg-block">
-  <span class="msg-meta">[{ts}]</span> <span class="sender">{sender}:</span>
+  <span class="msg-meta">[{ts}]</span> <span class="{s_class}">{sender}:</span>
   <span class="msg-text">{body}</span>
 </div>"""
 
@@ -643,7 +689,7 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
     """
     processed = inject_ressalva_blocks_for_pdf(html_str)
     content = _format_index_as_columns(processed)
-    content = inject_final_verification_box(content)
+    content = inject_final_verification_box(content, use_v2_style=True)
     content = _format_chat_and_lists_for_v2(content)
 
     # ── Injeção de Banner Inicial e Cartão de Metadados (Opção B Corporativo) ──
@@ -688,7 +734,7 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
       color: #1e293b;
       text-align: justify;
       margin: 0;
-      padding: 0;
+      padding: 0 0 8mm 0;
     }
     p, li, div {
       orphans: 3;
@@ -701,8 +747,8 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
       justify-content: space-between;
       align-items: center;
       border-bottom: 2pt solid #b45309;
-      padding-bottom: 10pt;
-      margin-bottom: 14pt;
+      padding-bottom: 12pt;
+      margin-bottom: 16pt;
     }
     .brand-group {
       display: flex;
@@ -729,7 +775,7 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
       border-radius: 4pt;
       padding: 4pt 8pt;
       text-align: right;
-      line-height: 1.35;
+      line-height: 1.3;
     }
 
     /* ── Cartão de Metadados Corporativo ──────────────────────── */
@@ -738,18 +784,18 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
       border: 1pt solid #e2e8f0;
       border-left: 3.5pt solid #0f172a;
       border-radius: 4pt;
-      padding: 9pt 12pt;
-      margin: 10pt 0 16pt;
-      font-size: 9pt;
+      padding: 10pt 12pt;
+      margin-bottom: 16pt;
+      font-size: 9.5pt;
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
-    .meta-row { margin-bottom: 3pt; line-height: 1.35; }
+    .meta-row { margin-bottom: 3.5pt; line-height: 1.35; }
     .meta-row:last-child { margin-bottom: 0; }
     .meta-label {
       font-weight: 600;
       color: #475569;
       display: inline-block;
-      min-width: 130pt;
+      min-width: 145pt;
       font-size: 8.5pt;
       text-transform: uppercase;
       letter-spacing: 0.03em;
@@ -780,7 +826,7 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.04em;
-      border-bottom: 1.5pt solid #e2e8f0;
+      border-bottom: 1pt solid #e2e8f0;
       padding-bottom: 4pt;
       margin: 16pt 0 8pt;
       display: flex;
@@ -796,13 +842,15 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
       margin-right: 6pt;
     }
     h3 {
-      font-size: 10.5pt;
-      font-weight: 700;
+      font-size: 10pt;
+      font-weight: 600;
       color: #0f172a;
-      border-left: 3.5pt solid #b45309;
-      padding: 3pt 0 3pt 8pt;
-      margin: 18pt 0 8pt;
-      background: none;
+      background: linear-gradient(90deg, #f1f5f9 0%, #ffffff 100%);
+      border-left: 3pt solid #b45309;
+      border-radius: 0 4pt 4pt 0;
+      padding: 4pt 10pt;
+      margin: 14pt 0 8pt 0;
+      page-break-after: avoid;
     }
 
     /* ── Participantes: Cards Corporativos ──────────────────── */
@@ -823,29 +871,31 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
       color: #0f172a;
     }
 
-    /* ── Índice em Cards (Opção B Corporativo) ───────────────── */
+    /* ── Índice em Cards (Opção B Corporativo — 2 colunas justificadas) ── */
     .indice-colunas {
       columns: 2;
       -webkit-columns: 2;
-      column-gap: 16px;
+      column-gap: 10pt;
       list-style: none;
       padding-left: 0;
-      margin: 8pt 0 14pt;
+      margin: 6pt 0 14pt;
     }
     .indice-colunas li {
       break-inside: avoid;
+      -webkit-column-break-inside: avoid;
       background-color: #f8fafc;
-      border: 1pt solid #e2e8f0;
-      border-radius: 4pt;
-      padding: 5pt 8pt;
-      margin-bottom: 5pt;
+      border: 1pt solid #f1f5f9;
+      border-radius: 3pt;
+      padding: 4pt 8pt;
+      margin-bottom: 4pt;
       font-family: 'Inter', -apple-system, sans-serif;
-      font-size: 8.5pt;
+      font-size: 9pt;
+      line-height: 1.35;
     }
     .indice-colunas a {
       color: #1e3a8a;
       text-decoration: none;
-      font-weight: 600;
+      font-weight: 500;
       display: flex;
       align-items: center;
     }
@@ -854,25 +904,28 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
       color: #b45309;
       font-size: 8pt;
       margin-right: 5pt;
+      flex-shrink: 0;
     }
     .indice-inline-colunas {
       columns: 2;
       -webkit-columns: 2;
-      column-gap: 16px;
-      margin: 8pt 0 14pt;
+      column-gap: 10pt;
+      margin: 6pt 0 14pt;
     }
     .indice-inline-colunas a {
       break-inside: avoid;
+      -webkit-column-break-inside: avoid;
       background-color: #f8fafc;
-      border: 1pt solid #e2e8f0;
-      border-radius: 4pt;
-      padding: 5pt 8pt;
-      margin-bottom: 5pt;
+      border: 1pt solid #f1f5f9;
+      border-radius: 3pt;
+      padding: 4pt 8pt;
+      margin-bottom: 4pt;
       font-family: 'Inter', -apple-system, sans-serif;
-      font-size: 8.5pt;
+      font-size: 9pt;
+      line-height: 1.35;
       color: #1e3a8a;
       text-decoration: none;
-      font-weight: 600;
+      font-weight: 500;
       display: block;
     }
     .indice-inline-colunas a::before {
@@ -896,20 +949,19 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
     }
     .sender {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-weight: 700;
+      font-weight: 600;
       margin: 0 4pt;
       font-size: 9.5pt;
-      color: #1e3a8a;
     }
+    .sender-me { color: #0f172a; }
+    .sender-other { color: #1e3a8a; }
     .msg-text {
-      font-family: 'Source Serif 4', Georgia, serif;
       color: #1e293b;
-      font-size: 10.5pt;
     }
 
     /* ── Mídias e Anexos (Cards com Ícones) ───────────────────── */
     .media-box {
-      margin: 4pt 0 6pt 0;
+      margin: 4pt 0 6pt 4pt;
       padding: 6pt 10pt;
       border: 1pt solid #cbd5e1;
       border-radius: 4pt;
@@ -917,10 +969,10 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
       font-size: 9pt;
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
-    .audio-box { border-left: 3.5pt solid #3b82f6; }
-    .doc-box { border-left: 3.5pt solid #10b981; }
-    .media-title { font-weight: 600; color: #0f172a; font-size: 8.5pt; }
-    .media-content { font-family: 'Source Serif 4', Georgia, serif; font-style: italic; color: #334155; margin-top: 3pt; font-size: 9.5pt; }
+    .audio-box { border-left: 3pt solid #3b82f6; }
+    .doc-box { border-left: 3pt solid #10b981; }
+    .media-title { font-weight: 600; color: #0f172a; }
+    .media-content { font-family: 'Source Serif 4', Georgia, serif; font-style: italic; color: #334155; margin-top: 3pt; font-size: 10pt; }
 
     /* ── Imagens Anexadas ───────────────────────────────────── */
     .ata-imagem-anexada {
@@ -999,7 +1051,7 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
       margin-left: 1pt;
     }
 
-    /* ── Caixa de Verificação Final ─────────────────────────── */
+    /* ── Caixa de Verificação Final (v1 legacy — UL layout) ──── */
     .pdf-verification-box {
       display: block;
       margin: 24pt 0 12pt;
@@ -1032,6 +1084,46 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
       margin-bottom: 4pt;
     }
     .pdf-verification-list li:last-child { margin-bottom: 0; }
+
+    /* ── Auditoria de Integridade (v2 — TABLE layout) ────────── */
+    .verification-container {
+      margin-top: 22pt;
+      border: 1pt solid #cbd5e1;
+      border-radius: 6pt;
+      padding: 12pt 14pt;
+      background-color: #f8fafc;
+      page-break-inside: avoid;
+    }
+    .verif-title {
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 11pt;
+      font-weight: 700;
+      color: #0f172a;
+      letter-spacing: 0.03em;
+      border-bottom: 1pt solid #e2e8f0;
+      padding-bottom: 6pt;
+      margin-bottom: 8pt;
+    }
+    .verif-intro {
+      font-size: 9.5pt;
+      color: #475569;
+      line-height: 1.45;
+      margin-bottom: 8pt;
+    }
+    .verif-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 9pt;
+    }
+    .verif-table td {
+      padding: 4pt 0;
+      border-bottom: 0.5pt solid #e2e8f0;
+      vertical-align: middle;
+    }
+    .verif-table tr:last-child td { border-bottom: none; }
+    .tb-key { font-weight: 600; width: 36%; color: #334155; }
+    .tb-val { color: #0f172a; }
 
     /* ── Links ──────────────────────────────────────────────── */
     a { color: #1e40af; text-decoration: underline; }
@@ -1320,7 +1412,7 @@ async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", 
     if use_new_template:
         data = {
             'marginTop': '20mm',
-            'marginBottom': '16mm',
+            'marginBottom': '20mm',
             'marginLeft': '18mm',
             'marginRight': '18mm',
             'printBackground': 'true',
