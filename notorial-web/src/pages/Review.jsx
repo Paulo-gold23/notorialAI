@@ -129,6 +129,7 @@ export default function Review() {
     // Credit report after PDF generation
     const [creditReport, setCreditReport] = useState(null);
     const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
+    const [missingImages, setMissingImages] = useState(0);
     const [missingNumbersModal, setMissingNumbersModal] = useState({ isOpen: false, matches: [] });
 
     // ── Ressalvas state ───────────────────────────────────────────────────────
@@ -769,6 +770,9 @@ export default function Review() {
                     reviewer_name: reviewerName,
                 }),
             });
+            if (data.missing_images > 0) {
+                setMissingImages(data.missing_images);
+            }
             if (data.pdf_url) {
                 const { getAuthHeaderForDownload } = await import('../services/api');
                 const headers = await getAuthHeaderForDownload();
@@ -1284,6 +1288,15 @@ export default function Review() {
                         onCut={(e) => { e.preventDefault(); toast.error("Corte de texto desativado por razões de segurança."); }}
                         onContextMenu={(e) => { if (!annotationMode) e.preventDefault(); }}
                     >
+                        {missingImages > 0 && (
+                            <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                                <span>
+                                    <strong>{missingImages} imagem(ns)</strong> referenciada(s) na conversa não foram encontradas no arquivo ZIP exportado.
+                                    Para incluí-las, re-exporte a conversa do WhatsApp com mídias completas.
+                                </span>
+                            </div>
+                        )}
                         <EditorContent editor={editor} />
                     </div>
                 </div>

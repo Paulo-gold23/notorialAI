@@ -32,7 +32,7 @@ MEDIA_OMITTED_KEYWORDS = [
     'gif omitido', 'gif omitted', 'documento omitido', 'document omitted',
 ]
 
-IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png']
+IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif']
 VIDEO_EXTENSIONS = ['.mp4', '.3gp']
 AUDIO_EXTENSIONS = ('.opus', '.ogg', '.m4a', '.mp3', '.aac', '.wav', '.webm')
 
@@ -47,7 +47,7 @@ AUDIO_FILE_RE = re.compile(
     re.IGNORECASE
 )
 IMAGE_EXTENSIONS_TUPLE = tuple(IMAGE_EXTENSIONS)
-IMAGE_FILE_RE = re.compile(r'([^\s<>()\[\]"]+\.(?:jpg|jpeg|png))', re.IGNORECASE)
+IMAGE_FILE_RE = re.compile(r'([^\s<>()\[\]"]+\.(?:jpg|jpeg|png|webp|heic|heif))', re.IGNORECASE)
 VIDEO_FILE_RE = re.compile(r'([^\s<>()\[\]"]+\.(?:mp4|3gp))', re.IGNORECASE)
 
 # Documentos comuns que podem ser anexados
@@ -189,26 +189,53 @@ def _classify_message(conteudo: str, audio_exact_paths: set[str], audio_by_basen
     
     # ÔöÇÔöÇ Verificar IMAGEM ÔÇö antes de "m├¡dia omitida" para capturar o filename ÔöÇÔöÇ
     if any(ext in conteudo_lower for ext in IMAGE_EXTENSIONS):
-        file_match = IMAGE_FILE_RE.search(conteudo)
-        if file_match:
-            filename = file_match.group(1).replace('\u200e', '').replace('\u200f', '')
+        filename = None
+        
+        # Strategy 1: iOS <anexado: filename.ext> (supports spaces)
+        anexado_img = _ANEXADO_RE.search(conteudo)
+        if anexado_img:
+            candidate = anexado_img.group(1).replace('\u200e', '').replace('\u200f', '').strip()
+            if any(candidate.lower().endswith(ext) for ext in IMAGE_EXTENSIONS):
+                filename = candidate
+        
+        # Strategy 2: "filename.ext (arquivo anexado)" (supports spaces)
+        if not filename:
+            attached_match = re.search(
+                r'^(.+?\.(?:jpg|jpeg|png|webp|heic|heif))\s*\((?:arquivo anexado|file attached)\)',
+                conteudo, re.IGNORECASE
+            )
+            if attached_match:
+                filename = attached_match.group(1).replace('\u200e', '').replace('\u200f', '').strip()
+        
+        # Strategy 3: Simple filename without spaces (original regex)
+        if not filename:
+            file_match = IMAGE_FILE_RE.search(conteudo)
+            if file_match:
+                filename = file_match.group(1).replace('\u200e', '').replace('\u200f', '')
+        
+        if filename:
             # Detectar sticker por prefixo do nome do arquivo (STICKER-xxx.jpg)
             basename_lower = os.path.basename(filename).lower()
             if basename_lower.startswith(STICKER_PREFIXES):
+                return 'figurinha', None
+            # .webp without sticker prefix — check if it's really an image or sticker by size context
+            # Small .webp files from WhatsApp are usually stickers
+            if basename_lower.endswith('.webp') and not any(
+                kw in conteudo_lower for kw in ('(arquivo anexado)', '(file attached)', '<anexado:')
+            ):
                 return 'figurinha', None
             if image_exact_paths and filename in image_exact_paths:
                 return 'imagem', filename
             if image_by_basename:
                 mapped = image_by_basename.get(filename)
+                if not mapped:
+                    # Try basename-only lookup
+                    mapped = image_by_basename.get(os.path.basename(filename))
                 if mapped:
                     return 'imagem', mapped
             return 'imagem', filename
-        # Extension found but no filename match ÔÇö still mark as imagem
+        # Extension found but no filename match — still mark as imagem
         return 'imagem', None
-
-    # Verificar Figurinha (Stickers .webp animados/est├íticos anexos)
-    if '.webp' in conteudo_lower:
-        return 'figurinha', None
 
     # Verificar m├¡dia omitida gen├®rica (sem extens├úo de imagem reconhec├¡vel)
     for kw in NORMALIZED_MEDIA_OMITTED_KEYWORDS:
@@ -347,8 +374,8 @@ def _extract_selected_files(
                     logger.warning(f"[PARSER] Arquivo {name} excede o limite individual ({info.file_size} bytes). Ignorado para proteger memória.")
                     continue
                 if total_bytes + info.file_size > max_total_bytes:
-                    logger.warning(f"[PARSER] Limite total de extração de mídia atingido ({max_total_bytes} bytes).")
-                    break
+                    logger.warning(f"[PARSER] Limite total de extração de mídia atingido ({max_total_bytes} bytes). Pulando {name} ({info.file_size} bytes). Total atual: {total_bytes} bytes.")
+                    continue
                 data = z.read(name)
                 extracted[name] = data
                 total_bytes += len(data)

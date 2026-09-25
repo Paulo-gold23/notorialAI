@@ -716,7 +716,22 @@ def _compress_image_to_base64(img_bytes: bytes, max_width: int = 800, quality: i
     """Comprime imagem com Pillow e retorna string base64 (JPEG)."""
     try:
         from PIL import Image
+        
+        # Tentar registrar suporte HEIC/HEIF se disponível
+        try:
+            from pillow_heif import register_heif_opener
+            register_heif_opener()
+        except ImportError:
+            pass  # pillow-heif não instalado — HEIC não será suportado
+        
         img = Image.open(io.BytesIO(img_bytes))
+        
+        # Aplicar rotação EXIF se presente (fotos de celular)
+        try:
+            from PIL import ImageOps
+            img = ImageOps.exif_transpose(img)
+        except Exception:
+            pass
 
         if img.mode in ('RGBA', 'LA', 'P'):
             bg = Image.new('RGB', img.size, (255, 255, 255))
@@ -739,7 +754,7 @@ def _compress_image_to_base64(img_bytes: bytes, max_width: int = 800, quality: i
         img.save(buffer, format='JPEG', quality=quality, optimize=True)
         return base64.b64encode(buffer.getvalue()).decode('utf-8')
     except Exception as e:
-        logger.warning(f"Falha ao comprimir imagem (formato possivelmente não suportado nativamente, ex: HEIC): {e}")
+        logger.warning(f"[IMG_COMPRESS] Falha ao comprimir imagem (formato={type(e).__name__}): {e}")
         return None
 
 
@@ -762,10 +777,11 @@ def _build_positional_image_schedule(image_bytes_dict: dict, chat_json: dict) ->
     used_keys: set = set()
 
     # Pre-build basename index for fast lookup (case-insensitive, strip invisible chars)
-    basename_index: dict = {}
+    # Use lists to handle duplicate basenames (e.g. same filename in different ZIP folders)
+    basename_index: dict[str, list[str]] = {}
     for key in image_bytes_dict:
         bn = os.path.basename(key).lower().replace('\u200e', '').replace('\u200f', '')
-        basename_index.setdefault(bn, key)
+        basename_index.setdefault(bn, []).append(key)
 
     # ── Resolve imagens por filename exato ou basename ──
     schedule: list[dict | None] = []
@@ -789,9 +805,11 @@ def _build_positional_image_schedule(image_bytes_dict: dict, chat_json: dict) ->
                     matched_key = arquivo
                 else:
                     bn = os.path.basename(arquivo).lower().replace('\u200e', '').replace('\u200f', '')
-                    candidate = basename_index.get(bn)
-                    if candidate and candidate not in used_keys:
-                        matched_key = candidate
+                    candidates = basename_index.get(bn, [])
+                    for candidate in candidates:
+                        if candidate not in used_keys:
+                            matched_key = candidate
+                            break
 
 
             # SEM FIFO fallback: se não achou por filename exato ou basename,

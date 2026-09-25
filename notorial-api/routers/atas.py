@@ -720,6 +720,11 @@ def merge_images_into_html(incoming_html: str, current_html: str) -> str:
     Mescla as imagens base64 do current_html (do banco) no incoming_html (do frontend),
     garantindo que nenhuma imagem seja perdida enquanto as edições textuais do usuário
     são salvas.
+    
+    Estratégia:
+    1. Usa 'alt' como chave primária de matching (mais confiável que contexto textual).
+    2. Restaura base64 autêntico do banco em tags existentes.
+    3. Reinsere imagens deletadas pelo editor usando contexto textual como fallback.
     """
     if not current_html:
         return incoming_html
@@ -740,61 +745,95 @@ def merge_images_into_html(incoming_html: str, current_html: str) -> str:
             "tag": tag
         })
         
-    # 2. Verificar quais imagens do banco já estão no incoming_html
+    # 2. Build index of images present in incoming HTML by alt attribute
     incoming_html_img_tags = img_pattern.findall(incoming_html)
-    incoming_alts = []
+    incoming_alts_count: dict[str, int] = {}
     for tag in incoming_html_img_tags:
         alt_match = re.search(r'alt="([^"]+)"', tag)
         if alt_match:
-            incoming_alts.append(alt_match.group(1))
+            alt_val = alt_match.group(1)
+            incoming_alts_count[alt_val] = incoming_alts_count.get(alt_val, 0) + 1
             
     result_html = incoming_html
     
-    # Restaurar as imagens que já estão presentes no incoming_html (atualizando o src base64)
+    # 3. Restore base64 src for images that exist in incoming (may have been stripped by editor)
+    # Track how many times each alt has been replaced to handle duplicates
+    replaced_count: dict[str, int] = {}
     for db_img in db_images:
         alt = db_img["alt"]
-        if alt and alt in incoming_alts:
-            # Substituir no incoming_html a tag correspondente com o src correto do banco
-            specific_img_pattern = re.compile(r'<img[^>]+alt="' + re.escape(alt) + r'"[^>]*>')
-            result_html = specific_img_pattern.sub(db_img["tag"], result_html, count=1)
+        if alt and alt in incoming_alts_count:
+            already = replaced_count.get(alt, 0)
+            if already < incoming_alts_count[alt]:
+                # Replace the (already+1)-th occurrence
+                specific_img_pattern = re.compile(r'<img[^>]+alt="' + re.escape(alt) + r'"[^>]*>')
+                matches = list(specific_img_pattern.finditer(result_html))
+                if already < len(matches):
+                    m = matches[already]
+                    result_html = result_html[:m.start()] + db_img["tag"] + result_html[m.end():]
+                replaced_count[alt] = already + 1
             
-    # 3. Restaurar as imagens que estão FALTANDO no incoming_html
-    segments = img_pattern.split(current_html)
+    # 4. Restore images MISSING from incoming HTML
+    # Build set of alts already fully accounted for
+    db_alts_count: dict[str, int] = {}
+    for db_img in db_images:
+        alt = db_img["alt"]
+        if alt:
+            db_alts_count[alt] = db_alts_count.get(alt, 0) + 1
     
+    missing_images = []
+    missing_tracker: dict[str, int] = {}
     for idx, db_img in enumerate(db_images):
         alt = db_img["alt"]
-        if alt and alt not in incoming_alts:
-            # A imagem está faltando!
-            preceding_html = segments[idx * 2]
+        if not alt:
+            missing_images.append((idx, db_img))
+            continue
+        seen = missing_tracker.get(alt, 0)
+        incoming_count = incoming_alts_count.get(alt, 0)
+        if seen >= incoming_count:
+            # This occurrence is missing from incoming
+            missing_images.append((idx, db_img))
+        missing_tracker[alt] = seen + 1
+    
+    segments = img_pattern.split(current_html)
+    
+    for idx, db_img in missing_images:
+        alt = db_img["alt"]
+        # Get preceding text context from bank HTML
+        segment_idx = idx * 2
+        if segment_idx >= len(segments):
+            # Safety: append at end
+            result_html += f'<p>{db_img["tag"]}</p>'
+            logger.info(f"[MERGE_IMG] Imagem {alt} restaurada no final (segment overflow).")
+            continue
             
-            # Obter texto puro de contexto (últimos de 80 caracteres)
-            preceding_text = re.sub(r'<[^>]+>', '', preceding_html)
-            preceding_text = " ".join(preceding_text.split())
-            context_text = preceding_text[-80:].strip() if len(preceding_text) > 80 else preceding_text.strip()
-            
-            inserted = False
-            if context_text:
-                # Tentar encontrar este contexto no result_html
-                words = [w for w in context_text.split() if len(w) > 2]
-                if words:
-                    # Tentar regex flexível
-                    flex_pattern_str = r'\s*'.join(re.escape(w) for w in words[-6:])
-                    try:
-                        flex_pattern = re.compile(flex_pattern_str, re.IGNORECASE)
-                        match = flex_pattern.search(result_html)
-                        if match:
-                            end_pos = match.end()
-                            img_paragraph = f'<p>{db_img["tag"]}</p>'
-                            result_html = result_html[:end_pos] + img_paragraph + result_html[end_pos:]
-                            inserted = True
-                            logger.info(f"[MERGE_IMG] Imagem {alt} restaurada por contexto flexível.")
-                    except Exception as e:
-                        logger.warning(f"[MERGE_IMG] Erro ao buscar contexto flexível para {alt}: {e}")
-                        
-            if not inserted:
-                # Anexar ao final se não achar o contexto
-                result_html += f'<p>{db_img["tag"]}</p>'
-                logger.info(f"[MERGE_IMG] Imagem {alt} restaurada inserida no final por falta de contexto.")
+        preceding_html = segments[segment_idx]
+        
+        # Get plain text context (last 80 characters)
+        preceding_text = re.sub(r'<[^>]+>', '', preceding_html)
+        preceding_text = " ".join(preceding_text.split())
+        context_text = preceding_text[-80:].strip() if len(preceding_text) > 80 else preceding_text.strip()
+        
+        inserted = False
+        if context_text:
+            words = [w for w in context_text.split() if len(w) > 2]
+            if words:
+                # Try flexible regex with last 6 significant words
+                flex_pattern_str = r'\s*'.join(re.escape(w) for w in words[-6:])
+                try:
+                    flex_pattern = re.compile(flex_pattern_str, re.IGNORECASE)
+                    match = flex_pattern.search(result_html)
+                    if match:
+                        end_pos = match.end()
+                        img_paragraph = f'<p>{db_img["tag"]}</p>'
+                        result_html = result_html[:end_pos] + img_paragraph + result_html[end_pos:]
+                        inserted = True
+                        logger.info(f"[MERGE_IMG] Imagem {alt} restaurada por contexto flexível.")
+                except Exception as e:
+                    logger.warning(f"[MERGE_IMG] Erro ao buscar contexto flexível para {alt}: {e}")
+                    
+        if not inserted:
+            result_html += f'<p>{db_img["tag"]}</p>'
+            logger.info(f"[MERGE_IMG] Imagem {alt} restaurada inserida no final por falta de contexto.")
                 
     return result_html
 
@@ -825,7 +864,10 @@ async def update_ata_content(
         logger.warning(f"[{ata_id}] Não foi possível mesclar/verificar imagens antes do save: {e}")
 
     supabase.table("atas_conteudo").update({column: html_to_save}).eq("ata_id", ata_id).execute()
-    return {"status": "success"}
+    
+    # Count missing images for frontend awareness
+    missing_img_count = len(re.findall(r'class="ata-midia-ausente"', html_to_save))
+    return {"status": "success", "missing_images": missing_img_count}
 
 @router.patch("/{ata_id}/titulo")
 async def update_ata_title(
@@ -969,6 +1011,9 @@ async def generate_pdf(
         # Fallback: guardar bytes em memória (bypass / Storage indisponível).
         pdf_cache[pdf_id] = {"ts": time.time(), "owner": owner_id, "bytes": pdf_bytes}
 
+    # Count missing images for user feedback
+    missing_img_count = len(re.findall(r'class="ata-midia-ausente"', html_for_pdf))
+
     return {
         "pdf_url": f"/api/atas/download/{pdf_id}",
         "pdf_hash": pdf_hash,
@@ -977,6 +1022,7 @@ async def generate_pdf(
         "credits_used": actual_pages or estimated_pages,
         "refunded_credits": refunded_credits,
         "balance_after": balance_after,
+        "missing_images": missing_img_count,
     }
 
 
