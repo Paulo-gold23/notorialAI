@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mail, Shield, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Mail, Shield, CheckCircle2, AlertCircle, RefreshCw, Eye, EyeOff } from 'lucide-react';
 import { getDeviceFingerprint } from '../services/fingerprint';
 import { apiRequest } from '../services/api';
 import { useToast } from './ToastContext';
@@ -10,14 +10,13 @@ export default function ResetSignaturePinModal({ onClose, onSuccess }) {
     const [sendingEmail, setSendingEmail] = useState(false);
     const [token, setToken] = useState(['', '', '', '', '', '']);
     const [newPin, setNewPin] = useState(['', '', '', '']);
-    const [confirmPin, setConfirmPin] = useState(['', '', '', '']);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [step, setStep] = useState('request'); // 'request' | 'verify' | 'done'
+    const [showPin, setShowPin] = useState(false);
 
     const tokenRefs = [useRef(null), useRef(null), useRef(null), useRef(null), useRef(null), useRef(null)];
     const pinRefs = [useRef(null), useRef(null), useRef(null), useRef(null)];
-    const confirmRefs = [useRef(null), useRef(null), useRef(null), useRef(null)];
 
     // Lock scroll
     useEffect(() => {
@@ -86,46 +85,32 @@ export default function ResetSignaturePinModal({ onClose, onSuccess }) {
         }
     };
 
-    const handlePinChange = (index, value, isConfirmMode) => {
+    const handlePinChange = (index, value) => {
         const cleanVal = value.replace(/\D/g, '').slice(-1);
-        const currentPin = isConfirmMode ? [...confirmPin] : [...newPin];
-        const currentRefs = isConfirmMode ? confirmRefs : pinRefs;
+        const currentPin = [...newPin];
 
         if (cleanVal) {
             currentPin[index] = cleanVal;
-            if (isConfirmMode) {
-                setConfirmPin(currentPin);
-            } else {
-                setNewPin(currentPin);
-            }
+            setNewPin(currentPin);
 
             if (index < 3) {
-                currentRefs[index + 1].current?.focus();
+                pinRefs[index + 1].current?.focus();
             }
         }
     };
 
-    const handlePinKeyDown = (index, e, isConfirmMode) => {
-        const currentPin = isConfirmMode ? [...confirmPin] : [...newPin];
-        const currentRefs = isConfirmMode ? confirmRefs : pinRefs;
+    const handlePinKeyDown = (index, e) => {
+        const currentPin = [...newPin];
 
         if (e.key === 'Backspace') {
             e.preventDefault();
             if (currentPin[index]) {
                 currentPin[index] = '';
-                if (isConfirmMode) {
-                    setConfirmPin(currentPin);
-                } else {
-                    setNewPin(currentPin);
-                }
+                setNewPin(currentPin);
             } else if (index > 0) {
-                currentRefs[index - 1].current?.focus();
+                pinRefs[index - 1].current?.focus();
                 currentPin[index - 1] = '';
-                if (isConfirmMode) {
-                    setConfirmPin(currentPin);
-                } else {
-                    setNewPin(currentPin);
-                }
+                setNewPin(currentPin);
             }
         }
     };
@@ -145,7 +130,6 @@ export default function ResetSignaturePinModal({ onClose, onSuccess }) {
 
         const tokenStr = token.join('');
         const pinStr = newPin.join('');
-        const confirmPinStr = confirmPin.join('');
 
         if (tokenStr.length !== 6) {
             setError('Digite o código de 6 dígitos recebido por e-mail.');
@@ -154,13 +138,6 @@ export default function ResetSignaturePinModal({ onClose, onSuccess }) {
 
         if (pinStr.length !== 4) {
             setError('Sua nova senha deve ter 4 dígitos.');
-            return;
-        }
-
-        if (pinStr !== confirmPinStr) {
-            setError('As senhas não coincidem. Digite novamente.');
-            setConfirmPin(['', '', '', '']);
-            confirmRefs[0].current?.focus();
             return;
         }
 
@@ -193,7 +170,6 @@ export default function ResetSignaturePinModal({ onClose, onSuccess }) {
 
     const isTokenComplete = token.every(d => d !== '');
     const isPinComplete = newPin.every(d => d !== '');
-    const isConfirmComplete = confirmPin.every(d => d !== '');
 
     return (
         <div style={{
@@ -321,7 +297,7 @@ export default function ResetSignaturePinModal({ onClose, onSuccess }) {
                             </div>
 
                             {/* New PIN inputs */}
-                            <div style={{ marginBottom: '1.25rem' }}>
+                            <div style={{ marginBottom: '0.75rem' }}>
                                 <label style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 500 }}>
                                     Novo PIN de Confirmação (4 dígitos)
                                 </label>
@@ -330,13 +306,13 @@ export default function ResetSignaturePinModal({ onClose, onSuccess }) {
                                         <input
                                             key={`newpin-${idx}`}
                                             ref={pinRefs[idx]}
-                                            type="password"
+                                            type={showPin ? "text" : "password"}
                                             inputMode="numeric"
                                             pattern="[0-9]*"
                                             maxLength={1}
                                             value={digit}
-                                            onChange={(e) => handlePinChange(idx, e.target.value, false)}
-                                            onKeyDown={(e) => handlePinKeyDown(idx, e, false)}
+                                            onChange={(e) => handlePinChange(idx, e.target.value)}
+                                            onKeyDown={(e) => handlePinKeyDown(idx, e)}
                                             style={{
                                                 width: '3rem',
                                                 height: '3rem',
@@ -355,42 +331,30 @@ export default function ResetSignaturePinModal({ onClose, onSuccess }) {
                                         />
                                     ))}
                                 </div>
-                            </div>
-
-                            {/* Confirm PIN inputs */}
-                            <div style={{ marginBottom: '1.5rem' }}>
-                                <label style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 500 }}>
-                                    Confirme a Nova Senha
-                                </label>
-                                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
-                                    {confirmPin.map((digit, idx) => (
-                                        <input
-                                            key={`confpin-${idx}`}
-                                            ref={confirmRefs[idx]}
-                                            type="password"
-                                            inputMode="numeric"
-                                            pattern="[0-9]*"
-                                            maxLength={1}
-                                            value={digit}
-                                            onChange={(e) => handlePinChange(idx, e.target.value, true)}
-                                            onKeyDown={(e) => handlePinKeyDown(idx, e, true)}
-                                            style={{
-                                                width: '3rem',
-                                                height: '3rem',
-                                                textAlign: 'center',
-                                                fontSize: '1.5rem',
-                                                fontWeight: 'bold',
-                                                background: 'var(--surface-color, #1e293b)',
-                                                border: '1px solid var(--border-color)',
-                                                borderRadius: '0.4rem',
-                                                color: 'var(--text-main)',
-                                                outline: 'none',
-                                                transition: 'all 0.15s ease-out',
-                                            }}
-                                            onFocus={(e) => { e.target.style.borderColor = 'var(--primary-color)'; e.target.style.boxShadow = '0 0 0 2px var(--primary-glow)'; }}
-                                            onBlur={(e) => { e.target.style.borderColor = 'var(--border-color)'; e.target.style.boxShadow = 'none'; }}
-                                        />
-                                    ))}
+                                {/* Eye Toggle */}
+                                <div style={{ textAlign: 'center', marginTop: '0.4rem' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPin(!showPin)}
+                                        style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            color: 'var(--text-muted)',
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '0.35rem',
+                                            fontSize: '0.75rem',
+                                            padding: '0.25rem 0.5rem',
+                                            borderRadius: '0.375rem',
+                                            transition: 'all 0.15s ease',
+                                        }}
+                                        className="hover:bg-black/5 dark:hover:bg-white/5"
+                                        aria-label={showPin ? 'Ocultar PIN' : 'Mostrar PIN'}
+                                    >
+                                        {showPin ? <EyeOff size={12} /> : <Eye size={12} />}
+                                        {showPin ? 'Ocultar' : 'Mostrar'}
+                                    </button>
                                 </div>
                             </div>
 
@@ -429,7 +393,7 @@ export default function ResetSignaturePinModal({ onClose, onSuccess }) {
                                     </button>
                                     <button
                                         type="submit"
-                                        disabled={loading || !isTokenComplete || !isPinComplete || !isConfirmComplete}
+                                        disabled={loading || !isTokenComplete || !isPinComplete}
                                         className="btn-gradient"
                                         style={{ padding: '0.5rem 1.25rem', fontSize: '0.85rem' }}
                                     >

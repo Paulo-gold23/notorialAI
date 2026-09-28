@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, AlertTriangle } from 'lucide-react';
+import { Lock, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { getDeviceFingerprint } from '../../services/fingerprint';
 import { apiRequest } from '../../services/api';
 
@@ -14,6 +14,7 @@ export default function PinVerificationModal({
     const [pinInput, setPinInput] = useState(['', '', '', '']);
     const [pinError, setPinError] = useState('');
     const [verifyingPin, setVerifyingPin] = useState(false);
+    const [showPin, setShowPin] = useState(false);
 
     // Lock and unlock body scroll
     useEffect(() => {
@@ -154,7 +155,7 @@ export default function PinVerificationModal({
                                 </div>
                             )}
 
-                            <div style={{ marginBottom: '1.25rem' }}>
+                            <div style={{ marginBottom: '0.5rem' }}>
                                 <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.82rem', fontWeight: 500, color: 'var(--text-main)', textAlign: 'center' }}>
                                     Digite os 4 dígitos da sua senha
                                 </label>
@@ -162,7 +163,7 @@ export default function PinVerificationModal({
                                     {pinInput.map((digit, idx) => (
                                         <input
                                             key={`verify-pin-${idx}`}
-                                            type="password"
+                                            type={showPin ? "text" : "password"}
                                             inputMode="numeric"
                                             pattern="[0-9]*"
                                             maxLength={1}
@@ -178,6 +179,13 @@ export default function PinVerificationModal({
                                                     if (idx < 3) {
                                                         const nextInput = e.target.nextElementSibling;
                                                         if (nextInput) nextInput.focus();
+                                                    } else {
+                                                        // Last digit filled — auto-submit after brief visual delay
+                                                        setTimeout(() => {
+                                                            if (newPin.every(d => d !== '')) {
+                                                                handlePinVerifySubmit();
+                                                            }
+                                                        }, 200);
                                                     }
                                                 }
                                             }}
@@ -215,6 +223,31 @@ export default function PinVerificationModal({
                                             onBlur={(e) => { e.target.style.borderColor = 'var(--border-color)'; e.target.style.boxShadow = 'none'; }}
                                         />
                                     ))}
+                                </div>
+                                {/* Eye Toggle */}
+                                <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPin(!showPin)}
+                                        style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            color: 'var(--text-muted)',
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '0.35rem',
+                                            fontSize: '0.75rem',
+                                            padding: '0.25rem 0.5rem',
+                                            borderRadius: '0.375rem',
+                                            transition: 'all 0.15s ease',
+                                        }}
+                                        className="hover:bg-black/5 dark:hover:bg-white/5"
+                                        aria-label={showPin ? 'Ocultar PIN' : 'Mostrar PIN'}
+                                    >
+                                        {showPin ? <EyeOff size={12} /> : <Eye size={12} />}
+                                        {showPin ? 'Ocultar' : 'Mostrar'}
+                                    </button>
                                 </div>
                             </div>
 

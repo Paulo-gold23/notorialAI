@@ -28,6 +28,7 @@ import ResetSignaturePinModal from '../components/ResetSignaturePinModal';
 import SignaturePinSetupModal from '../components/SignaturePinPromptModal';
 import TermsAcceptanceModal from '../components/review/TermsAcceptanceModal';
 import PinVerificationModal from '../components/review/PinVerificationModal';
+import { usePinSession } from '../hooks/usePinSession';
 import CreditReportModal from '../components/review/CreditReportModal';
 import MissingNumbersModal from '../components/review/MissingNumbersModal';
 
@@ -126,6 +127,7 @@ export default function Review() {
     const [hasPinConfigured, setHasPinConfigured] = useState(true); // assume true until loaded
     const [showPinSetup, setShowPinSetup] = useState(false); // for first-time PIN creation
     const [pendingPinCallback, setPendingPinCallback] = useState(null); // callback after setup
+    const { isPinSessionActive, startPinSession } = usePinSession();
     // Credit report after PDF generation
     const [creditReport, setCreditReport] = useState(null);
     const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
@@ -703,6 +705,11 @@ export default function Review() {
     }, [activeTab, conteudo, editor]);
 
     const triggerPinVerification = (callback) => {
+        // Trust session active — skip PIN prompt
+        if (isPinSessionActive()) {
+            callback();
+            return;
+        }
         if (!hasPinConfigured) {
             // User has no PIN yet — show setup modal first
             setPendingPinCallback(() => callback);
@@ -1603,6 +1610,7 @@ export default function Review() {
                 onSuccess={async () => {
                     const callback = showPinConfirm;
                     setShowPinConfirm(null);
+                    startPinSession(); // Start 10-min trust session
                     if (callback) {
                         await callback();
                     }
@@ -1639,11 +1647,12 @@ export default function Review() {
                     onSaved={() => {
                         setShowPinSetup(false);
                         setHasPinConfigured(true);
-                        // After PIN is created, proceed with the pending action via verification
+                        startPinSession(); // Start trust session — user just created their PIN
+                        // PIN just created — execute pending action directly (no redundant verification)
                         if (pendingPinCallback) {
                             const cb = pendingPinCallback;
                             setPendingPinCallback(null);
-                            setShowPinConfirm(() => cb);
+                            cb();
                         }
                     }}
                 />

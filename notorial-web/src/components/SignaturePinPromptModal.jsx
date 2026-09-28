@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Shield, CheckCircle2, AlertCircle, Lock, X } from 'lucide-react';
+import { Shield, CheckCircle2, AlertCircle, Lock, X, Eye, EyeOff } from 'lucide-react';
 import { getDeviceFingerprint } from '../services/fingerprint';
 import { apiRequest } from '../services/api';
 import { useToast } from '../components/ToastContext';
@@ -8,16 +8,15 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
     const toast = useToast();
     const [currentPin, setCurrentPin] = useState(['', '', '', '']);
     const [pin, setPin] = useState(['', '', '', '']);
-    const [confirmPin, setConfirmPin] = useState(['', '', '', '']);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [showPin, setShowPin] = useState(false);
     
-    // step: 'info' | 'current_pin' | 'new_pin' | 'confirm_pin' | 'saving' | 'done'
+    // step: 'info' | 'current_pin' | 'new_pin' | 'saving' | 'done'
     const [step, setStep] = useState(isUpdate ? 'current_pin' : 'info');
 
     const currentRefs = [useRef(null), useRef(null), useRef(null), useRef(null)];
     const pinRefs = [useRef(null), useRef(null), useRef(null), useRef(null)];
-    const confirmRefs = [useRef(null), useRef(null), useRef(null), useRef(null)];
 
     // Lock scroll while modal is open
     useEffect(() => {
@@ -32,8 +31,6 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
                 currentRefs[0].current?.focus();
             } else if (step === 'new_pin') {
                 pinRefs[0].current?.focus();
-            } else if (step === 'confirm_pin') {
-                confirmRefs[0].current?.focus();
             }
         }, 100);
     }, [step]);
@@ -46,14 +43,10 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
             currentArr = [...currentPin];
             setArr = setCurrentPin;
             refs = currentRefs;
-        } else if (targetMode === 'new') {
+        } else {
             currentArr = [...pin];
             setArr = setPin;
             refs = pinRefs;
-        } else {
-            currentArr = [...confirmPin];
-            setArr = setConfirmPin;
-            refs = confirmRefs;
         }
 
         if (cleanVal) {
@@ -73,14 +66,10 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
             currentArr = [...currentPin];
             setArr = setCurrentPin;
             refs = currentRefs;
-        } else if (targetMode === 'new') {
+        } else {
             currentArr = [...pin];
             setArr = setPin;
             refs = pinRefs;
-        } else {
-            currentArr = [...confirmPin];
-            setArr = setConfirmPin;
-            refs = confirmRefs;
         }
 
         if (e.key === 'Backspace') {
@@ -105,12 +94,9 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
             if (targetMode === 'current') {
                 setCurrentPin(pinArray);
                 currentRefs[3].current?.focus();
-            } else if (targetMode === 'new') {
+            } else {
                 setPin(pinArray);
                 pinRefs[3].current?.focus();
-            } else {
-                setConfirmPin(pinArray);
-                confirmRefs[3].current?.focus();
             }
         }
     };
@@ -151,15 +137,12 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
             return;
         }
         setError('');
-        setStep('confirm_pin');
+        handleSubmit();
     };
 
     const handleBack = () => {
         setError('');
-        if (step === 'confirm_pin') {
-            setStep('new_pin');
-            setConfirmPin(['', '', '', '']);
-        } else if (step === 'new_pin' && isUpdate) {
+        if (step === 'new_pin' && isUpdate) {
             setStep('current_pin');
             setPin(['', '', '', '']);
         }
@@ -171,12 +154,9 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
 
         const currentPinStr = currentPin.join('');
         const pinStr = pin.join('');
-        const confirmPinStr = confirmPin.join('');
 
-        if (pinStr !== confirmPinStr) {
-            setError('As senhas não coincidem. Tente novamente.');
-            setConfirmPin(['', '', '', '']);
-            confirmRefs[0].current?.focus();
+        if (pinStr.length !== 4) {
+            setError('Por favor, preencha todos os 4 dígitos.');
             return;
         }
 
@@ -215,7 +195,6 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
             setError(err.message || 'Erro ao salvar PIN de confirmação.');
             setStep(isUpdate ? 'current_pin' : 'new_pin');
             setPin(['', '', '', '']);
-            setConfirmPin(['', '', '', '']);
             if (isUpdate) {
                 setCurrentPin(['', '', '', '']);
             }
@@ -226,7 +205,6 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
 
     const isCurrentComplete = currentPin.every(d => d !== '');
     const isPinComplete = pin.every(d => d !== '');
-    const isConfirmComplete = confirmPin.every(d => d !== '');
 
     const inputStyle = {
         width: '3.5rem',
@@ -332,9 +310,7 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
                                 ? (isUpdate ? 'Senha Alterada!' : 'Senha Cadastrada!')
                                 : step === 'current_pin'
                                     ? 'PIN de Confirmação Atual'
-                                    : step === 'confirm_pin' 
-                                        ? 'Confirme seu PIN de Confirmação' 
-                                        : 'Novo PIN de Confirmação'
+                                    : 'Novo PIN de Confirmação'
                         }
                     </h3>
                     <p style={{
@@ -349,12 +325,10 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
                                 : 'Seu PIN de confirmação e assinatura eletrônica de 4 dígitos foi configurado.'
                         ) : step === 'current_pin' ? (
                             'Para prosseguir, digite seu PIN de confirmação de 4 dígitos atual.'
-                        ) : step === 'confirm_pin' ? (
-                            'Digite novamente a senha numérica de 4 dígitos para confirmar.'
                         ) : (
                             isUpdate 
-                                ? 'Crie uma nova senha numérica de 4 dígitos para sua assinatura.'
-                                : 'Crie uma senha numérica de 4 dígitos. Esta senha será exigida sempre que você salvar ou emitir documentos finalizados.'
+                                ? 'Crie uma nova senha numérica de 4 dígitos para sua assinatura. Use o ícone de olho para verificar.'
+                                : 'Crie uma senha numérica de 4 dígitos. Use o ícone de olho para verificar antes de confirmar.'
                         )}
                     </p>
                 </div>
@@ -450,14 +424,14 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
                                 display: 'flex',
                                 justifyContent: 'center',
                                 gap: '1rem',
-                                margin: '1.25rem 0 1.75rem',
+                                margin: '1.25rem 0 0.75rem',
                             }}>
                                 {step === 'current_pin' && (
                                     currentPin.map((digit, idx) => (
                                         <input
                                             key={`current-${idx}`}
                                             ref={currentRefs[idx]}
-                                            type="password"
+                                            type={showPin ? "text" : "password"}
                                             inputMode="numeric"
                                             pattern="[0-9]*"
                                             maxLength={1}
@@ -477,7 +451,7 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
                                         <input
                                             key={`pin-${idx}`}
                                             ref={pinRefs[idx]}
-                                            type="password"
+                                            type={showPin ? "text" : "password"}
                                             inputMode="numeric"
                                             pattern="[0-9]*"
                                             maxLength={1}
@@ -492,26 +466,32 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
                                         />
                                     ))
                                 )}
-                                {step === 'confirm_pin' && (
-                                    confirmPin.map((digit, idx) => (
-                                        <input
-                                            key={`confirm-${idx}`}
-                                            ref={confirmRefs[idx]}
-                                            type="password"
-                                            inputMode="numeric"
-                                            pattern="[0-9]*"
-                                            maxLength={1}
-                                            value={digit}
-                                            onChange={(e) => handlePinChange(idx, e.target.value, 'confirm')}
-                                            onKeyDown={(e) => handleKeyDown(idx, e, 'confirm')}
-                                            onPaste={(e) => handlePaste(e, 'confirm')}
-                                            aria-label={`Dígito ${idx + 1} da confirmação da nova senha`}
-                                            style={inputStyle}
-                                            onFocus={handleInputFocus}
-                                            onBlur={handleInputBlur}
-                                        />
-                                    ))
-                                )}
+                            </div>
+
+                            {/* Eye Toggle */}
+                            <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPin(!showPin)}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: 'var(--text-muted)',
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.35rem',
+                                        fontSize: '0.78rem',
+                                        padding: '0.35rem 0.6rem',
+                                        borderRadius: '0.375rem',
+                                        transition: 'all 0.15s ease',
+                                    }}
+                                    className="hover:bg-black/5 dark:hover:bg-white/5"
+                                    aria-label={showPin ? 'Ocultar PIN' : 'Mostrar PIN'}
+                                >
+                                    {showPin ? <EyeOff size={14} /> : <Eye size={14} />}
+                                    {showPin ? 'Ocultar' : 'Mostrar'}
+                                </button>
                             </div>
 
                             {/* Security Badge */}
@@ -557,6 +537,7 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
                                                 type="button"
                                                 onClick={handleBack}
                                                 className="btn-secondary"
+                                                disabled={loading}
                                                 style={{ flex: 1, padding: '0.8rem', fontSize: '0.88rem' }}
                                             >
                                                 Voltar
@@ -565,38 +546,16 @@ export default function SignaturePinPromptModal({ onSaved, isUpdate = false, onC
                                         <button
                                             type="button"
                                             onClick={handleContinueFromNew}
-                                            disabled={!isPinComplete}
+                                            disabled={!isPinComplete || loading}
                                             className="btn-gradient"
                                             style={{ flex: isUpdate ? 2 : 1, width: isUpdate ? 'auto' : '100%', padding: '0.8rem', fontSize: '0.88rem' }}
                                         >
-                                            Confirmar Nova Senha
-                                        </button>
-                                    </>
-                                )}
-                                {step === 'confirm_pin' && (
-                                    <>
-                                        <button
-                                            type="button"
-                                            onClick={handleBack}
-                                            disabled={loading}
-                                            className="btn-secondary"
-                                            style={{ flex: 1, padding: '0.8rem', fontSize: '0.88rem' }}
-                                        >
-                                            Voltar
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={handleSubmit}
-                                            disabled={loading || !isConfirmComplete}
-                                            className="btn-gradient"
-                                            style={{ flex: 2, padding: '0.8rem', fontSize: '0.88rem' }}
-                                        >
                                             {loading ? (
                                                 <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                                                    <div className="sp-wave" style={{ width: 14, height: 14 }} /> Alterando...
+                                                    <div className="sp-wave" style={{ width: 14, height: 14 }} /> Salvando...
                                                 </span>
                                             ) : (
-                                                isUpdate ? 'Alterar PIN de Confirmação' : 'Confirmar e Cadastrar'
+                                                isUpdate ? 'Alterar PIN de Confirmação' : 'Cadastrar PIN'
                                             )}
                                         </button>
                                     </>
