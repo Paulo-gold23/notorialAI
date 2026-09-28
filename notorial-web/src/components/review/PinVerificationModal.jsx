@@ -31,13 +31,13 @@ export default function PinVerificationModal({
 
     if (!isOpen) return null;
 
-    const handlePinVerifySubmit = async (e) => {
+    const handlePinVerifySubmit = async (e, pinOverride) => {
         if (e) e.preventDefault();
         setVerifyingPin(true);
         setPinError('');
         try {
             const fingerprint = await getDeviceFingerprint();
-            const rawPin = pinInput.join('');
+            const rawPin = pinOverride ? pinOverride.join('') : pinInput.join('');
             
             if (rawPin.length !== 4) {
                 setPinError('O PIN de confirmação deve ter 4 dígitos.');
@@ -183,7 +183,7 @@ export default function PinVerificationModal({
                                                         // Last digit filled — auto-submit after brief visual delay
                                                         setTimeout(() => {
                                                             if (newPin.every(d => d !== '')) {
-                                                                handlePinVerifySubmit();
+                                                                handlePinVerifySubmit(null, newPin);
                                                             }
                                                         }, 200);
                                                     }
