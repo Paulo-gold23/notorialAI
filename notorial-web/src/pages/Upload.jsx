@@ -441,29 +441,52 @@ export default function Upload() {
                                         </div>
                                     )}
                                     {zipPreview.ready && (
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '0.5rem' }}>
-                                            {zipStatItems.map((item, i) => (
-                                                <div
-                                                    key={i}
-                                                    style={{
-                                                        background: 'var(--surface-color)',
-                                                        padding: '0.75rem',
-                                                        borderRadius: '0.5rem',
-                                                        textAlign: 'center',
-                                                        border: '1px solid var(--border-color)',
-                                                        animation: `slideUp 0.3s ease-out ${i * 80}ms both`,
-                                                    }}
-                                                >
-                                                    <div style={{ color: item.color, marginBottom: '0.25rem', display: 'flex', justifyContent: 'center' }}>
-                                                        <item.icon className="w-5 h-5" />
+                                        <>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '0.5rem' }}>
+                                                {zipStatItems.map((item, i) => (
+                                                    <div
+                                                        key={i}
+                                                        style={{
+                                                            background: 'var(--surface-color)',
+                                                            padding: '0.75rem',
+                                                            borderRadius: '0.5rem',
+                                                            textAlign: 'center',
+                                                            border: '1px solid var(--border-color)',
+                                                            animation: `slideUp 0.3s ease-out ${i * 80}ms both`,
+                                                        }}
+                                                    >
+                                                        <div style={{ color: item.color, marginBottom: '0.25rem', display: 'flex', justifyContent: 'center' }}>
+                                                            <item.icon className="w-5 h-5" />
+                                                        </div>
+                                                        <div style={{ fontSize: '1.1rem', fontWeight: 'bold' }}>
+                                                            <AnimatedNumber value={item.value} duration={500} />
+                                                        </div>
+                                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{item.label}</div>
                                                     </div>
-                                                    <div style={{ fontSize: '1.1rem', fontWeight: 'bold' }}>
-                                                        <AnimatedNumber value={item.value} duration={500} />
-                                                    </div>
-                                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{item.label}</div>
+                                                ))}
+                                            </div>
+                                            {zipPreview.imageCount > 0 && (
+                                                <div style={{
+                                                    display: 'flex',
+                                                    alignItems: 'flex-start',
+                                                    gap: '0.5rem',
+                                                    padding: '0.6rem 0.85rem',
+                                                    marginTop: '0.75rem',
+                                                    borderRadius: '0.5rem',
+                                                    background: 'rgba(59, 130, 246, 0.06)',
+                                                    border: '1px solid rgba(59, 130, 246, 0.12)',
+                                                    fontSize: '0.78rem',
+                                                    color: 'var(--text-secondary)',
+                                                    lineHeight: 1.5,
+                                                }}>
+                                                    <span style={{ flexShrink: 0, fontSize: '0.85rem' }}>💡</span>
+                                                    <span>
+                                                        O WhatsApp pode não incluir todas as mídias ao exportar a conversa, especialmente
+                                                        em álbuns grandes. Caso isso ocorra, as imagens ausentes serão sinalizadas no documento.
+                                                    </span>
                                                 </div>
-                                            ))}
-                                        </div>
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             )}

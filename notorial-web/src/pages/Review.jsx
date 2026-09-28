@@ -130,6 +130,7 @@ export default function Review() {
     const [creditReport, setCreditReport] = useState(null);
     const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
     const [missingImages, setMissingImages] = useState(0);
+    const [missingImagesDismissed, setMissingImagesDismissed] = useState(false);
     const [missingNumbersModal, setMissingNumbersModal] = useState({ isOpen: false, matches: [] });
 
     // ── Ressalvas state ───────────────────────────────────────────────────────
@@ -684,6 +685,10 @@ export default function Review() {
         editor.commands.setContent(normalized);
         loadedContentRef.current = { tab: activeTab, hash: contentHash };
 
+        // Count missing images from the raw HTML content
+        const missingCount = (raw?.match(/ata-midia-ausente/g) || []).length;
+        setMissingImages(missingCount);
+
         // Post-load validation: detect silent content truncation by Tiptap parser
         requestAnimationFrame(() => {
             if (!editor || editor.isDestroyed) return;
@@ -1036,6 +1041,45 @@ export default function Review() {
                 </div>
             )}
 
+            {/* Missing images warning */}
+            {missingImages > 0 && !missingImagesDismissed && (
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '0.75rem',
+                    padding: '0.85rem 1.1rem',
+                    marginBottom: '1.25rem',
+                    borderRadius: '0.75rem',
+                    background: 'rgba(217, 119, 6, 0.06)',
+                    border: '1px solid rgba(217, 119, 6, 0.18)',
+                    animation: 'slideUp 0.3s ease-out',
+                }}>
+                    <AlertTriangle style={{ flexShrink: 0, width: 18, height: 18, color: '#d97706', marginTop: 1 }} />
+                    <div style={{ flex: 1, fontSize: '0.85rem', lineHeight: 1.6, color: 'var(--text-main)' }}>
+                        <strong style={{ color: '#92400e' }}>{missingImages} imagem(ns)</strong> citada(s) na conversa
+                        não foram encontradas no arquivo ZIP. O WhatsApp pode não incluir todas as mídias ao exportar,
+                        especialmente em álbuns grandes. As imagens ausentes estão sinalizadas no corpo do documento.
+                    </div>
+                    <button
+                        onClick={() => setMissingImagesDismissed(true)}
+                        style={{
+                            flexShrink: 0,
+                            background: 'none',
+                            border: '1px solid rgba(217, 119, 6, 0.25)',
+                            borderRadius: '0.4rem',
+                            padding: '0.3rem 0.7rem',
+                            fontSize: '0.78rem',
+                            color: '#92400e',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                            marginTop: 1,
+                        }}
+                    >
+                        Entendi
+                    </button>
+                </div>
+            )}
+
             {/* Tabs */}
             <div ref={tabsRef} style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', alignItems: 'center', flexWrap: 'wrap' }}>
                 <button
@@ -1288,15 +1332,6 @@ export default function Review() {
                         onCut={(e) => { e.preventDefault(); toast.error("Corte de texto desativado por razões de segurança."); }}
                         onContextMenu={(e) => { if (!annotationMode) e.preventDefault(); }}
                     >
-                        {missingImages > 0 && (
-                            <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                                <span>
-                                    <strong>{missingImages} imagem(ns)</strong> referenciada(s) na conversa não foram encontradas no arquivo ZIP exportado.
-                                    Para incluí-las, re-exporte a conversa do WhatsApp com mídias completas.
-                                </span>
-                            </div>
-                        )}
                         <EditorContent editor={editor} />
                     </div>
                 </div>
