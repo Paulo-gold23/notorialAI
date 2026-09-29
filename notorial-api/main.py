@@ -120,8 +120,19 @@ app.include_router(consent.router)
 def read_root():
     return {"status": "ok", "message": "API LegisVox is running"}
 
+_health_cache = {"result": None, "ts": 0}
+_HEALTH_TTL = 60  # seconds
+
 @app.get("/health")
 async def health_check(response: Response):
+    import time as _time
+    now = _time.time()
+    if _health_cache["result"] and (now - _health_cache["ts"]) < _HEALTH_TTL:
+        result = _health_cache["result"]
+        if any(v == "error" for v in result.values()):
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return result
+    
     checks = {"api": "ok"}
     try:
         from database import supabase_admin
@@ -133,6 +144,9 @@ async def health_check(response: Response):
     except Exception as e:
         logger.error(f"Health check DB error: {e}")
         checks["database"] = "error"
+    
+    _health_cache["result"] = checks
+    _health_cache["ts"] = now
     
     if any(v == "error" for v in checks.values()):
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

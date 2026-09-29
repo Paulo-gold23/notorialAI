@@ -14,12 +14,29 @@ logger = logging.getLogger(__name__)
 # In-memory cache for locally-processed results (when no Supabase)
 local_results = {}
 
+# Throttle state: only persist updates to Supabase when status changes, 
+# progress jumps >= 10 points, or >= 5 seconds have elapsed
+_last_persisted = {}  # {ata_id: (status, progress, timestamp)}
+
 def _update_status(ata_id: str, is_local: bool, supabase, status_name: str, progress: int = 0, message: str = ""):
     """Persiste status no Supabase. Fire-and-forget via thread pool (NÃO bloqueia o event loop)."""
     formatted_message = f"{progress}%: {message}" if progress > 0 else message
     
-    # Em modo com Supabase, submete a atualização ao thread pool — retorno imediato.
+    # Em modo com Supabase, aplica throttle para reduzir disk I/O
     if not is_local and supabase:
+        # Throttle: skip update if same status, small progress delta, and recent persist
+        last = _last_persisted.get(ata_id)
+        if last is not None:
+            last_status, last_progress, last_time = last
+            same_status = (status_name == last_status)
+            small_delta = abs(progress - last_progress) < 10
+            recent = (time.time() - last_time) < 5.0
+            # Always persist status transitions and terminal states
+            if same_status and small_delta and recent and status_name not in ('ready', 'error'):
+                return
+        
+        _last_persisted[ata_id] = (status_name, progress, time.time())
+        
         def _sync():
             try:
                 supabase.table('atas').update({
@@ -227,6 +244,10 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
                         logger.error(f"[{ata_id}] Erro crítico ao inserir atas_conteudo: {fatal_db_err}")
                         raise fatal_db_err
 
+            # Flush any buffered AI usage logs before marking as complete
+            from services.ai_usage_service import flush_ai_logs
+            await flush_ai_logs()
+
             update('organizing', "Salvando documento no banco de dados...", progress=96)
             await loop.run_in_executor(None, _sync_save_content)
             logger.info(f"[{ata_id}] atas_conteudo salvo com sucesso")
@@ -296,6 +317,12 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
 
     except Exception as e:
         raw_msg = str(e)
+        # Flush buffered AI logs even on error
+        try:
+            from services.ai_usage_service import flush_ai_logs
+            await flush_ai_logs()
+        except Exception:
+            pass
         logger.error(f"[{ata_id}] Error processing ZIP: {raw_msg}", exc_info=True)
 
         # Categorize error for user-friendly display on frontend

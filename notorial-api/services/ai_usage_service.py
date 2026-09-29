@@ -13,6 +13,7 @@ PRINCÍPIO DE RESILIÊNCIA:
 import time
 import asyncio
 import logging
+import threading
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -75,26 +76,53 @@ class AICallTimer:
         return self._start
 
 
-async def _persist_log(record: dict) -> None:
-    """
-    Persiste um registro de chamada de IA no Supabase.
-    
-    Falhas são capturadas internamente e logadas — nunca propagadas.
-    """
-    try:
-        from database import get_supabase_client, get_supabase_admin_client, db_exec
-        supabase = get_supabase_admin_client() or get_supabase_client()
-        if supabase is None:
-            logger.warning("[ai_usage] Supabase indisponível — registro de auditoria descartado")
+# Batch buffer for ai_usage_log inserts — reduces individual DB writes by ~95%
+_log_buffer: list[dict] = []
+_buffer_lock = threading.Lock()
+_last_flush_time = time.time()
+_BUFFER_MAX_SIZE = 20
+_BUFFER_MAX_AGE_S = 10.0
+
+
+async def _flush_buffer():
+    """Flush accumulated log records as a single bulk insert."""
+    global _last_flush_time
+    with _buffer_lock:
+        if not _log_buffer:
             return
-
-        await db_exec(lambda: supabase.table('ai_usage_log').insert(record).execute())
-
+        batch = _log_buffer.copy()
+        _log_buffer.clear()
+        _last_flush_time = time.time()
+    
+    try:
+        from database import get_supabase_client
+        supabase = get_supabase_client()
+        if supabase:
+            supabase.table('ai_usage_log').insert(batch).execute()
+            logger.debug(f"[AI Usage] Flushed {len(batch)} log records")
     except Exception as e:
-        # PRINCÍPIO: falha de auditoria NÃO interrompe o pipeline
-        logger.warning(
-            f"[ai_usage] Falha ao registrar chamada de IA: {type(e).__name__}: {e}"
-        )
+        logger.warning(f"[AI Usage] Failed to flush {len(batch)} log records: {e}")
+
+
+async def flush_ai_logs():
+    """Public function to force-flush remaining logs. Call at end of pipeline."""
+    await _flush_buffer()
+
+
+async def _persist_log(record: dict):
+    """Buffer a log record and flush when batch is full or time threshold exceeded."""
+    global _last_flush_time
+    should_flush = False
+    
+    with _buffer_lock:
+        _log_buffer.append(record)
+        if len(_log_buffer) >= _BUFFER_MAX_SIZE:
+            should_flush = True
+        elif (time.time() - _last_flush_time) >= _BUFFER_MAX_AGE_S:
+            should_flush = True
+    
+    if should_flush:
+        await _flush_buffer()
 
 
 def log_ai_call(
