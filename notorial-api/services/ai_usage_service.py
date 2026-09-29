@@ -95,8 +95,8 @@ async def _flush_buffer():
         _last_flush_time = time.time()
     
     try:
-        from database import get_supabase_client
-        supabase = get_supabase_client()
+        from database import get_supabase_admin_client, get_supabase_client
+        supabase = get_supabase_admin_client() or get_supabase_client()
         if supabase:
             supabase.table('ai_usage_log').insert(batch).execute()
             logger.debug(f"[AI Usage] Flushed {len(batch)} log records")
