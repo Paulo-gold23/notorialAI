@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI):
         while True:
             await asyncio.sleep(86400)  # 24 hours
             try:
-                cleaned = cleanup_old_images(max_age_days=30)
+                cleaned = cleanup_old_images(max_age_days=7)
                 usage_mb = get_disk_usage_mb()
                 logger.info(f"[IMAGE_CLEANUP] Cleaned {cleaned} dirs, disk usage: {usage_mb:.1f} MB")
             except Exception as e:
