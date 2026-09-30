@@ -214,15 +214,15 @@ def _classify_message(conteudo: str, audio_exact_paths: set[str], audio_by_basen
                 filename = file_match.group(1).replace('\u200e', '').replace('\u200f', '')
         
         if filename:
-            # Detectar sticker por prefixo do nome do arquivo (STICKER-xxx.jpg)
             basename_lower = os.path.basename(filename).lower()
+            # Detect sticker by: prefix OR 'sticker' anywhere in name OR .webp extension
+            # ZIP renaming can prepend numeric prefixes: 00000006-STICKER-xxx.webp
             if basename_lower.startswith(STICKER_PREFIXES):
                 return 'figurinha', None
-            # .webp without sticker prefix — check if it's really an image or sticker by size context
-            # Small .webp files from WhatsApp are usually stickers
-            if basename_lower.endswith('.webp') and not any(
-                kw in conteudo_lower for kw in ('(arquivo anexado)', '(file attached)', '<anexado:')
-            ):
+            if 'sticker' in basename_lower:
+                return 'figurinha', None
+            # ALL .webp files are stickers — WhatsApp uses .webp exclusively for stickers
+            if basename_lower.endswith('.webp'):
                 return 'figurinha', None
             if image_exact_paths and filename in image_exact_paths:
                 return 'imagem', filename
@@ -329,11 +329,14 @@ def _is_sticker_file(filepath: str) -> bool:
     
     Critérios:
     1. Prefixo do nome (sticker-*, stk-*, etc.)
-    2. Extensão .webp — WhatsApp usa .webp EXCLUSIVAMENTE para stickers.
+    2. 'sticker' em qualquer parte do nome (ex: 00000006-STICKER-xxx.webp)
+    3. Extensão .webp — WhatsApp usa .webp EXCLUSIVAMENTE para stickers.
        Fotos reais são sempre .jpg/.jpeg.
     """
     basename = os.path.basename(filepath).lower()
     if basename.startswith(STICKER_PREFIXES):
+        return True
+    if 'sticker' in basename:
         return True
     if basename.endswith('.webp'):
         return True

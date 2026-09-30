@@ -680,8 +680,17 @@ async def get_ata_status(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_c
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Erro interno no get_ata_status na requisição ({ata_id}): {e}", exc_info=True)
-        return {"status": "error", "progress": 0, "status_message": "Erro fatal ao buscar status da ata.", "error_message": "Erro interno. Tente novamente ou entre em contato com o suporte."}
+        logger.warning(f"Erro transiente no get_ata_status ({ata_id}): {e}")
+        # Return a non-fatal status so the frontend keeps polling
+        # instead of showing a fatal error to the user
+        cached = local_results.get(ata_id)
+        if cached:
+            return {
+                "status": cached.get('status', 'organizing'),
+                "progress": cached.get('progress', 50),
+                "status_message": cached.get('status_message', 'Processamento em andamento...'),
+            }
+        return {"status": "organizing", "progress": 50, "status_message": "Processamento em andamento..."}
 
 @router.get("/{ata_id}/images/{filename}")
 async def serve_ata_image(ata_id: str, filename: str, auth_ctx: AuthContext = Depends(get_auth_context)):
