@@ -846,17 +846,32 @@ def _build_positional_image_schedule(image_bytes_dict: dict, chat_json: dict) ->
 
     return schedule
 
-async def _compress_images_in_schedule(schedule: list[dict]) -> None:
-    """Comprime imagens do schedule em paralelo em threads para não bloquear o event loop."""
+async def _compress_images_in_schedule(schedule: list[dict], ata_id: str = None) -> None:
+    """Comprime imagens do schedule em paralelo em threads para não bloquear o event loop.
+    
+    When IMAGES_STORAGE_MODE=disk: saves JPEG bytes to disk, stores URL in 'src'.
+    When IMAGES_STORAGE_MODE=inline: stores base64 string in 'b64' (current behavior).
+    """
     if not schedule:
         return
+
+    from services.image_storage import is_disk_mode, save_image
+    disk_mode = is_disk_mode() and ata_id is not None
         
     loop = asyncio.get_running_loop()
     
     def compress_task(img_data):
         if 'bytes' not in img_data:
-            return None
-        return _compress_image_to_base64(img_data['bytes'])
+            return None, None
+        raw_bytes = img_data['bytes']
+        b64 = _compress_image_to_base64(raw_bytes)
+        if disk_mode and b64:
+            # Decode base64 back to JPEG bytes for disk storage
+            import base64 as b64_mod
+            jpeg_bytes = b64_mod.b64decode(b64)
+            url = save_image(ata_id, img_data.get('filename', 'unknown.jpg'), jpeg_bytes)
+            return b64, url
+        return b64, None
         
     valid_items = [(i, item) for i, item in enumerate(schedule) if item is not None and not item.get('_placeholder')]
     tasks = [
@@ -865,8 +880,10 @@ async def _compress_images_in_schedule(schedule: list[dict]) -> None:
     ]
     results = await asyncio.gather(*tasks)
     
-    for (_, item), b64 in zip(valid_items, results):
+    for (_, item), (b64, url) in zip(valid_items, results):
         item['b64'] = b64
+        if url:
+            item['src'] = url
 
 def _inject_images_by_timestamp_schedule(html_str: str, schedule: list[dict]) -> str:
     """
@@ -911,7 +928,8 @@ def _inject_images_by_timestamp_schedule(html_str: str, schedule: list[dict]) ->
                 )
             # Imagem real com bytes
             b64 = img_data.get('b64')
-            if not b64:
+            src_url = img_data.get('src')  # Set when IMAGES_STORAGE_MODE=disk
+            if not b64 and not src_url:
                 return (
                     f'<div class="ata-midia-ausente" style="border:1px dashed #ccc;padding:8px 14px;'
                     f'color:#888;font-size:0.85em;font-style:italic;text-align:center;'
@@ -919,6 +937,9 @@ def _inject_images_by_timestamp_schedule(html_str: str, schedule: list[dict]) ->
                     f'[Formato de imagem não suportado: {img_data.get("filename", "")}]</div>'
                 )
             filename = img_data['filename']
+            # Disk mode: use URL path; Inline mode: embed base64
+            if src_url:
+                return f'<img class="ata-imagem-anexada" src="{src_url}" alt="{filename}" />'
             return f'<img class="ata-imagem-anexada" src="data:image/jpeg;base64,{b64}" alt="{filename}" />'
         return ''
 
@@ -1191,7 +1212,7 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
                 if image_bytes:
                     schedule = _build_positional_image_schedule(image_bytes, chat_json)
                     logger.info(f"[{tipo}] Schedule de imagens: {len(schedule)} entradas")
-                    await _compress_images_in_schedule(schedule)
+                    await _compress_images_in_schedule(schedule, ata_id=ata_id)
                     html = _inject_images_by_timestamp_schedule(html, schedule)
                 return {"conteudo": html}
             
@@ -1364,7 +1385,7 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
             if image_bytes:
                 schedule = _build_positional_image_schedule(image_bytes, chat_json)
                 logger.info(f"[{tipo}] Schedule de imagens (multi-chunk): {len(schedule)} entradas")
-                await _compress_images_in_schedule(schedule)
+                await _compress_images_in_schedule(schedule, ata_id=ata_id)
                 html = _inject_images_by_timestamp_schedule(html, schedule)
             return {"conteudo": html}
             

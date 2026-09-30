@@ -55,8 +55,30 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing LegisVox API...")
+
+    # Log image storage mode
+    from services.image_storage import IMAGES_STORAGE_MODE, IMAGES_BASE_DIR
+    logger.info(f"Image storage mode: {IMAGES_STORAGE_MODE} (dir: {IMAGES_BASE_DIR})")
+
+    # Start periodic image cleanup (runs daily)
+    import asyncio
+    async def _image_cleanup_loop():
+        from services.image_storage import cleanup_old_images, get_disk_usage_mb
+        while True:
+            await asyncio.sleep(86400)  # 24 hours
+            try:
+                cleaned = cleanup_old_images(max_age_days=30)
+                usage_mb = get_disk_usage_mb()
+                logger.info(f"[IMAGE_CLEANUP] Cleaned {cleaned} dirs, disk usage: {usage_mb:.1f} MB")
+            except Exception as e:
+                logger.warning(f"[IMAGE_CLEANUP] Error: {e}")
+
+    cleanup_task = asyncio.create_task(_image_cleanup_loop())
+
     yield
-    # Teardown shared client connection pool
+
+    # Teardown
+    cleanup_task.cancel()
     from database import close_http_client
     await close_http_client()
     logger.info("Cleanup complete.")

@@ -18,6 +18,25 @@ local_results = {}
 # progress jumps >= 10 points, or >= 5 seconds have elapsed
 _last_persisted = {}  # {ata_id: (status, progress, timestamp)}
 
+
+async def _heartbeat(ata_id: str, supabase, interval: int = 120):
+    """Grava heartbeat periódico no banco para evitar que o cron
+    recover_stuck_atas mate jobs legítimos em documentos grandes.
+    
+    O trigger BEFORE UPDATE na tabela atas renova updated_at automaticamente.
+    Roda em paralelo ao pipeline e é cancelada no finally.
+    """
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            def _sync():
+                supabase.table('atas').update({
+                    'status_message': 'Processamento em andamento...'
+                }).eq('id', ata_id).execute()
+            _db_executor.submit(_sync)
+        except Exception:
+            pass  # fire-and-forget — não deve interromper o pipeline
+
 def _update_status(ata_id: str, is_local: bool, supabase, status_name: str, progress: int = 0, message: str = ""):
     """Persiste status no Supabase. Fire-and-forget via thread pool (NÃO bloqueia o event loop)."""
     formatted_message = f"{progress}%: {message}" if progress > 0 else message
@@ -228,21 +247,11 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
                         'ata_id': ata_id,
                         'chat_parseado': db_chat_parseado,
                         'conteudo_formal': None,
-                        'conteudo_preparatorio': preparatorio_data.get('conteudo'),
-                        'advogado_id': advogado_id
+                        'conteudo_preparatorio': preparatorio_data.get('conteudo')
                     }).execute()
-                except Exception as db_err:
-                    logger.warning(f"[{ata_id}] Aviso: Falha ao inserir atas_conteudo com advogado_id: {db_err}. Tentando fallback...")
-                    try:
-                        supabase.table('atas_conteudo').insert({
-                            'ata_id': ata_id,
-                            'chat_parseado': db_chat_parseado,
-                            'conteudo_formal': None,
-                            'conteudo_preparatorio': preparatorio_data.get('conteudo')
-                        }).execute()
-                    except Exception as fatal_db_err:
-                        logger.error(f"[{ata_id}] Erro crítico ao inserir atas_conteudo: {fatal_db_err}")
-                        raise fatal_db_err
+                except Exception as fatal_db_err:
+                    logger.error(f"[{ata_id}] Erro crítico ao inserir atas_conteudo: {fatal_db_err}")
+                    raise fatal_db_err
 
             # Flush any buffered AI usage logs before marking as complete
             from services.ai_usage_service import flush_ai_logs
@@ -500,7 +509,14 @@ async def _process_pipeline(ata_id: str, is_local: bool, start_date: str = None,
     logger.info(f"[{ata_id}] Pipeline timeout configurado: {pipeline_timeout:.0f}s ({timeout_minutes} min) para {pages} páginas (peso={weight})")
 
     acquired_weight = await queue.acquire(estimated_pages)
+    heartbeat_task = None
     try:
+        # Start heartbeat to prevent recover_stuck_atas cron from killing long jobs
+        if not is_local:
+            hb_supabase = get_supabase_admin_client() or get_supabase_client()
+            if hb_supabase:
+                heartbeat_task = asyncio.create_task(_heartbeat(ata_id, hb_supabase, interval=120))
+
         try:
             await asyncio.wait_for(
                 _inner_process_pipeline(ata_id, is_local, start_date, end_date, token, advogado_id, zip_bytes, temp_path),
@@ -564,5 +580,7 @@ async def _process_pipeline(ata_id: str, is_local: bool, start_date: str = None,
                     'error_category': 'API_TIMEOUT'
                 })
     finally:
+        if heartbeat_task is not None:
+            heartbeat_task.cancel()
         await queue.release(acquired_weight)
 

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from middleware.auth import get_current_user_id
 from database import get_supabase_client, get_supabase_admin_client, create_user_client
@@ -158,6 +159,13 @@ async def delete_ata(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_conte
 
     if ata_id in local_results:
         del local_results[ata_id]
+
+    # Clean up images from disk (best-effort, non-blocking)
+    try:
+        from services.image_storage import delete_images
+        delete_images(ata_id)
+    except Exception:
+        pass  # Periodic cleanup will catch any stragglers
 
     return {"status": "success"}
 
@@ -675,6 +683,28 @@ async def get_ata_status(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_c
         logger.error(f"Erro interno no get_ata_status na requisição ({ata_id}): {e}", exc_info=True)
         return {"status": "error", "progress": 0, "status_message": "Erro fatal ao buscar status da ata.", "error_message": "Erro interno. Tente novamente ou entre em contato com o suporte."}
 
+@router.get("/{ata_id}/images/{filename}")
+async def serve_ata_image(ata_id: str, filename: str, auth_ctx: AuthContext = Depends(get_auth_context)):
+    """Serve compressed JPEG images stored on disk (when IMAGES_STORAGE_MODE=disk)."""
+    from services.image_storage import get_image_path
+
+    # Validate ownership: user must have access to this ata
+    supabase = auth_ctx.client
+    if supabase:
+        ata_res = supabase.table("atas").select("id").eq("id", ata_id).is_("deleted_at", "null").execute()
+        if not ata_res.data:
+            raise HTTPException(status_code=404, detail="Ata não encontrada")
+
+    image_path = get_image_path(ata_id, filename)
+    if not image_path:
+        raise HTTPException(status_code=404, detail="Imagem não encontrada")
+
+    return FileResponse(
+        image_path,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"}
+    )
+
 @router.get("/{ata_id}/preview")
 async def get_ata_preview(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_context)):
     supabase = auth_ctx.client
@@ -908,7 +938,7 @@ async def generate_pdf(
         except Exception as e:
             logger.warning(f"[{ata_id}] Falha ao buscar zip_hash para o PDF: {e}")
 
-    # ── Garantir que imagens base64 não se percam no round-trip pelo Tiptap ──
+    # ── Garantir que imagens não se percam no round-trip pelo Tiptap ──
     # Mesclamos o HTML do editor (que pode ter perdido imagens) com o HTML original
     # persistido no banco de dados para garantir que todas as imagens sejam renderizadas no PDF.
     html_for_pdf = req_data.conteudo
@@ -924,6 +954,26 @@ async def generate_pdf(
                 html_for_pdf = merge_images_into_html(req_data.conteudo, db_html)
         except Exception as e:
             logger.warning(f"[{ata_id}] Falha ao mesclar HTML com banco para PDF (usando original do frontend): {e}")
+
+    # ── Disk mode: inject base64 from disk before sending to Gotenberg ──
+    # Gotenberg cannot fetch images via /api/... URLs, so we re-embed
+    # the JPEG bytes as base64 inline. This is only done in-memory for PDF
+    # generation — the DB HTML remains lightweight with URL references.
+    from services.image_storage import is_disk_mode, read_image_bytes
+    if is_disk_mode():
+        import base64 as b64_mod
+        def _replace_disk_url_with_base64(match):
+            src = match.group(1)
+            # Only replace disk image URLs, not base64 data URIs
+            prefix = f"/api/atas/{ata_id}/images/"
+            if src.startswith(prefix):
+                filename = src[len(prefix):]
+                img_bytes = read_image_bytes(ata_id, filename)
+                if img_bytes:
+                    b64 = b64_mod.b64encode(img_bytes).decode('ascii')
+                    return f'src="data:image/jpeg;base64,{b64}"'
+            return match.group(0)
+        html_for_pdf = re.sub(r'src="([^"]+)"', _replace_disk_url_with_base64, html_for_pdf)
 
     # ── Template v2 (Corporativo Moderno) padronizado para todos os usuários ──
     try:
