@@ -37,7 +37,7 @@ VIDEO_EXTENSIONS = ['.mp4', '.3gp']
 AUDIO_EXTENSIONS = ('.opus', '.ogg', '.m4a', '.mp3', '.aac', '.wav', '.webm')
 
 # Prefixos de arquivo que indicam sticker/figurinha (excluir de imagens)
-STICKER_PREFIXES = ('sticker', 'stk-')
+STICKER_PREFIXES = ('sticker', 'stk-', 'stk_', 'figurinha')
 
 # Pr├®-compilar regex de extra├º├úo de nome de arquivo de ├íudio
 # Cobre todos os formatos conhecidos do WhatsApp:
@@ -325,9 +325,19 @@ def _list_audio_files(all_files: list[str]) -> list[str]:
 
 
 def _is_sticker_file(filepath: str) -> bool:
-    """Detecta se um arquivo ├® um sticker/figurinha pelo prefixo do nome."""
+    """Detecta se um arquivo é um sticker/figurinha.
+    
+    Critérios:
+    1. Prefixo do nome (sticker-*, stk-*, etc.)
+    2. Extensão .webp — WhatsApp usa .webp EXCLUSIVAMENTE para stickers.
+       Fotos reais são sempre .jpg/.jpeg.
+    """
     basename = os.path.basename(filepath).lower()
-    return basename.startswith(STICKER_PREFIXES)
+    if basename.startswith(STICKER_PREFIXES):
+        return True
+    if basename.endswith('.webp'):
+        return True
+    return False
 
 
 def _list_image_files(all_files: list[str]) -> list[str]:
