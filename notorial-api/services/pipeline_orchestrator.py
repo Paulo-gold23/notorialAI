@@ -241,17 +241,32 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
             loop = asyncio.get_running_loop()
 
             def _sync_save_content():
-                """Salva conteúdo em thread separada para não bloquear o event loop."""
-                try:
-                    supabase.table('atas_conteudo').insert({
-                        'ata_id': ata_id,
-                        'chat_parseado': db_chat_parseado,
-                        'conteudo_formal': None,
-                        'conteudo_preparatorio': preparatorio_data.get('conteudo')
-                    }).execute()
-                except Exception as fatal_db_err:
-                    logger.error(f"[{ata_id}] Erro crítico ao inserir atas_conteudo: {fatal_db_err}")
-                    raise fatal_db_err
+                """Salva conteúdo em thread separada para não bloquear o event loop.
+                Retry com cliente fresco em caso de erro SSL/conexão stale."""
+                import time as _time
+                payload = {
+                    'ata_id': ata_id,
+                    'chat_parseado': db_chat_parseado,
+                    'conteudo_formal': None,
+                    'conteudo_preparatorio': preparatorio_data.get('conteudo')
+                }
+                last_err = None
+                for attempt in range(3):
+                    try:
+                        client = supabase if attempt == 0 else get_supabase_admin_client()
+                        client.table('atas_conteudo').insert(payload).execute()
+                        if attempt > 0:
+                            logger.info(f"[{ata_id}] atas_conteudo salvo na tentativa {attempt + 1}")
+                        return
+                    except Exception as db_err:
+                        last_err = db_err
+                        err_str = str(db_err).lower()
+                        is_transient = any(k in err_str for k in ('eof', 'reset', 'connection', 'ssl', 'timeout', '520', '521'))
+                        if not is_transient or attempt == 2:
+                            logger.error(f"[{ata_id}] Erro crítico ao inserir atas_conteudo (tentativa {attempt + 1}): {db_err}")
+                            raise db_err
+                        logger.warning(f"[{ata_id}] Erro transiente ao salvar atas_conteudo (tentativa {attempt + 1}): {db_err}. Retrying...")
+                        _time.sleep(2 * (attempt + 1))  # 2s, 4s
 
             # Flush any buffered AI usage logs before marking as complete
             from services.ai_usage_service import flush_ai_logs
