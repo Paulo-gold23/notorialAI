@@ -292,6 +292,11 @@ export default function PublicHashVerifier() {
                     <p style={{ margin: '0.25rem 0 0', fontSize: '0.825rem', color: 'var(--text-muted)' }}>
                       O hash pesquisado coincide perfeitamente com os registros imutáveis da plataforma.
                     </p>
+                    {result.record_source === 'receipt' && (
+                      <p style={{ margin: '0.5rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                        Correspondência encontrada no recibo de metadados da plataforma (hash, data e protocolo). O conteúdo do relatório não é mantido pela plataforma após o prazo de retenção.
+                      </p>
+                    )}
                   </div>
                 </div>
 
