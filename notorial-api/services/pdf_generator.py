@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import io
+from html import unescape
 import secrets
 import asyncio
 import nh3
@@ -188,6 +189,26 @@ def _extract_text_from_html(html_str: str) -> str:
     return " ".join(clean.split())
 
 
+_AUDIO_BLOCK_RE = re.compile(r'Áudio Transcrito(.*?)(?:</p>|$)', re.DOTALL)
+_AUDIO_FAILURE_RE = re.compile(r'[“"]\s*\[[^\]]*\]\s*[”"]\s*$')
+_ABSENT_EXPORT_RE = re.compile(r'Mídia não disponível no export|conteúdo não disponível no export')
+_NOT_EMBEDDED_RE = re.compile(r'Imagem referenciada não encontrada no ZIP|Formato de imagem não suportado')
+
+
+def _classify_audio_blocks(html_str: str) -> tuple:
+    """Return (transcribed, without_transcript, failed_or_no_speech) audio counts."""
+    transcribed = without_transcript = failed = 0
+    for block in _AUDIO_BLOCK_RE.findall(html_str):
+        text = _extract_text_from_html(unescape(block))
+        if "(áudio sem transcrição)" in text:
+            without_transcript += 1
+        elif _AUDIO_FAILURE_RE.search(text):
+            failed += 1
+        else:
+            transcribed += 1
+    return transcribed, without_transcript, failed
+
+
 def inject_ressalva_blocks_for_pdf(html_content: str) -> str:
     """
     Transforms inline user-note marks into numbered superscripts in the text,
@@ -227,6 +248,23 @@ def inject_ressalva_blocks_for_pdf(html_content: str) -> str:
             f'</div>'
         )
 
+    def replace_note(match):
+        nonlocal global_note_index
+        note_text = match.group(1)
+        inner_html = match.group(2)
+        excerpt = _extract_text_from_html(inner_html)
+        if len(excerpt) > 120:
+            excerpt = excerpt[:117] + '...'
+
+        global_note_index += 1
+        current_day_notes.append({
+            "index": global_note_index,
+            "note": note_text,
+            "excerpt": excerpt
+        })
+        # Keep the wrapper span for highlight styling and add superscript
+        return f'<span class="user-note-wrapper" data-user-note="{note_text}">{inner_html}<sup class="pdf-ressalva-ref">[{global_note_index}]</sup></span>'
+
     for part in parts:
         # Check if it's a day header
         header_match = re.match(r'<h3[^>]*>(.*?)</h3>', part, re.IGNORECASE | re.DOTALL)
@@ -242,26 +280,10 @@ def inject_ressalva_blocks_for_pdf(html_content: str) -> str:
             header_text = header_match.group(1)
             # Remove any HTML tags inside the header (e.g. strong)
             current_day_date = _extract_text_from_html(header_text).strip()
-            processed_parts.append(part)
+            # Notes inside the header belong to the day it opens
+            processed_parts.append(note_pattern.sub(replace_note, part))
         else:
             # It's a text block. Search and replace notes.
-            def replace_note(match):
-                nonlocal global_note_index
-                note_text = match.group(1)
-                inner_html = match.group(2)
-                excerpt = _extract_text_from_html(inner_html)
-                if len(excerpt) > 120:
-                    excerpt = excerpt[:117] + '...'
-                
-                global_note_index += 1
-                current_day_notes.append({
-                    "index": global_note_index,
-                    "note": note_text,
-                    "excerpt": excerpt
-                })
-                # Keep the wrapper span for highlight styling and add superscript
-                return f'<span class="user-note-wrapper" data-user-note="{note_text}">{inner_html}<sup class="pdf-ressalva-ref">[{global_note_index}]</sup></span>'
-            
             cleaned_part = note_pattern.sub(replace_note, part)
             processed_parts.append(cleaned_part)
             
@@ -293,8 +315,8 @@ def inject_final_verification_box(html_str: str, use_v2_style: bool = False) -> 
     # 4. Contar documentos ("Documento Anexado")
     num_docs = len(re.findall(r'Documento Anexado', html_str))
 
-    # 5. Contar ressalvas/observações (tags <span> com classe user-note-wrapper)
-    num_ressalvas = len(re.findall(r'class="user-note-wrapper"|\buser-note-wrapper\b', html_str))
+    # 5. Contar anotações: uma por referência numerada emitida (= numeração impressa)
+    num_ressalvas = len(re.findall(r'<sup class="pdf-ressalva-ref">', html_str))
 
     # Formatar o texto de mídias de forma clara e elegante
     media_parts = []
@@ -308,38 +330,79 @@ def inject_final_verification_box(html_str: str, use_v2_style: bool = False) -> 
     media_desc = ", ".join(media_parts) if media_parts else "nenhuma mídia"
 
     if use_v2_style:
-        # V2: Table layout matching mock verification-container
-        num_midias_total = num_images + num_docs
-        midias_desc = f"{num_midias_total:02d} arquivo" + ("s preservados" if num_midias_total != 1 else " preservado") + " com integridade e carimbo temporal intactos" if num_midias_total > 0 else "nenhum arquivo anexado"
-        audios_desc = f"{num_audios:02d} mídia" + ("s transcritas" if num_audios != 1 else " transcrita") + " via inteligência artificial com estrita fidelidade semântica" if num_audios > 0 else "nenhum registro fonográfico"
-        ressalvas_desc = f"{num_ressalvas:02d} observaç" + ("ões técnicas numeradas" if num_ressalvas != 1 else "ão técnica numerada") + " e vinculadas aos respectivos parágrafos" if num_ressalvas > 0 else "nenhuma ressalva inserida"
+        num_docs_v2 = num_docs + len(re.findall(r'\[Documento:', html_str))
+        audio_counts = _classify_audio_blocks(html_str)
+        n_ok, n_none, n_fail = audio_counts
+        plain = unescape(html_str)
+        n_absent = len(_ABSENT_EXPORT_RE.findall(plain))
+        n_not_embedded = len(_NOT_EMBEDDED_RE.findall(plain))
+
+        if num_audios > 0:
+            audios_desc = (
+                f"{num_audios:02d} áudio" + ("s" if num_audios != 1 else "") + " no documento: "
+                f"{n_ok} com transcrição automática; {n_none} sem transcrição; "
+                f"{n_fail} com falha ou sem fala detectada"
+            )
+        else:
+            audios_desc = "nenhum áudio no documento"
+
+        if num_images or num_docs_v2:
+            files_desc = (
+                f"{num_images} imagem(ns) incorporada(s) em resolução reduzida; "
+                f"{num_docs_v2} documento(s) indicado(s) por nome"
+            )
+        else:
+            files_desc = "nenhuma imagem ou documento"
+
+        if n_absent or n_not_embedded:
+            unavailable_desc = (
+                f"{n_absent} ausente(s) na exportação recebida; "
+                f"{n_not_embedded} não incorporada(s) ao documento"
+            )
+        else:
+            unavailable_desc = "nenhuma mídia indisponível registrada"
+
+        if num_ressalvas == 1:
+            ressalvas_desc = "1 anotação numerada [1], vinculada ao respectivo trecho"
+        elif num_ressalvas > 1:
+            ressalvas_desc = (
+                f"{num_ressalvas} anotações numeradas de [1] a [{num_ressalvas}], "
+                "vinculadas aos respectivos trechos"
+            )
+        else:
+            ressalvas_desc = "nenhuma anotação inserida"
 
         verification_html = f"""
 <div class="verification-container">
-  <div class="verif-title">CERTIDÃO DE AUDITORIA E INTEGRIDADE FORENSE DIGITAL</div>
+  <div class="verif-title">QUADRO-RESUMO DO PROCESSAMENTO</div>
   <div class="verif-intro">
-    O presente documento técnico foi gerado por intermédio da plataforma LegisVox, submetido aos parâmetros da norma técnica <strong>ABNT NBR ISO/IEC 27037:2013</strong> (Diretrizes para Identificação, Coleta, Aquisição e Preservação de Evidência Digital):
+    Este quadro é uma declaração da própria plataforma LegisVox, sem avaliação independente, calculada a partir do conteúdo deste documento. Não houve coleta no aparelho do usuário: o processamento partiu do arquivo de exportação recebido.
   </div>
   <table class="verif-table">
     <tr>
-      <td class="tb-key">Mensagens Transcritas:</td>
-      <td class="tb-val">{num_messages} registros (100% de paridade com o arquivo de exportação)</td>
+      <td class="tb-key">Mensagens:</td>
+      <td class="tb-val">{num_messages} registros datados no corpo deste documento</td>
     </tr>
     <tr>
-      <td class="tb-key">Registros Fonográficos (Áudios):</td>
+      <td class="tb-key">Áudios:</td>
       <td class="tb-val">{audios_desc}</td>
     </tr>
     <tr>
-      <td class="tb-key">Documentos e Imagens Anexados:</td>
-      <td class="tb-val">{midias_desc}</td>
+      <td class="tb-key">Imagens e documentos:</td>
+      <td class="tb-val">{files_desc}</td>
     </tr>
     <tr>
-      <td class="tb-key">Ressalvas e Notas Inseridas:</td>
+      <td class="tb-key">Mídias indisponíveis:</td>
+      <td class="tb-val">{unavailable_desc}</td>
+    </tr>
+    <tr>
+      <td class="tb-key">Anotações:</td>
       <td class="tb-val">{ressalvas_desc}</td>
     </tr>
   </table>
 </div>
 """
+
     else:
         # V1: UL/LI list layout (legacy)
         verification_html = f"""
@@ -705,7 +768,6 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
   </div>
   <div class="badge-tag">
     <div><strong>PROTOCOLO:</strong> LVX-{protocol_code}</div>
-    <div>CONFORMIDADE ISO/IEC 27037</div>
   </div>
 </div>"""
 
