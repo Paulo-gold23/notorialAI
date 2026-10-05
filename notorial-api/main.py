@@ -91,7 +91,7 @@ from slowapi.errors import RateLimitExceeded
 app = FastAPI(
     title="LegisVox API",
     description="Organização de conversas WhatsApp para advogados (Material Preparatório)",
-    version="1.0.0",
+    version="3.0",
     lifespan=lifespan,
 )
 app.state.limiter = limiter

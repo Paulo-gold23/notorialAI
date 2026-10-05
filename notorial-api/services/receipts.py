@@ -14,6 +14,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+APP_VERSION_DEFAULT = "3.0"
 TEMPLATE_VERSION = "pdf-v2.s1"
 TRANSCRIPTION_MODEL = "whisper-large-v3"
 LLM_TEMPERATURE = 0.2
@@ -23,8 +24,8 @@ _READ_CHUNK = 1024 * 1024
 
 
 def app_version() -> str:
-    """Deployed build identifier, set by the deploy via APP_VERSION or GIT_SHA."""
-    return os.getenv("APP_VERSION") or os.getenv("GIT_SHA") or "unknown"
+    """Deployed build identifier; APP_VERSION/GIT_SHA from the deploy override the default."""
+    return os.getenv("APP_VERSION") or os.getenv("GIT_SHA") or APP_VERSION_DEFAULT
 
 
 def protocol_for(ata_id: str) -> str:
