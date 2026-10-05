@@ -156,14 +156,14 @@ export default function PublicHashVerifier() {
             fontSize: '0.75rem', fontWeight: 700, marginBottom: '1rem',
             border: '1px solid rgba(212, 160, 23, 0.3)'
           }}>
-            <Lock size={14} /> INTEGRIDADE CRIPTOGRÁFICA PERICIAL
+            <Lock size={14} /> INTEGRIDADE CRIPTOGRÁFICA
           </div>
           <h1 className="font-serif" style={{ fontSize: '2.2rem', color: 'var(--text-main)', margin: '0 0 0.75rem', lineHeight: 1.2 }}>
             Verificador de Autenticidade de Hashes
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', maxWidth: '680px', margin: '0 auto', lineHeight: 1.6 }}>
-            Consulte a integridade temporal de relatórios técnicos e arquivos probatórios gerados pelo LegisVox. 
-            Esta ferramenta pública permite que <strong>magistrados, promotores, peritos e partes</strong> confirmem a autenticidade e a não-adulteração de documentos.
+            Consulte a integridade temporal de relatórios técnicos e arquivos gerados pelo LegisVox. 
+            Esta ferramenta pública permite que <strong>magistrados, promotores, peritos e partes</strong> confirmem se um arquivo é idêntico ao registrado pela plataforma.
           </p>
         </div>
 
@@ -376,8 +376,8 @@ export default function PublicHashVerifier() {
 
                 {/* Legal & Forensic Note */}
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-dimmed)', lineHeight: 1.6 }}>
-                  ⚖️ <strong>Certificação Técnica:</strong> O algoritmo SHA-256 assegura que o arquivo submetido é idêntico byte a byte ao emitido pela ferramenta. 
-                  Conforme os Arts. 369 e 411, II do Código de Processo Civil (CPC), a correspondência criptográfica comprova a ausência de adulteração ou modificação posterior à data registrada.
+                  ⚖️ <strong>Nota Técnica:</strong> O algoritmo SHA-256 assegura que o arquivo submetido é idêntico byte a byte ao emitido pela ferramenta. 
+                  A correspondência indica que o arquivo não foi modificado desde a emissão registrada pela plataforma. Ela não atesta a autenticidade da conversa original, e a valoração como prova cabe à autoridade competente.
                 </div>
               </div>
             ) : (

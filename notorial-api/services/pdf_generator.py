@@ -779,7 +779,7 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
         if previous_pdf_hash:
             emission_rows += f'<div class="meta-row"><span class="meta-label">HASH DA EMISSÃO ANTERIOR:</span> <span class="meta-val hash-text">{previous_pdf_hash}</span></div>'
     meta_card_html = f"""<div class="doc-meta-card">
-  <div class="meta-row"><span class="meta-label">PROCEDIMENTO:</span> <span class="meta-val">Relatório Técnico de Transcrição e Fixação Probatória</span></div>
+  <div class="meta-row"><span class="meta-label">PROCEDIMENTO:</span> <span class="meta-val">Relatório Técnico de Transcrição e Organização</span></div>
   <div class="meta-row"><span class="meta-label">CONFERENTE:</span> <span class="meta-val">{reviewer_display}</span></div>
   {hash_row}
   {emission_rows}
