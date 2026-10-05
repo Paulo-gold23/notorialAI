@@ -243,7 +243,7 @@ def inject_ressalva_blocks_for_pdf(html_content: str) -> str:
             )
         return (
             f'<div class="pdf-ressalvas-section">'
-            f'<div class="pdf-ressalvas-title">RESSALVAS E OBSERVAÇÕES — {date_label}</div>'
+            f'<div class="pdf-ressalvas-title">ANOTAÇÕES — {date_label}</div>'
             f'{"".join(items_html)}'
             f'</div>'
         )
@@ -1266,7 +1266,7 @@ def _build_footer_html_v2(reviewer_name: str = "", zip_hash: str = "") -> str:
     <span class="footer-page">P&#225;gina <span class="pageNumber"></span> de <span class="totalPages"></span></span>
   </div>
   <div class="footer-line2">
-    Conte&#250;do organizado por Intelig&#234;ncia Artificial {conferido_por}.{disclaimer_extra} As notas de ressalva s&#227;o independentes e de inteira responsabilidade do usu&#225;rio.
+    Conte&#250;do organizado por Intelig&#234;ncia Artificial {conferido_por}.{disclaimer_extra} As anota&#231;&#245;es s&#227;o independentes e de inteira responsabilidade do usu&#225;rio.
   </div>
 </div>
 </body></html>"""
@@ -1420,7 +1420,7 @@ async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", 
 
         disclaimer = ""
         if zip_hash:
-            disclaimer = f"<br><strong>Aviso MCR e LGPD:</strong> Documento gerado por IA via LegisVox. Sem fé pública. A conferência com o arquivo original (Hash SHA-256 do ZIP: {zip_hash}) é obrigatória. As notas de ressalva são independentes e de inteira responsabilidade do usuário."
+            disclaimer = f"<br><strong>Aviso MCR e LGPD:</strong> Documento gerado por IA via LegisVox. Sem fé pública. A conferência com o arquivo original (Hash SHA-256 do ZIP: {zip_hash}) é obrigatória. As anotações são independentes e de inteira responsabilidade do usuário."
 
         # Gotenberg: margens e paginação via header nativo do Chrome
         # O footer.html usa as classes especiais do Chromium para numeração nativa por página

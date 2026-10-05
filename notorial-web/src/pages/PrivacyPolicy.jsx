@@ -139,7 +139,7 @@ export default function PrivacyPolicy() {
                     <SubHeading>4.2. Verificação de Integridade — Resumo Criptográfico Duplo</SubHeading>
                     <BulletList items={[
                         <><strong>Hash do Arquivo Fonte:</strong> No momento do upload do arquivo .ZIP, o sistema gera um resumo criptográfico único (SHA-256) que permite verificar se o conteúdo original sofreu alterações.</>,
-                        <><strong>Hash do Relatório Final:</strong> Após o processamento e inserção de eventuais ressalvas, um segundo código Hash é gerado para o arquivo PDF final.</>,
+                        <><strong>Hash do Relatório Final:</strong> Após o processamento e inserção de eventuais anotações, um segundo código Hash é gerado para o arquivo PDF final.</>,
                         <><strong>Imutabilidade:</strong> Ambos os códigos são impressos no rodapé de todas as páginas do relatório, permitindo rastreabilidade total em ambientes de auditoria ou processos judiciais.</>,
                     ]} />
 

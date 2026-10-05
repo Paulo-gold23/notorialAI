@@ -45,8 +45,8 @@ function normalizeEditorContent(value) {
     // entire days of messages to vanish from the editor.
     //
     // This function converts all <div> structures into <p>-based equivalents
-    // that Tiptap can parse. The saved HTML and PDF are NOT affected because
-    // the save flow re-fetches content from the database.
+    // that Tiptap can parse. Note: saving and PDF generation send the editor's
+    // own HTML (editor.getHTML()), so this normalization is what gets persisted.
     try {
         const parser = new DOMParser();
         const doc = parser.parseFromString(value, 'text/html');
@@ -462,13 +462,13 @@ export default function Review() {
             const { from, to } = savedSelectionRef.current;
             editor.chain().focus().setTextSelection({ from, to }).setMark('userNote', { note: trimmedNote }).run();
             savedSelectionRef.current = null;
-            toast.success('Ressalva adicionada com sucesso!');
+            toast.success('Anotação adicionada com sucesso!');
         } else if (noteForm.mode === 'edit' && noteForm.editId !== undefined) {
             const r = ressalvas[noteForm.editId];
             if (r) {
                 editor.chain().focus().setTextSelection({ from: r.pos, to: r.pos + r.nodeSize }).setMark('userNote', { note: trimmedNote }).run();
             }
-            toast.success('Ressalva atualizada!');
+            toast.success('Anotação atualizada!');
         }
         editor.setOptions({ editable: false });
         window.getSelection()?.removeAllRanges();
@@ -489,7 +489,7 @@ export default function Review() {
         editor.chain().focus().setTextSelection({ from: r.pos, to: r.pos + r.nodeSize }).unsetMark('userNote').run();
         editor.setOptions({ editable: false });
         setActiveRessalvaId(null);
-        toast.success('Ressalva removida.');
+        toast.success('Anotação removida.');
     };
 
     const handleRessalvaCardClick = (idx) => {
@@ -774,11 +774,22 @@ export default function Review() {
     const _doGeneratePdf = async (tipo) => {
         setGenerating(true);
         try {
+            // Persist the exact HTML that will be printed; if saving fails, no PDF is generated.
+            const htmlToPrint = editor.getHTML();
+            try {
+                await apiRequest(`/api/atas/${id}/content`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ tipo: activeTab, conteudo: htmlToPrint }),
+                });
+            } catch (saveErr) {
+                toast.error('Não foi possível salvar as edições antes de gerar o PDF. O PDF não foi gerado: ' + saveErr.message);
+                return;
+            }
             const data = await apiRequest(`/api/atas/${id}/generate-pdf`, {
                 method: 'POST',
                 body: JSON.stringify({
                     tipo,
-                    conteudo: editor.getHTML(),
+                    conteudo: htmlToPrint,
                     reviewer_name: reviewerName,
                 }),
             });
@@ -1192,10 +1203,10 @@ export default function Review() {
                                 background: annotationMode ? '#d97706' : 'transparent',
                                 fontWeight: 600,
                             }}
-                            title="Ativa o modo de anotação: selecione um trecho do documento para adicionar uma ressalva"
+                            title="Ativa o modo de anotação: selecione um trecho do documento para adicionar uma anotação"
                         >
                             <StickyNote className="w-4 h-4" />
-                            {annotationMode ? 'Selecionando...' : '+ Adicionar Ressalva'}
+                            {annotationMode ? 'Selecionando...' : '+ Adicionar Anotação'}
                         </button>
                     </div>
                 </div>
@@ -1349,7 +1360,7 @@ export default function Review() {
             <aside className="ressalvas-sidebar">
                 <div className="ressalvas-sidebar-header">
                     <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        <StickyNote size={14} /> Ressalvas
+                        <StickyNote size={14} /> Anotações
                     </span>
                     {ressalvas.length > 0 && (
                         <span className="ressalvas-count-badge">{ressalvas.length}</span>
@@ -1368,7 +1379,7 @@ export default function Review() {
                 {ressalvas.length === 0 && !noteForm ? (
                     <div className="ressalvas-sidebar-empty">
                         <StickyNote size={20} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
-                        <p style={{ margin: 0 }}>Selecione um trecho no documento e toque em <strong>Adicionar Ressalva</strong>.</p>
+                        <p style={{ margin: 0 }}>Selecione um trecho no documento e toque em <strong>Adicionar Anotação</strong>.</p>
                     </div>
                 ) : (
                     ressalvas.map((r, idx) => (
@@ -1380,15 +1391,15 @@ export default function Review() {
                         >
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
                                 <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#d97706', background: 'rgba(217, 119, 6, 0.08)', padding: '0.1rem 0.35rem', borderRadius: '0.25rem', fontFamily: 'monospace' }}>
-                                    RESSALVA [{idx + 1}]
+                                    ANOTAÇÃO [{idx + 1}]
                                 </span>
                             </div>
                             <div className="ressalva-card-text">{r.note}</div>
                             <div className="ressalva-card-actions" onClick={(e) => e.stopPropagation()}>
-                                <button className="ressalva-card-btn" onClick={() => handleEditNote(idx)} title="Editar ressalva">
+                                <button className="ressalva-card-btn" onClick={() => handleEditNote(idx)} title="Editar anotação">
                                     <Pencil size={11} /> Editar
                                 </button>
-                                <button className="ressalva-card-btn danger" onClick={() => handleDeleteNote(idx)} title="Excluir ressalva">
+                                <button className="ressalva-card-btn danger" onClick={() => handleDeleteNote(idx)} title="Excluir anotação">
                                     <Trash2 size={11} /> Excluir
                                 </button>
                             </div>
@@ -1447,8 +1458,8 @@ export default function Review() {
             <button
                 className="ressalvas-fab"
                 onClick={() => setSheetOpen(true)}
-                title="Ver Ressalvas"
-                aria-label="Abrir painel de ressalvas"
+                title="Ver Anotações"
+                aria-label="Abrir painel de anotações"
             >
                 <StickyNote size={22} />
                 {ressalvas.length > 0 && (
@@ -1467,7 +1478,7 @@ export default function Review() {
                 <div className="ressalvas-sheet-handle" />
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
                     <span style={{ fontWeight: 600, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        <StickyNote size={15} style={{ color: '#d97706' }} /> Ressalvas
+                        <StickyNote size={15} style={{ color: '#d97706' }} /> Anotações
                         {ressalvas.length > 0 && (
                             <span style={{ background: '#d97706', color: '#fff', fontSize: '0.65rem', fontWeight: 700, minWidth: 18, height: 18, borderRadius: 9, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px' }}>
                                 {ressalvas.length}
@@ -1493,7 +1504,7 @@ export default function Review() {
                 {ressalvas.length === 0 && !noteForm ? (
                     <div className="ressalvas-sidebar-empty">
                         <StickyNote size={20} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
-                        <p style={{ margin: 0 }}>Selecione um trecho no documento e toque em <strong>Adicionar Ressalva</strong>.</p>
+                        <p style={{ margin: 0 }}>Selecione um trecho no documento e toque em <strong>Adicionar Anotação</strong>.</p>
                     </div>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
@@ -1506,7 +1517,7 @@ export default function Review() {
                             >
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
                                     <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#d97706', background: 'rgba(217, 119, 6, 0.08)', padding: '0.1rem 0.35rem', borderRadius: '0.25rem', fontFamily: 'monospace' }}>
-                                        RESSALVA [{idx + 1}]
+                                        ANOTAÇÃO [{idx + 1}]
                                     </span>
                                 </div>
                                 <div className="ressalva-card-text">{r.note}</div>
@@ -1537,7 +1548,7 @@ export default function Review() {
                     }}
                     onClick={handleConfirmSelection}
                 >
-                    <Check size={14} /> Confirmar Ressalva
+                    <Check size={14} /> Confirmar Anotação
                 </button>
             )}
 
@@ -1705,7 +1716,7 @@ function RessalvaForm({ excerpt, initialValue, onSave, onCancel }) {
             <p className="ressalva-form-excerpt">"{excerpt}"</p>
             <textarea
                 className="ressalva-form-textarea"
-                placeholder="Descreva a ressalva jurídica..."
+                placeholder="Descreva a anotação..."
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 autoFocus

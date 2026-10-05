@@ -102,7 +102,7 @@ A segurança da informação é a espinha dorsal da confiança entre a Legatus e
 
 *   **Hash do Arquivo Fonte:** No momento do upload do arquivo .ZIP, o sistema gera um resumo criptográfico único (SHA-256) que permite verificar se o conteúdo original sofreu alterações após o processamento.
     
-*   **Hash do Relatório Final:** Após o processamento e a inserção de eventuais ressalvas do usuário, um segundo código Hash é gerado para o arquivo PDF final.
+*   **Hash do Relatório Final:** Após o processamento e a inserção de eventuais anotações do usuário, um segundo código Hash é gerado para o arquivo PDF final.
     
 *   **Imutabilidade:** Ambos os códigos são impressos no rodapé de todas as páginas do relatório, permitindo a rastreabilidade total da prova em ambientes de auditoria ou processos judiciais.
     
@@ -208,7 +208,7 @@ A **Legatus Tecnologia e Portais de Conteúdo Ltda.** (“Legatus”), sociedade
 
 6.2. **Veto à Edição e Adulteração:** Visando a preservação da fidedignidade e a prevenção de fraudes processuais (Art. 299 do Código Penal), o sistema **não permite a edição direta** do conteúdo transcrito pela Inteligência Artificial.
 
-*   **Ressalvas do Usuário:** O Usuário poderá, por sua conta e risco, inserir notas de observação ou ressalvas. Tais notas constarão de forma segregada no relatório, identificadas claramente como manifestações unilaterais do Usuário.
+*   **Anotações do Usuário:** O Usuário poderá, por sua conta e risco, inserir anotações. Tais notas constarão de forma segregada no relatório, identificadas claramente como manifestações unilaterais do Usuário.
     
 
 6.3. **Guarda de Metadados:** O Usuário concorda que a Legatus armazenará os referidos códigos _Hash_ em seus registros de auditoria, mesmo após a exclusão do conteúdo das mensagens, para fins de verificação de integridade. O valor probatório do documento será apreciado pela autoridade competente em conjunto com os arquivos originais e as demais provas.
