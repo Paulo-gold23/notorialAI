@@ -8,6 +8,7 @@ from database import get_supabase_client, get_supabase_admin_client, _db_executo
 from services.whatsapp_parser import parse_whatsapp_zip
 from services.transcription import transcribe_all
 from services.ai_organizer import organize_chat_with_ai
+from services import receipts
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,20 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
 
         loop = asyncio.get_running_loop()
         file_source = temp_path if temp_path else zip_bytes
+
+        # Receipt data: per-file inventory + size, computed before the source is consumed.
+        # Best-effort: failures only log and never affect processing.
+        zip_size = None
+        inventory, inventory_truncated = None, False
+        if supabase and not is_local:
+            try:
+                zip_size = os.path.getsize(temp_path) if temp_path else len(zip_bytes)
+            except Exception:
+                zip_size = None
+            inventory, inventory_truncated = await loop.run_in_executor(
+                None, lambda: receipts.safe_zip_inventory(file_source)
+            )
+
         parsed_data = await loop.run_in_executor(
             None,
             lambda: parse_whatsapp_zip(file_source, start_date=start_date, end_date=end_date)
@@ -275,6 +290,30 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
             update('organizing', "Salvando documento no banco de dados...", progress=96)
             await loop.run_in_executor(None, _sync_save_content)
             logger.info(f"[{ata_id}] atas_conteudo salvo com sucesso")
+
+            def _sync_record_receipt():
+                row = supabase.table('atas').select('zip_hash,zip_filename').eq('id', ata_id).execute()
+                meta = row.data[0] if row.data else {}
+                receipts.record_processing_receipt(
+                    supabase, ata_id=ata_id,
+                    zip_filename=meta.get('zip_filename'), zip_hash=meta.get('zip_hash'),
+                    zip_size=zip_size, inventory=inventory, inventory_truncated=inventory_truncated,
+                    parser_totals={
+                        'mensagens': parsed_data.get('total_mensagens'),
+                        'audios': parsed_data.get('total_audios'),
+                        'imagens': parsed_data.get('total_imagens'),
+                    },
+                    audio_stats={
+                        'sent_to_transcription': len(audios_to_transcribe),
+                        'merged': merged_count,
+                        'without_transcription': miss_count,
+                    },
+                    openai_model=settings.OPENAI_MODEL,
+                )
+            try:
+                await loop.run_in_executor(None, _sync_record_receipt)
+            except Exception as receipt_err:
+                logger.warning(f"[{ata_id}] Recibo de processamento não gravado: {receipt_err}")
 
             # Gerar título descritivo a partir dos participantes + período
             participantes_list = parsed_data.get('participantes', [])

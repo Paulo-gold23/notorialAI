@@ -743,7 +743,8 @@ def _format_chat_and_lists_for_v2(html_str: str) -> str:
     return msg_pattern.sub(msg_replacer, html_str)
 
 
-def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "") -> str:
+def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "",
+                          emission_number: int | None = None, previous_pdf_hash: str | None = None) -> str:
     """
     V2 PDF template — Opção B "Corporativo Moderno".
     Source Serif 4 + Inter, Navy+Gold palette, no watermark.
@@ -772,10 +773,16 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
 </div>"""
 
     hash_row = f'<div class="meta-row"><span class="meta-label">HASH SHA-256 (ZIP):</span> <span class="meta-val hash-text">{zip_hash}</span></div>' if zip_hash else ''
+    emission_rows = ''
+    if emission_number:
+        emission_rows = f'<div class="meta-row"><span class="meta-label">EMISSÃO:</span> <span class="meta-val">N.º {emission_number}</span></div>'
+        if previous_pdf_hash:
+            emission_rows += f'<div class="meta-row"><span class="meta-label">HASH DA EMISSÃO ANTERIOR:</span> <span class="meta-val hash-text">{previous_pdf_hash}</span></div>'
     meta_card_html = f"""<div class="doc-meta-card">
   <div class="meta-row"><span class="meta-label">PROCEDIMENTO:</span> <span class="meta-val">Relatório Técnico de Transcrição e Fixação Probatória</span></div>
   <div class="meta-row"><span class="meta-label">CONFERENTE:</span> <span class="meta-val">{reviewer_display}</span></div>
   {hash_row}
+  {emission_rows}
 </div>"""
 
     # Injeta o banner antes do primeiro <h1> e o cartão de metadados logo abaixo do <h1>
@@ -1381,7 +1388,8 @@ def _protect_and_hash_pdf_sync(pdf_content: bytes, ata_id: str = "") -> tuple[by
     return protected_content, pdf_hash
 
 
-async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "", use_new_template: bool = True) -> tuple[bytes, str] | tuple[None, None]:
+async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "", use_new_template: bool = True,
+                                 emission_number: int | None = None, previous_pdf_hash: str | None = None) -> tuple[bytes, str] | tuple[None, None]:
     """
     Consome a API do Gotenberg via URL do Env.
     Inclui retry automático com backoff para lidar com instabilidades do Gotenberg.
@@ -1393,10 +1401,12 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_has
         logger.info("[PDF] Aguardando liberação do semáforo de PDF (máximo 2 concorrentes)")
 
     async with sem:
-        return await _generate_pdf_from_html_inner(html_str, reviewer_name, zip_hash, ata_id, use_new_template)
+        return await _generate_pdf_from_html_inner(html_str, reviewer_name, zip_hash, ata_id, use_new_template,
+                                                   emission_number, previous_pdf_hash)
 
 
-async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "", use_new_template: bool = True) -> tuple[bytes, str] | tuple[None, None]:
+async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "", use_new_template: bool = True,
+                                        emission_number: int | None = None, previous_pdf_hash: str | None = None) -> tuple[bytes, str] | tuple[None, None]:
     """Inner implementation of PDF generation (called within semaphore guard)."""
     url = getattr(settings, 'PDF_CONVERTER_URL', getattr(settings, 'GOTENBERG_URL', "http://localhost:3000/forms/chromium/convert/html"))
 
@@ -1407,7 +1417,8 @@ async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", 
 
     # ── Template selection: v2 (Corporativo Moderno) vs v1 (legacy) ──
     if use_new_template:
-        html_for_pdf = _wrap_html_for_pdf_v2(sanitized_html, reviewer_name=reviewer_name, zip_hash=zip_hash, ata_id=ata_id)
+        html_for_pdf = _wrap_html_for_pdf_v2(sanitized_html, reviewer_name=reviewer_name, zip_hash=zip_hash, ata_id=ata_id,
+                                             emission_number=emission_number, previous_pdf_hash=previous_pdf_hash)
         footer_html = _build_footer_html_v2(reviewer_name, zip_hash)
         header_html = None  # Disabled: reintroduce after confirming PDF works
         logger.info(f"[PDF] Usando template v2 (Corporativo Moderno) para ata {ata_id}")

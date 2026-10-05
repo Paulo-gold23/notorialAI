@@ -8,6 +8,7 @@ from services.pipeline_orchestrator import local_results, _process_pipeline
 from services.pdf_generator import generate_pdf_from_html, PdfGenerationError
 from services.credits import credits_service
 from services.limiter import limiter
+from services import receipts
 from services.upload_service import save_upload_file_with_limit_and_hash
 from services.estimate_service import estimate_cache, ESTIMATE_CACHE_TTL, cleanup_estimate_cache
 from services.pdf_cache_service import pdf_cache, PDF_CACHE_TTL, _PDF_STORAGE_BUCKET, cleanup_pdf_cache
@@ -939,10 +940,12 @@ async def generate_pdf(
     reviewer = req_data.reviewer_name or auth_ctx.advogado_id or ""
     
     zip_hash = ""
+    ata_owned = False  # row visible through the user's RLS-scoped client
     if auth_ctx.client:
         try:
             ata_resp = auth_ctx.client.table("atas").select("zip_hash").eq("id", ata_id).execute()
             if ata_resp.data:
+                ata_owned = True
                 zip_hash = ata_resp.data[0].get("zip_hash", "")
         except Exception as e:
             logger.warning(f"[{ata_id}] Falha ao buscar zip_hash para o PDF: {e}")
@@ -984,9 +987,18 @@ async def generate_pdf(
             return match.group(0)
         html_for_pdf = re.sub(r'src="([^"]+)"', _replace_disk_url_with_base64, html_for_pdf)
 
+    # ── Issuance receipt (metadata only, best-effort): emission number + previous hash ──
+    # Receipts only for atas the caller can see; otherwise no receipt (and no emission line).
+    receipts_client = get_supabase_admin_client() if ata_owned else None
+    loop_rc = asyncio.get_running_loop()
+    emission_number, previous_pdf_hash = await loop_rc.run_in_executor(
+        None, lambda: receipts.next_emission(receipts_client, ata_id)
+    )
+
     # ── Template v2 (Corporativo Moderno) padronizado para todos os usuários ──
     try:
-        pdf_bytes, pdf_hash = await generate_pdf_from_html(html_for_pdf, reviewer_name=reviewer, zip_hash=zip_hash, ata_id=str(ata_id), use_new_template=True)
+        pdf_bytes, pdf_hash = await generate_pdf_from_html(html_for_pdf, reviewer_name=reviewer, zip_hash=zip_hash, ata_id=str(ata_id), use_new_template=True,
+                                                           emission_number=emission_number, previous_pdf_hash=previous_pdf_hash)
     except PdfGenerationError as e:
         logger.error(f"[PDF] Falha na geração do PDF para ata {ata_id}: {e}")
         raise HTTPException(status_code=503, detail="Falha ao gerar o PDF. O serviço pode estar temporariamente indisponível. Tente novamente.")
@@ -1007,6 +1019,15 @@ async def generate_pdf(
             logger.info(f"[PDF] Hash salvo no banco para ata {ata_id}: {pdf_hash[:16]}...")
         except Exception as e:
             logger.warning(f"[PDF] Falha ao salvar pdf_hash no banco (PDF não afetado): {e}")
+
+    await loop_rc.run_in_executor(
+        None,
+        lambda: receipts.record_pdf_issuance(
+            receipts_client, ata_id=ata_id, emission_number=emission_number, pdf_hash=pdf_hash,
+            previous_pdf_hash=previous_pdf_hash, input_html=html_for_pdf,
+            annotation_count=len(re.findall(r'data-user-note="[^"]+"', html_for_pdf)),
+        ),
+    )
 
     # ── Contagem real de páginas e reembolso automático ──
     actual_pages = None
