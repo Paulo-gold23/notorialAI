@@ -703,16 +703,24 @@ async def get_ata_status(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_c
         return {"status": "organizing", "progress": 50, "status_message": "Processamento em andamento..."}
 
 @router.get("/{ata_id}/images/{filename}")
-async def serve_ata_image(ata_id: str, filename: str, auth_ctx: AuthContext = Depends(get_auth_context)):
-    """Serve compressed JPEG images stored on disk (when IMAGES_STORAGE_MODE=disk)."""
-    from services.image_storage import get_image_path
+async def serve_ata_image(ata_id: str, filename: str, request: Request, t: str | None = None):
+    """Serve compressed JPEG images stored on disk (when IMAGES_STORAGE_MODE=disk).
 
-    # Validate ownership: user must have access to this ata
-    supabase = auth_ctx.client
-    if supabase:
-        ata_res = supabase.table("atas").select("id").eq("id", ata_id).is_("deleted_at", "null").execute()
-        if not ata_res.data:
-            raise HTTPException(status_code=404, detail="Ata não encontrada")
+    Access: a valid signed `?t=` token (what `<img>` tags in the editor use) or a Bearer JWT.
+    """
+    from services.image_storage import get_image_path
+    from services import image_tokens
+
+    if not _is_uuid(ata_id):
+        raise HTTPException(status_code=404, detail="Imagem não encontrada")
+
+    if not image_tokens.verify(ata_id, filename, t):
+        # No valid token: require the owner's Bearer JWT and check ata ownership via RLS.
+        auth_ctx = get_auth_context(request, get_current_user_id(request))
+        if auth_ctx.client:
+            ata_res = auth_ctx.client.table("atas").select("id").eq("id", ata_id).is_("deleted_at", "null").execute()
+            if not ata_res.data:
+                raise HTTPException(status_code=404, detail="Ata não encontrada")
 
     image_path = get_image_path(ata_id, filename)
     if not image_path:
@@ -721,8 +729,9 @@ async def serve_ata_image(ata_id: str, filename: str, auth_ctx: AuthContext = De
     return FileResponse(
         image_path,
         media_type="image/jpeg",
-        headers={"Cache-Control": "public, max-age=31536000, immutable"}
+        headers={"Cache-Control": "private, max-age=3600"}
     )
+
 
 @router.get("/{ata_id}/preview")
 async def get_ata_preview(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_context)):
@@ -734,6 +743,13 @@ async def get_ata_preview(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_
             raise HTTPException(status_code=404, detail="Ata não encontrada")
         conteudo_res = supabase.table("atas_conteudo").select("*").eq("ata_id", ata_id).execute()
         conteudo = conteudo_res.data[0] if conteudo_res.data else {}
+        from services.image_storage import is_disk_mode
+        if is_disk_mode() and conteudo:
+            from services import image_tokens
+            conteudo = dict(conteudo)
+            for col in ("conteudo_formal", "conteudo_preparatorio"):
+                if isinstance(conteudo.get(col), str):
+                    conteudo[col] = image_tokens.add_tokens(conteudo[col], ata_id)
         return {"ata": ata_res.data[0], "conteudo": conteudo}
 
     # Modo local (sem Supabase): usa local_results.
@@ -897,7 +913,8 @@ async def update_ata_content(
         return {"status": "success", "message": "Mocked update"}
 
     column = "conteudo_formal" if update_data.tipo == "formal" else "conteudo_preparatorio"
-    incoming_html = update_data.conteudo
+    from services import image_tokens
+    incoming_html = image_tokens.strip_tokens(update_data.conteudo, ata_id)
 
     # ── Proteger imagens base64 contra perda no save ──
     # O Tiptap pode descartar <img src="data:..."> durante a serialização.
@@ -1066,10 +1083,11 @@ async def _build_pdf(job_id: str, ata_id: str, req_data: PdfGenerateRequest,
 
     def _prepare_html() -> tuple:
         """CPU/disk heavy: runs in a thread so the event loop (health checks, polls) stays responsive."""
-        html = req_data.conteudo
+        from services import image_tokens
+        html = image_tokens.strip_tokens(req_data.conteudo, ata_id)
         if db_html:
             try:
-                html = merge_images_into_html(req_data.conteudo, db_html)
+                html = merge_images_into_html(html, db_html)
             except Exception as e:
                 logger.warning(f"[{ata_id}] Falha ao mesclar HTML com banco para PDF (usando original do frontend): {e}")
         embedded = 0
