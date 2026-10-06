@@ -1548,7 +1548,6 @@ async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", 
                     f"{response.text[:200]}"
                 )
                 if attempt < MAX_PDF_RETRIES:
-                    import asyncio
                     await asyncio.sleep(PDF_RETRY_BASE_DELAY * attempt)
                     continue
 
@@ -1566,7 +1565,6 @@ async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", 
                 f"Gotenberg timeout na tentativa {attempt}/{MAX_PDF_RETRIES}"
             )
             if attempt < MAX_PDF_RETRIES:
-                import asyncio
                 await asyncio.sleep(PDF_RETRY_BASE_DELAY * attempt)
                 continue
 
@@ -1577,7 +1575,6 @@ async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", 
                 f"URL: {url}"
             )
             if attempt < MAX_PDF_RETRIES:
-                import asyncio
                 await asyncio.sleep(PDF_RETRY_BASE_DELAY * attempt)
                 continue
             raise PdfGenerationError(
@@ -1592,7 +1589,6 @@ async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", 
             last_error = str(e)
             logger.error(f"Gotenberg exceção inesperada: {e}", exc_info=True)
             if attempt < MAX_PDF_RETRIES:
-                import asyncio
                 await asyncio.sleep(PDF_RETRY_BASE_DELAY * attempt)
                 continue
 
