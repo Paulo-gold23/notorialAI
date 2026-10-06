@@ -1257,21 +1257,23 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
                             from database import get_supabase_client, get_supabase_admin_client, db_exec as _db_exec, _db_executor
                             _chunk_cache = get_supabase_admin_client() or get_supabase_client()
                             if _chunk_cache:
-                                # 1. Match pelo ata_id + índice
-                                _ci, _tc = i, len(chunks)
+                                # 1. Retomada da mesma ata: mesmo indice E mesmo conteudo de entrada (hash).
+                                _ci, _tc, _ch = i, len(chunks), chunk_hash
                                 cached = await _db_exec(lambda: _chunk_cache.table("ata_chunks_cache")
                                     .select("content")
                                     .eq("ata_id", ata_id)
                                     .eq("chunk_index", _ci)
                                     .eq("total_chunks", _tc)
+                                    .eq("chunk_hash", _ch)
                                     .execute())
                                 if cached.data and len(cached.data) > 0:
-                                    logger.info(f"[{tipo}] Chunk {i+1}/{len(chunks)} — CACHE HIT (ata_id), reutilizando")
+                                    logger.info(f"[{tipo}] Chunk {i+1}/{len(chunks)} — CACHE HIT (ata_id+hash), reutilizando")
                                     completed_chunks += 1
                                     return cached.data[0]["content"]
 
-                                # 2. Match global pelo hash do conteúdo do chunk (reaproveitamento mesmo com novo upload)
-                                _ch = chunk_hash
+                                # 2. Match global pelo hash do conteudo do chunk (reaproveitamento mesmo com novo upload).
+                                # Nao ha mais match por zip_hash/indice: ignorava o periodo filtrado e o
+                                # conteudo, podendo devolver texto de outra execucao do mesmo ZIP.
                                 cached_hash = await _db_exec(lambda: _chunk_cache.table("ata_chunks_cache")
                                     .select("content")
                                     .eq("chunk_hash", _ch)
@@ -1282,21 +1284,6 @@ async def organize_chat_with_ai(chat_json: dict, on_progress: callable = None, i
                                     completed_chunks += 1
                                     return cached_hash.data[0]["content"]
 
-                                # 3. Match global pelo zip_hash da ata (re-upload do mesmo arquivo)
-                                if current_zip_hash:
-                                    try:
-                                        _zh, _ci2, _tc2 = current_zip_hash, i, len(chunks)
-                                        cached_zip = await _db_exec(lambda: _chunk_cache.rpc("get_cached_chunk_by_zip_hash", {
-                                            "p_zip_hash": _zh,
-                                            "p_chunk_index": _ci2,
-                                            "p_total_chunks": _tc2
-                                        }).execute())
-                                        if cached_zip.data and len(cached_zip.data) > 0 and cached_zip.data[0].get("content"):
-                                            logger.info(f"[{tipo}] Chunk {i+1}/{len(chunks)} — CACHE HIT (zip_hash), reutilizando")
-                                            completed_chunks += 1
-                                            return cached_zip.data[0]["content"]
-                                    except Exception:
-                                        pass
                         except Exception as cc_err:
                             logger.warning(f"[{tipo}] Chunk cache lookup failed (proceeding): {cc_err}")
 
