@@ -11,7 +11,7 @@ from services.limiter import limiter
 from services import receipts
 from services.upload_service import save_upload_file_with_limit_and_hash
 from services.estimate_service import estimate_cache, ESTIMATE_CACHE_TTL, cleanup_estimate_cache
-from services.pdf_cache_service import pdf_cache, PDF_CACHE_TTL, _PDF_STORAGE_BUCKET, cleanup_pdf_cache
+from services.pdf_cache_service import pdf_cache, PDF_CACHE_TTL, _PDF_STORAGE_BUCKET, cleanup_pdf_cache, build_pdf_storage_path
 import logging
 import uuid
 import time
@@ -1069,13 +1069,14 @@ async def generate_pdf(
     supabase = auth_ctx.client
 
     stored_in_storage = False
-    if supabase:
+    storage_client = get_supabase_admin_client() if supabase else None
+    storage_path = build_pdf_storage_path(owner_id, pdf_id)
+    if storage_client and storage_path:
         try:
-            storage_path = f"{owner_id}/{pdf_id}.pdf"
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None,
-                lambda: supabase.storage.from_(_PDF_STORAGE_BUCKET).upload(
+                lambda: storage_client.storage.from_(_PDF_STORAGE_BUCKET).upload(
                     storage_path, pdf_bytes,
                     {"content-type": "application/pdf", "upsert": "true"}
                 )
@@ -1083,13 +1084,14 @@ async def generate_pdf(
             # Metadata only — without bytes (multi-worker safe).
             pdf_cache[pdf_id] = {"ts": time.time(), "owner": owner_id}
             stored_in_storage = True
-            logger.info(f"[PDF] {pdf_id}: armazenado no Storage ({storage_path})")
+            logger.info(f"[PDF] {pdf_id}: armazenado no Storage ({storage_path}, {len(pdf_bytes)} bytes)")
         except Exception as e:
-            logger.warning(f"[PDF] Falha ao salvar no Storage, usando cache local: {e}")
+            logger.error(f"[PDF] Falha ao salvar no Storage (ata {ata_id}), usando cache local: {e}")
 
     if not stored_in_storage:
         # Fallback: guardar bytes em memória (bypass / Storage indisponível).
         pdf_cache[pdf_id] = {"ts": time.time(), "owner": owner_id, "bytes": pdf_bytes}
+
 
     # Count missing images for user feedback
     missing_img_count = len(re.findall(r'class="ata-midia-ausente"', html_for_pdf))
@@ -1110,39 +1112,38 @@ async def generate_pdf(
 
 @router.get("/download/{pdf_id}")
 async def download_pdf(pdf_id: str, auth_ctx: AuthContext = Depends(get_auth_context)):
+    owner_id = auth_ctx.advogado_id
     meta = pdf_cache.get(pdf_id)
-    if not meta:
+
+    if meta:
+        if time.time() - meta["ts"] > PDF_CACHE_TTL:
+            pdf_cache.pop(pdf_id, None)
+            raise HTTPException(status_code=410, detail="PDF expirado. Gere novamente.")
+        if meta["owner"] != owner_id:
+            raise HTTPException(status_code=403, detail="Acesso não autorizado a este PDF")
+        if meta.get("bytes"):  # local/bypass fallback (same worker only)
+            return Response(content=meta["bytes"], media_type="application/pdf")
+
+    # Not in this worker's memory (or stored in Storage): the path embeds the
+    # caller's own id, so only the owner's PDFs can ever be resolved.
+    storage_path = build_pdf_storage_path(owner_id, pdf_id)
+    storage_client = get_supabase_admin_client()
+    if not storage_path:
         raise HTTPException(status_code=404, detail="PDF não encontrado ou expirou")
-
-    # TTL check.
-    if time.time() - meta["ts"] > PDF_CACHE_TTL:
-        pdf_cache.pop(pdf_id, None)
-        raise HTTPException(status_code=410, detail="PDF expirado. Gere novamente.")
-
-    owner_id = meta["owner"]
-
-    # Ownership check
-    if owner_id != auth_ctx.advogado_id:
-        raise HTTPException(status_code=403, detail="Acesso não autorizado a este PDF")
-
-    # Try to get bytes: from Storage first, then in-memory fallback.
-    pdf_bytes = meta.get("bytes")  # set only in local/bypass mode
-    if not pdf_bytes:
-        supabase = auth_ctx.client
-        if not supabase:
-            raise HTTPException(status_code=500, detail="Storage indisponível para recuperar o PDF.")
-        try:
-            storage_path = f"{owner_id}/{pdf_id}.pdf"
-            loop = asyncio.get_running_loop()
-            pdf_bytes = await loop.run_in_executor(
-                None,
-                lambda: supabase.storage.from_(_PDF_STORAGE_BUCKET).download(storage_path)
-            )
-        except Exception as e:
-            logger.error(f"[PDF] Falha ao baixar {pdf_id} do Storage: {e}")
-            raise HTTPException(status_code=500, detail="Erro ao recuperar PDF. Gere novamente.")
+    if not storage_client:
+        raise HTTPException(status_code=500, detail="Storage indisponível para recuperar o PDF.")
+    try:
+        loop = asyncio.get_running_loop()
+        pdf_bytes = await loop.run_in_executor(
+            None,
+            lambda: storage_client.storage.from_(_PDF_STORAGE_BUCKET).download(storage_path)
+        )
+    except Exception as e:
+        logger.error(f"[PDF] Falha ao baixar {pdf_id} do Storage: {e}")
+        raise HTTPException(status_code=404, detail="PDF não encontrado ou expirou. Gere novamente.")
 
     return Response(content=pdf_bytes, media_type="application/pdf")
+
 
 @router.post("/{ata_id}/ai-action")
 @limiter.limit("15/minute")
