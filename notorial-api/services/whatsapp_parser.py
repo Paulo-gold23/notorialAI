@@ -10,16 +10,18 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 # Aceita m├â┬║ltiplos formatos de data do WhatsApp:
+_DATE = r'(\d{1,2}[/.]\d{1,2}[/.]\d{2,4})'
+# Hora com segundos opcionais e marcador AM/PM opcional (espacos inclui U+202F/U+00A0).
+_TIME = r'(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*([AaPp])\.?\s?[Mm]\.?)?'
+
+# Grupos: data, hora, minuto, am/pm, remetente, conteudo
 PATTERNS = [
-    # Android PT-BR: 09/03/2025, 14:30 - Nome: msg
-    re.compile(r'^(\d{2}/\d{2}/\d{4}),?\s+(\d{2}:\d{2})\s*-\s*([^:]+):\s*(.*)'),
-    # Android PT-BR com ano curto: 09/03/25, 14:30 - Nome: msg
-    re.compile(r'^(\d{2}/\d{2}/\d{2}),?\s+(\d{2}:\d{2})\s*-\s*([^:]+):\s*(.*)'),
-    # iOS: [09/03/2025, 14:30:00] Nome: msg
-    re.compile(r'^\[(\d{2}/\d{2}/\d{4}),?\s+(\d{2}:\d{2})(?::\d{2})?\]\s*([^:]+):\s*(.*)'),
-    # Formato US: MM/DD/YY, H:MM AM/PM - Nome: msg
-    re.compile(r'^(\d{1,2}/\d{1,2}/\d{2,4}),?\s+(\d{1,2}:\d{2}(?:\s*[AP]M)?)\s*-\s*([^:]+):\s*(.*)'),
+    # iOS: [09/03/2025, 14:30:00] Nome: msg   (aceita ano curto, 1 digito, 12h, '.')
+    re.compile(rf'^\[{_DATE},?\s+{_TIME}\]\s*([^:]+):\s*(.*)'),
+    # Android: 09/03/2025, 14:30 - Nome: msg   (aceita segundos, 'as', ano curto, 12h, '.')
+    re.compile(rf'^{_DATE},?\s+(?:[\u00e0a]s\s+)?{_TIME}\s*-\s*([^:]+):\s*(.*)'),
 ]
+
 
 # Palavras-chave que indicam ├â┬íudio
 AUDIO_KEYWORDS = ['.opus', '.ogg', '.m4a', '├â┬íudio omitido', 'audio omitted', 'audio omitido', 'PTT-', 'AUD-']
@@ -116,27 +118,40 @@ def _find_chat_txt(z: zipfile.ZipFile) -> list[str]:
 
 
 def _normalize_date(date_str: str) -> str:
-    """Normaliza datas com ano curto (25) para ano longo (2025)."""
-    parts = date_str.split('/')
-    if len(parts) == 3 and len(parts[2]) == 2:
-        year = int(parts[2])
-        parts[2] = str(2000 + year) if year < 50 else str(1900 + year)
-    return '/'.join(parts)
+    """Normaliza para dd/mm/aaaa: separador '/', dia/mes com 2 digitos, ano com 4."""
+    parts = re.split(r'[/.]', date_str)
+    if len(parts) != 3:
+        return date_str
+    day, month, year = parts
+    if len(year) == 2:
+        y = int(year)
+        year = str(2000 + y) if y < 50 else str(1900 + y)
+    return f"{day.zfill(2)}/{month.zfill(2)}/{year}"
+
+
+def _normalize_time(hour: str, minute: str, meridiem: str | None) -> str:
+    """Retorna HH:MM em 24h. Converte AM/PM quando presente."""
+    h = int(hour)
+    if meridiem:
+        is_pm = meridiem.lower() == 'p'
+        h = (h % 12) + (12 if is_pm else 0)
+    return f"{h:02d}:{minute}"
 
 
 def _parse_line(line: str) -> dict | None:
-    """Tenta parsear uma linha com todos os padr├â┬Áes conhecidos."""
+    """Tenta parsear uma linha com todos os padrões conhecidos."""
     for pattern in PATTERNS:
         match = pattern.search(line)
         if match:
-            data, hora, remetente, conteudo = match.groups()
+            data, hora, minuto, meridiem, remetente, conteudo = match.groups()
             return {
                 "data": _normalize_date(data.strip()),
-                "hora": hora.strip(),
+                "hora": _normalize_time(hora, minuto, meridiem),
                 "remetente": remetente.strip(),
                 "conteudo": conteudo.strip()
             }
     return None
+
 
 def _build_audio_lookup(audio_paths: list[str]) -> tuple[set[str], dict[str, str]]:
     """Cria indices para lookup de audio por caminho completo e basename."""
