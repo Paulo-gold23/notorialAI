@@ -1861,3 +1861,46 @@ input:focus, select:focus {
   outline: 2px solid rgba(245, 158, 11, 0.8);
   outline-offset: 1px;
 }
+
+/* ============================================================
+   PIN / codigo de verificacao: contraste e alvos de toque
+   (WCAG 2.1 AA: borda >= 3:1 e texto >= 4.5:1 contra o painel;
+   alvo >= 44x44px; foco visivel; sem depender de :hover).
+   Cores derivadas de --text-main/--panel-bg para valer em todos os temas
+   (escuro, light, blue, emerald, sepia). Sobrescreve os estilos inline
+   dos modais SignaturePinPrompt, PinVerification e ResetSignaturePin.
+   ============================================================ */
+.modal-dialog-responsive,
+.modal-dialog-responsive input[inputmode="numeric"][maxlength="1"] {
+  color-scheme: dark;
+}
+.light .modal-dialog-responsive,
+.light .modal-dialog-responsive input[inputmode="numeric"][maxlength="1"] {
+  color-scheme: light;
+}
+
+input[inputmode="numeric"][maxlength="1"] {
+  min-width: 44px !important;
+  min-height: 44px !important;
+  background: var(--panel-bg) !important;
+  background: color-mix(in srgb, var(--text-main) 8%, var(--panel-bg)) !important;
+  border: 2px solid var(--text-muted) !important;
+  border: 2px solid color-mix(in srgb, var(--text-main) 55%, var(--panel-bg)) !important;
+  color: var(--text-main) !important;
+  -webkit-text-fill-color: var(--text-main) !important;
+  caret-color: var(--primary-color);
+}
+input[inputmode="numeric"][maxlength="1"]:focus,
+input[inputmode="numeric"][maxlength="1"]:focus-visible {
+  border-color: var(--primary-color) !important;
+  box-shadow: 0 0 0 3px var(--primary-glow), 0 0 0 1px var(--primary-color) !important;
+  outline: none !important;
+}
+input[inputmode="numeric"][maxlength="1"]:active {
+  transform: scale(0.97);
+}
+.modal-dialog-responsive button[aria-label$="PIN"] {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.5rem 0.75rem !important;
+}
