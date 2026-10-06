@@ -785,7 +785,7 @@ export default function Review() {
                 toast.error('Não foi possível salvar as edições antes de gerar o PDF. O PDF não foi gerado: ' + saveErr.message);
                 return;
             }
-            const data = await apiRequest(`/api/atas/${id}/generate-pdf`, {
+            const job = await apiRequest(`/api/atas/${id}/generate-pdf`, {
                 method: 'POST',
                 body: JSON.stringify({
                     tipo,
@@ -793,6 +793,32 @@ export default function Review() {
                     reviewer_name: reviewerName,
                 }),
             });
+            if (!job.job_id) throw new Error('Resposta inválida do servidor ao iniciar o PDF.');
+
+            // Poll until the background job finishes (large documents can take several minutes).
+            const POLL_MS = 3000;
+            const DEADLINE_MS = 25 * 60 * 1000;
+            const startedAt = Date.now();
+            let data = null;
+            let consecutiveErrors = 0;
+            while (!data) {
+                await new Promise((r) => setTimeout(r, POLL_MS));
+                if (Date.now() - startedAt > DEADLINE_MS) {
+                    throw new Error('A geração do PDF demorou mais que o esperado. Tente novamente.');
+                }
+                let st;
+                try {
+                    st = await apiRequest(`/api/atas/${id}/pdf-status/${job.job_id}`);
+                    consecutiveErrors = 0;
+                } catch (pollErr) {
+                    // Tolerate brief network blips; fail only if the status keeps failing.
+                    if (++consecutiveErrors >= 5) throw pollErr;
+                    continue;
+                }
+                if (st.status === 'error') throw new Error(st.error || 'Falha ao gerar o PDF.');
+                if (st.status === 'ready') data = st.result;
+            }
+
             if (data.missing_images > 0) {
                 setMissingImages(data.missing_images);
             }

@@ -9,6 +9,7 @@ from services.pdf_generator import generate_pdf_from_html, PdfGenerationError
 from services.credits import credits_service
 from services.limiter import limiter
 from services import receipts
+from services import pdf_jobs
 from services.upload_service import save_upload_file_with_limit_and_hash
 from services.estimate_service import estimate_cache, ESTIMATE_CACHE_TTL, cleanup_estimate_cache
 from services.pdf_cache_service import pdf_cache, PDF_CACHE_TTL, _PDF_STORAGE_BUCKET, cleanup_pdf_cache, build_pdf_storage_path
@@ -30,6 +31,14 @@ logger = logging.getLogger(__name__)
 MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500 MB max upload
 
 import re
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(str(value))
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
 
 def _sanitize_filename(raw: str) -> str:
     """Sanitize user-provided filename to prevent XSS and path traversal in document titles."""
@@ -929,7 +938,15 @@ async def update_ata_title(
     return {"status": "success"}
 
 
-@router.post("/{ata_id}/generate-pdf")
+class PdfJobError(Exception):
+    """Failure of an async PDF job; the message is shown to the user."""
+
+
+# Strong references so background tasks are not garbage-collected mid-run.
+_pdf_tasks: set = set()
+
+
+@router.post("/{ata_id}/generate-pdf", status_code=202)
 @limiter.limit("10/minute")
 async def generate_pdf(
     ata_id: str,
@@ -937,7 +954,84 @@ async def generate_pdf(
     request: Request,
     auth_ctx: AuthContext = Depends(get_auth_context)
 ):
+    """Start PDF generation in the background and return a job id right away.
+
+    A synchronous request exceeds the proxy timeout (HTTP 524) for large documents,
+    so the client polls GET /{ata_id}/pdf-status/{job_id} instead.
+    """
+    if not auth_ctx.client or not auth_ctx.advogado_id:
+        raise HTTPException(status_code=401, detail="Não autenticado")
+    if not _is_uuid(ata_id):
+        raise HTTPException(status_code=404, detail="Ata não encontrada")
+
+    owned = auth_ctx.client.table("atas").select("id").eq("id", ata_id).execute()
+    if not owned.data:
+        raise HTTPException(status_code=404, detail="Ata não encontrada")
+
+    admin = get_supabase_admin_client()
+    if not admin:
+        raise HTTPException(status_code=500, detail="Serviço de geração de PDF indisponível.")
+    try:
+        job_id = pdf_jobs.create_job(admin, ata_id, auth_ctx.advogado_id)
+    except Exception as e:
+        logger.error(f"[PDF-JOB] ata {ata_id}: falha ao criar job: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Não foi possível iniciar a geração do PDF.")
+    if not job_id:
+        raise HTTPException(status_code=500, detail="Não foi possível iniciar a geração do PDF.")
+
+    task = asyncio.create_task(_run_pdf_job(job_id, ata_id, req_data, auth_ctx, admin))
+    _pdf_tasks.add(task)
+    task.add_done_callback(_pdf_tasks.discard)
+    return {"job_id": job_id, "status": "queued"}
+
+
+@router.get("/{ata_id}/pdf-status/{job_id}")
+async def pdf_status(ata_id: str, job_id: str, auth_ctx: AuthContext = Depends(get_auth_context)):
+    if not _is_uuid(job_id) or not _is_uuid(ata_id):
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    admin = get_supabase_admin_client()
+    if not admin or not auth_ctx.advogado_id:
+        raise HTTPException(status_code=500, detail="Serviço indisponível")
+    job = pdf_jobs.get_job(admin, job_id, auth_ctx.advogado_id, ata_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    return {
+        "status": job["status"],
+        "step": job.get("step"),
+        "error": job.get("error"),
+        "result": job.get("result") if job["status"] == "ready" else None,
+    }
+
+
+async def _run_pdf_job(job_id: str, ata_id: str, req_data: PdfGenerateRequest,
+                       auth_ctx: AuthContext, admin) -> None:
+    """Background wrapper: runs the generation and records the outcome in `pdf_jobs`."""
+    t0 = time.monotonic()
+    pdf_jobs.update_job(admin, job_id, status="generating", step="preparing")
+    try:
+        result = await _build_pdf(job_id, ata_id, req_data, auth_ctx, admin)
+        pdf_jobs.update_job(admin, job_id, status="ready", step="done", result=result)
+        logger.info(f"[PDF-JOB] {job_id} ata={ata_id} concluído em {time.monotonic() - t0:.1f}s")
+    except PdfJobError as e:
+        logger.error(f"[PDF-JOB] {job_id} ata={ata_id} falhou: {e}")
+        pdf_jobs.update_job(admin, job_id, status="error", error=str(e))
+    except Exception as e:
+        logger.error(f"[PDF-JOB] {job_id} ata={ata_id} erro inesperado: {e}", exc_info=True)
+        pdf_jobs.update_job(admin, job_id, status="error",
+                            error="Erro interno inesperado ao gerar o PDF. Tente novamente.")
+
+
+async def _build_pdf(job_id: str, ata_id: str, req_data: PdfGenerateRequest,
+                     auth_ctx: AuthContext, admin) -> dict:
+    t_start = time.monotonic()
+
+    def _mark(step: str) -> None:
+        logger.info(f"[PDF-JOB] {job_id} ata={ata_id} etapa={step} t={time.monotonic() - t_start:.1f}s")
+        pdf_jobs.update_job(admin, job_id, step=step)
+
     reviewer = req_data.reviewer_name or auth_ctx.advogado_id or ""
+    loop_rc = asyncio.get_running_loop()
+
     
     zip_hash = ""
     ata_owned = False  # row visible through the user's RLS-scoped client
@@ -953,7 +1047,9 @@ async def generate_pdf(
     # ── Garantir que imagens não se percam no round-trip pelo Tiptap ──
     # Mesclamos o HTML do editor (que pode ter perdido imagens) com o HTML original
     # persistido no banco de dados para garantir que todas as imagens sejam renderizadas no PDF.
+    _mark("merging_html")
     html_for_pdf = req_data.conteudo
+    db_html = ''
     if auth_ctx.client:
         try:
             col = 'conteudo_formal' if req_data.tipo == 'formal' else 'conteudo_preparatorio'
@@ -963,51 +1059,68 @@ async def generate_pdf(
                 .execute()
             if conteudo_res.data:
                 db_html = conteudo_res.data[0].get(col) or ''
-                html_for_pdf = merge_images_into_html(req_data.conteudo, db_html)
         except Exception as e:
-            logger.warning(f"[{ata_id}] Falha ao mesclar HTML com banco para PDF (usando original do frontend): {e}")
+            logger.warning(f"[{ata_id}] Falha ao ler HTML do banco para PDF (usando original do frontend): {e}")
 
-    # ── Disk mode: inject base64 from disk before sending to Gotenberg ──
-    # Gotenberg cannot fetch images via /api/... URLs, so we re-embed
-    # the JPEG bytes as base64 inline. This is only done in-memory for PDF
-    # generation — the DB HTML remains lightweight with URL references.
     from services.image_storage import is_disk_mode, read_image_bytes
-    if is_disk_mode():
-        import base64 as b64_mod
-        def _replace_disk_url_with_base64(match):
-            src = match.group(1)
-            # Only replace disk image URLs, not base64 data URIs
+
+    def _prepare_html() -> tuple:
+        """CPU/disk heavy: runs in a thread so the event loop (health checks, polls) stays responsive."""
+        html = req_data.conteudo
+        if db_html:
+            try:
+                html = merge_images_into_html(req_data.conteudo, db_html)
+            except Exception as e:
+                logger.warning(f"[{ata_id}] Falha ao mesclar HTML com banco para PDF (usando original do frontend): {e}")
+        embedded = 0
+        missing = 0
+        # Disk mode: Gotenberg cannot fetch /api/... URLs, so re-embed the JPEG bytes as base64.
+        # Done in memory only; the DB HTML keeps lightweight URL references.
+        if is_disk_mode():
+            import base64 as b64_mod
             prefix = f"/api/atas/{ata_id}/images/"
-            if src.startswith(prefix):
-                filename = src[len(prefix):]
-                img_bytes = read_image_bytes(ata_id, filename)
-                if img_bytes:
-                    b64 = b64_mod.b64encode(img_bytes).decode('ascii')
-                    return f'src="data:image/jpeg;base64,{b64}"'
-            return match.group(0)
-        html_for_pdf = re.sub(r'src="([^"]+)"', _replace_disk_url_with_base64, html_for_pdf)
+
+            def _replace_disk_url_with_base64(match):
+                nonlocal embedded, missing
+                src = match.group(1)
+                if src.startswith(prefix):
+                    img_bytes = read_image_bytes(ata_id, src[len(prefix):])
+                    if img_bytes:
+                        embedded += 1
+                        return f'src="data:image/jpeg;base64,{b64_mod.b64encode(img_bytes).decode("ascii")}"'
+                    missing += 1
+                return match.group(0)
+
+            html = re.sub(r'src="([^"]+)"', _replace_disk_url_with_base64, html)
+        return html, embedded, missing
+
+    html_for_pdf, embedded_imgs, unreadable_imgs = await loop_rc.run_in_executor(None, _prepare_html)
+    logger.info(f"[PDF-JOB] {job_id} ata={ata_id} html={len(html_for_pdf) / 1_048_576:.1f}MB "
+                f"imagens_embutidas={embedded_imgs} imagens_ilegiveis={unreadable_imgs} "
+                f"t={time.monotonic() - t_start:.1f}s")
 
     # ── Issuance receipt (metadata only, best-effort): emission number + previous hash ──
     # Receipts only for atas the caller can see; otherwise no receipt (and no emission line).
     receipts_client = get_supabase_admin_client() if ata_owned else None
-    loop_rc = asyncio.get_running_loop()
     emission_number, previous_pdf_hash = await loop_rc.run_in_executor(
         None, lambda: receipts.next_emission(receipts_client, ata_id)
     )
 
     # ── Template v2 (Corporativo Moderno) padronizado para todos os usuários ──
+    _mark("rendering_pdf")
     try:
         pdf_bytes, pdf_hash = await generate_pdf_from_html(html_for_pdf, reviewer_name=reviewer, zip_hash=zip_hash, ata_id=str(ata_id), use_new_template=True,
                                                            emission_number=emission_number, previous_pdf_hash=previous_pdf_hash)
     except PdfGenerationError as e:
         logger.error(f"[PDF] Falha na geração do PDF para ata {ata_id}: {e}")
-        raise HTTPException(status_code=503, detail="Falha ao gerar o PDF. O serviço pode estar temporariamente indisponível. Tente novamente.")
+        raise PdfJobError("Falha ao gerar o PDF. O serviço pode estar temporariamente indisponível. Tente novamente.")
     except Exception as e:
         logger.error(f"[PDF] Erro inesperado ao gerar PDF para ata {ata_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Erro interno inesperado ao gerar o PDF")
+        raise PdfJobError("Erro interno inesperado ao gerar o PDF")
+    _mark("pdf_rendered")
 
     if not pdf_bytes:
-        raise HTTPException(status_code=500, detail="Erro ao gerar PDF")
+        raise PdfJobError("Erro ao gerar PDF")
 
     # ── Persistir hash do PDF no banco para auditoria ──
     if auth_ctx.client and pdf_hash:
@@ -1068,33 +1181,28 @@ async def generate_pdf(
     owner_id = auth_ctx.advogado_id
     supabase = auth_ctx.client
 
-    stored_in_storage = False
-    storage_client = get_supabase_admin_client() if supabase else None
+    _mark("storing_pdf")
+    storage_client = admin
     storage_path = build_pdf_storage_path(owner_id, pdf_id)
-    if storage_client and storage_path:
-        try:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: storage_client.storage.from_(_PDF_STORAGE_BUCKET).upload(
-                    storage_path, pdf_bytes,
-                    {"content-type": "application/pdf", "upsert": "true"}
-                )
+    if not storage_path:
+        raise PdfJobError("Não foi possível armazenar o PDF gerado.")
+    try:
+        await loop_rc.run_in_executor(
+            None,
+            lambda: storage_client.storage.from_(_PDF_STORAGE_BUCKET).upload(
+                storage_path, pdf_bytes,
+                {"content-type": "application/pdf", "upsert": "true"}
             )
-            # Metadata only — without bytes (multi-worker safe).
-            pdf_cache[pdf_id] = {"ts": time.time(), "owner": owner_id}
-            stored_in_storage = True
-            logger.info(f"[PDF] {pdf_id}: armazenado no Storage ({storage_path}, {len(pdf_bytes)} bytes)")
-        except Exception as e:
-            logger.error(f"[PDF] Falha ao salvar no Storage (ata {ata_id}), usando cache local: {e}")
-
-    if not stored_in_storage:
-        # Fallback: guardar bytes em memória (bypass / Storage indisponível).
-        pdf_cache[pdf_id] = {"ts": time.time(), "owner": owner_id, "bytes": pdf_bytes}
-
+        )
+    except Exception as e:
+        # No in-memory fallback: another worker would not find the PDF at download time.
+        logger.error(f"[PDF] Falha ao salvar no Storage (ata {ata_id}, {len(pdf_bytes)} bytes): {e}")
+        raise PdfJobError("O PDF foi gerado, mas não pôde ser armazenado para download. Tente novamente.")
+    pdf_cache[pdf_id] = {"ts": time.time(), "owner": owner_id}
+    logger.info(f"[PDF] {pdf_id}: armazenado no Storage ({storage_path}, {len(pdf_bytes)} bytes)")
 
     # Count missing images for user feedback
-    missing_img_count = len(re.findall(r'class="ata-midia-ausente"', html_for_pdf))
+    missing_img_count = len(re.findall(r'class="ata-midia-ausente"', html_for_pdf)) + unreadable_imgs
 
     return {
         "pdf_url": f"/api/atas/download/{pdf_id}",
@@ -1106,6 +1214,7 @@ async def generate_pdf(
         "balance_after": balance_after,
         "missing_images": missing_img_count,
     }
+
 
 
 

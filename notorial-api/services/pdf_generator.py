@@ -8,6 +8,7 @@ import io
 from html import unescape
 import secrets
 import asyncio
+import time
 import nh3
 from config import settings
 
@@ -1413,15 +1414,25 @@ async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", 
     if "convert/html" not in url:
         url = f"{url.rstrip('/')}/forms/chromium/convert/html"
 
-    sanitized_html = sanitize_user_html(html_str)
+    loop = asyncio.get_running_loop()
+    t_prep = time.monotonic()
+    sanitized_html = await loop.run_in_executor(None, sanitize_user_html, html_str)
+    logger.info(f"[PDF] ata {ata_id}: sanitize_user_html {time.monotonic() - t_prep:.1f}s "
+                f"({len(html_str) / 1_048_576:.1f}MB)")
 
     # ── Template selection: v2 (Corporativo Moderno) vs v1 (legacy) ──
     if use_new_template:
-        html_for_pdf = _wrap_html_for_pdf_v2(sanitized_html, reviewer_name=reviewer_name, zip_hash=zip_hash, ata_id=ata_id,
-                                             emission_number=emission_number, previous_pdf_hash=previous_pdf_hash)
+        t_wrap = time.monotonic()
+        html_for_pdf = await loop.run_in_executor(
+            None,
+            lambda: _wrap_html_for_pdf_v2(sanitized_html, reviewer_name=reviewer_name, zip_hash=zip_hash, ata_id=ata_id,
+                                          emission_number=emission_number, previous_pdf_hash=previous_pdf_hash),
+        )
+        logger.info(f"[PDF] ata {ata_id}: _wrap_html_for_pdf_v2 {time.monotonic() - t_wrap:.1f}s")
         footer_html = _build_footer_html_v2(reviewer_name, zip_hash)
         header_html = None  # Disabled: reintroduce after confirming PDF works
         logger.info(f"[PDF] Usando template v2 (Corporativo Moderno) para ata {ata_id}")
+
     else:
         # Note: inject_ressalva_blocks_for_pdf is called inside _wrap_html_for_pdf
         html_for_pdf = _wrap_html_for_pdf(sanitized_html)
