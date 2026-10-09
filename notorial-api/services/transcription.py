@@ -3,6 +3,8 @@ import httpx
 import logging
 import asyncio
 import os
+import random
+import time
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -21,14 +23,46 @@ MIME_MAP = {
 }
 
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB (limite Whisper)
-MAX_RETRIES = 3
+MAX_RETRIES = 3  # attempts for timeouts / 5xx / connection errors
 RETRY_BASE_DELAY = 2  # segundos
+
+# Groq limits are per-minute windows: in production (09/10) 92 HTTP 429 responses came
+# within ~2 min with retry-after=3, and 3 quick attempts (~9s) were not enough.
+# 429s therefore get their own time budget instead of consuming regular attempts.
+RATE_LIMIT_BUDGET_SECONDS = float(os.getenv("GROQ_RATE_LIMIT_BUDGET_SECONDS", "180"))
+RATE_LIMIT_MAX_WAIT = 30.0
+# 6 parallel calls triggered the 429 burst; 3 halves the request rate.
+TRANSCRIPTION_CONCURRENCY = max(1, int(os.getenv("GROQ_TRANSCRIPTION_CONCURRENCY", "3")))
+# Pause before the sequential second pass so the provider window can reset.
+SECOND_PASS_COOLDOWN_SECONDS = float(os.getenv("GROQ_SECOND_PASS_COOLDOWN_SECONDS", "20"))
+
+FAILED_MARKER = "[Falha após múltiplas tentativas de transcrição]"
+RATE_LIMIT_MARKER = "[Falha na transcrição: limite de requisições do serviço excedido]"
+TIMEOUT_MARKER = "[Timeout - áudio muito longo para transcrever]"
+CONNECTION_MARKER = "[Erro de conexão com serviço de transcrição]"
+# Transient failures worth a second, sequential attempt at the end of the batch.
+RETRYABLE_MARKERS = frozenset({FAILED_MARKER, RATE_LIMIT_MARKER, TIMEOUT_MARKER, CONNECTION_MARKER})
+
+
+def rate_limit_wait(retry_after: str | None, hit_number: int) -> float:
+    """Exponential backoff with jitter that never undercuts the provider's retry-after."""
+    try:
+        floor = float(retry_after) if retry_after else 0.0
+    except ValueError:
+        floor = 0.0
+    backoff = RETRY_BASE_DELAY * (2 ** (hit_number - 1))
+    return min(max(floor, backoff) + random.uniform(0, 1.5), RATE_LIMIT_MAX_WAIT)
+
+
+def is_transcription_failure(text: str) -> bool:
+    return text.startswith("[") and text != "[Áudio sem fala detectada]"
 
 
 def _get_mime(filename: str) -> str:
     """Retorna o MIME type baseado na extensão do arquivo."""
     ext = os.path.splitext(filename)[1].lower()
     return MIME_MAP.get(ext, "audio/ogg")  # fallback seguro
+
 
 
 async def _transcribe_single_audio(
@@ -118,9 +152,15 @@ async def _transcribe_single_audio(
     headers = {"Authorization": f"Bearer {settings.GROQ_API_KEY}"}
     mime = _get_mime(filename)
 
-    for attempt in range(1, MAX_RETRIES + 1):
+    attempt = 0
+    rate_limited_hits = 0
+    rate_limit_deadline = time.monotonic() + RATE_LIMIT_BUDGET_SECONDS
+
+    while attempt < MAX_RETRIES:
+        attempt += 1
         timer = AICallTimer()
-        is_retry = attempt > 1
+        call_no = attempt + rate_limited_hits
+        is_retry = call_no > 1
 
         try:
             # Usa apenas o nome do arquivo, sem o caminho (WhatsApp pode vir com Media/audio.opus)
@@ -155,7 +195,7 @@ async def _transcribe_single_audio(
                         ata_id=ata_id, advogado_id=advogado_id,
                         service="groq", model="whisper-large-v3",
                         operation="transcription", pipeline_stage="transcribing",
-                        attempt_number=attempt, is_retry=is_retry,
+                        attempt_number=call_no, is_retry=is_retry,
                         input_size_bytes=audio_size, audio_duration_sec=estimated_duration,
                         http_status=200, status="success",
                         cost_category="confirmed",
@@ -166,7 +206,7 @@ async def _transcribe_single_audio(
                     ata_id=ata_id, advogado_id=advogado_id,
                     service="groq", model="whisper-large-v3",
                     operation="transcription", pipeline_stage="transcribing",
-                    attempt_number=attempt, is_retry=is_retry,
+                    attempt_number=call_no, is_retry=is_retry,
                     input_size_bytes=audio_size, audio_duration_sec=estimated_duration,
                     http_status=200, status="success",
                     cost_category="confirmed",
@@ -189,20 +229,18 @@ async def _transcribe_single_audio(
                     logger.warning(f"[{filename}] Cache write failed (non-critical): {cw_err}")
                 return filename, text
 
-            # -- Rate limit (429) - esperar e tentar novamente --
+            # -- Rate limit (429): backoff within a time budget; does not consume a regular attempt --
             if response.status_code == 429:
                 retry_after = response.headers.get("retry-after")
-                wait = float(retry_after) if retry_after else RETRY_BASE_DELAY * attempt
-                wait = min(wait, 30)  # máx 30s de espera
-                logger.warning(
-                    f"[{filename}] Rate limit (429), tentativa {attempt}/{MAX_RETRIES}, "
-                    f"aguardando {wait:.1f}s..."
-                )
+                rate_limited_hits += 1
+                attempt -= 1
+                wait = rate_limit_wait(retry_after, rate_limited_hits)
+                budget_left = rate_limit_deadline - time.monotonic()
                 log_ai_call(
                     ata_id=ata_id, advogado_id=advogado_id,
                     service="groq", model="whisper-large-v3",
                     operation="transcription", pipeline_stage="transcribing",
-                    attempt_number=attempt, is_retry=is_retry,
+                    attempt_number=call_no, is_retry=is_retry,
                     retry_reason="rate_limit" if is_retry else None,
                     input_size_bytes=audio_size, audio_duration_sec=estimated_duration,
                     http_status=429, status="rate_limited",
@@ -211,8 +249,19 @@ async def _transcribe_single_audio(
                     cost_category="pending",
                     duration_ms=timer.duration_ms,
                 )
+                if wait > budget_left:
+                    logger.error(
+                        f"[{filename}] Rate limit (429) persistente: {rate_limited_hits} respostas, "
+                        f"orçamento de {RATE_LIMIT_BUDGET_SECONDS:.0f}s esgotado"
+                    )
+                    return filename, RATE_LIMIT_MARKER
+                logger.warning(
+                    f"[{filename}] Rate limit (429) #{rate_limited_hits}, aguardando {wait:.1f}s "
+                    f"(orçamento restante {budget_left:.0f}s)"
+                )
                 await asyncio.sleep(wait)
                 continue
+
 
             # -- Erro de servidor (5xx) - retry com backoff --
             if response.status_code >= 500:
@@ -225,7 +274,7 @@ async def _transcribe_single_audio(
                     ata_id=ata_id, advogado_id=advogado_id,
                     service="groq", model="whisper-large-v3",
                     operation="transcription", pipeline_stage="transcribing",
-                    attempt_number=attempt, is_retry=is_retry,
+                    attempt_number=call_no, is_retry=is_retry,
                     retry_reason="server_error" if is_retry else None,
                     input_size_bytes=audio_size, audio_duration_sec=estimated_duration,
                     http_status=response.status_code, status="error",
@@ -246,7 +295,7 @@ async def _transcribe_single_audio(
                 ata_id=ata_id, advogado_id=advogado_id,
                 service="groq", model="whisper-large-v3",
                 operation="transcription", pipeline_stage="transcribing",
-                attempt_number=attempt, is_retry=is_retry,
+                attempt_number=call_no, is_retry=is_retry,
                 input_size_bytes=audio_size, audio_duration_sec=estimated_duration,
                 http_status=response.status_code, status="error",
                 error_category="PROVIDER_GROQ_ERROR",
@@ -267,7 +316,7 @@ async def _transcribe_single_audio(
                 ata_id=ata_id, advogado_id=advogado_id,
                 service="groq", model="whisper-large-v3",
                 operation="transcription", pipeline_stage="transcribing",
-                attempt_number=attempt, is_retry=is_retry,
+                attempt_number=call_no, is_retry=is_retry,
                 retry_reason="timeout" if is_retry else None,
                 input_size_bytes=audio_size, audio_duration_sec=estimated_duration,
                 status="timeout",
@@ -291,7 +340,7 @@ async def _transcribe_single_audio(
                 ata_id=ata_id, advogado_id=advogado_id,
                 service="groq", model="whisper-large-v3",
                 operation="transcription", pipeline_stage="transcribing",
-                attempt_number=attempt, is_retry=is_retry,
+                attempt_number=call_no, is_retry=is_retry,
                 retry_reason="connection_error" if is_retry else None,
                 input_size_bytes=audio_size,
                 status="error",
@@ -312,7 +361,7 @@ async def _transcribe_single_audio(
                 ata_id=ata_id, advogado_id=advogado_id,
                 service="groq", model="whisper-large-v3",
                 operation="transcription", pipeline_stage="transcribing",
-                attempt_number=attempt, is_retry=is_retry,
+                attempt_number=call_no, is_retry=is_retry,
                 input_size_bytes=audio_size,
                 status="error",
                 error_category="SYSTEM_BUG",
@@ -343,7 +392,7 @@ async def transcribe_all(
     if not audios:
         return {}
 
-    sem = asyncio.Semaphore(6)  # Otimizado para 6 chamadas paralelas (Groq suporta com folga)
+    sem = asyncio.Semaphore(TRANSCRIPTION_CONCURRENCY)
     total = len(audios)
     completed = 0
     errors = 0
@@ -376,14 +425,37 @@ async def transcribe_all(
             _safe_transcribe(client, filename, byte_data)
             for filename, byte_data in audios.items()
         ]
-        results = await asyncio.gather(*tasks)
+        results = dict(await asyncio.gather(*tasks))
+
+        # Second pass: transient failures (429, timeouts, connection) retried one at a time
+        # after a cooldown, so a burst limit hit during the parallel phase does not lose audios.
+        retry_names = [name for name, text in results.items() if text in RETRYABLE_MARKERS]
+        if retry_names:
+            logger.info(
+                f"[{ata_id}] Segunda passada de transcrição: {len(retry_names)} áudio(s), "
+                f"aguardando {SECOND_PASS_COOLDOWN_SECONDS:.0f}s"
+            )
+            if on_progress:
+                await on_progress(f"Retentando {len(retry_names)} áudio(s) com falha...", 100)
+            await asyncio.sleep(SECOND_PASS_COOLDOWN_SECONDS)
+            recovered = 0
+            for idx, name in enumerate(retry_names, start=1):
+                _, text = await _transcribe_single_audio(
+                    client, name, audios[name], ata_id=ata_id, advogado_id=advogado_id,
+                )
+                if not text.startswith("["):
+                    recovered += 1
+                results[name] = text
+                if on_progress:
+                    await on_progress(f"Retentando áudios com falha: {idx}/{len(retry_names)}", 100)
+            logger.info(f"[{ata_id}] Segunda passada: {recovered}/{len(retry_names)} recuperado(s)")
 
     # Log resumo final
-    success = sum(1 for _, t in results if not t.startswith("["))
-    fail = total - success
+    fail = sum(1 for t in results.values() if is_transcription_failure(t))
     logger.info(
-        f"Transcrição concluída: {success}/{total} sucesso"
+        f"Transcrição concluída: {total - fail}/{total} sucesso"
         + (f", {fail} falha(s)" if fail else "")
     )
 
-    return {fname: text for fname, text in results}
+    return results
+

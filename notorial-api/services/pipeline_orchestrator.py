@@ -225,6 +225,10 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
         # ── ETAPA 6: Salvar resultado ──
         elapsed = time.time() - t_total
         done_msg = f"Processamento concluído em {elapsed:.0f}s!"
+        from services.transcription import is_transcription_failure
+        failed_audios = sum(1 for t in transcriptions.values() if is_transcription_failure(t))
+        if failed_audios:
+            done_msg += f" Atenção: {failed_audios} áudio(s) não puderam ser transcritos."
         logger.info(f"[{ata_id}] ✅ {done_msg}")
 
         if supabase and not is_local:
