@@ -122,6 +122,8 @@ export async function uploadInChunks(file, onProgress = null) {
                 chunkData.append('chunk_index', String(i));
                 chunkData.append('total_chunks', String(totalChunks));
                 chunkData.append('filename', file.name);
+                chunkData.append('chunk_size', String(CHUNK_SIZE));
+                chunkData.append('total_size', String(file.size));
 
                 const response = await fetch(`${API_BASE}/api/atas/upload/chunk`, {
                     method: 'POST',
@@ -131,7 +133,10 @@ export async function uploadInChunks(file, onProgress = null) {
 
                 if (!response.ok) {
                     const err = await response.json().catch(() => ({}));
-                    throw new Error(err.detail || `Erro na transmissão da fatia ${i + 1}/${totalChunks}`);
+                    const error = new Error(err.detail || `Erro na transmissão da fatia ${i + 1}/${totalChunks}`);
+                    // 4xx = definitive server decision (size limit, missing part, invalid data): never retry
+                    error.fatal = response.status >= 400 && response.status < 500;
+                    throw error;
                 }
 
                 success = true;
@@ -147,6 +152,7 @@ export async function uploadInChunks(file, onProgress = null) {
                 }
             } catch (err) {
                 lastError = err;
+                if (err.fatal) break;
                 if (attempt < 3) {
                     // Espera exponencial breve (1s, 2s) antes de retentar a mesma fatia
                     await new Promise(r => setTimeout(r, 1000 * attempt));

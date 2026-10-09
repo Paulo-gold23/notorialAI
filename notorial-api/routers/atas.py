@@ -28,7 +28,9 @@ from fastapi.responses import Response
 logger = logging.getLogger(__name__)
 
 # ── Security constants ──
-MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500 MB max upload
+# Real 10-year export seen in production: ~755 MB. The ZIP is streamed from disk (hash in
+# blocks, parser opens it by path), so its size does not translate into RAM usage.
+MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE_MB", "2048")) * 1024 * 1024
 
 import re
 
@@ -284,60 +286,46 @@ async def upload_chunk(
     chunk_index: int = Form(...),
     total_chunks: int = Form(...),
     filename: str = Form("upload.zip"),
+    chunk_size: int | None = Form(None),
+    total_size: int | None = Form(None),
     auth_ctx: AuthContext = Depends(get_auth_context)
 ):
     """
-    Recebe fatias (chunks de ~20MB) de arquivos grandes para contornar o limite de 100MB do Cloudflare.
-    Monta o arquivo sequencialmente em disco com integridade criptográfica preservada.
+    Recebe fatias de arquivos grandes para contornar o limite de 100MB do Cloudflare.
+    Cada fatia é gravada na sua posição absoluta (reenvio idempotente); ver services/chunk_upload.py.
     """
+    from services import chunk_upload
+
     upload_id_clean = upload_id.strip()
     if not _UUID_REGEX.match(upload_id_clean):
         raise HTTPException(status_code=400, detail="upload_id inválido")
-
-    if chunk_index < 0 or chunk_index >= total_chunks:
-        raise HTTPException(status_code=400, detail="chunk_index fora dos limites")
 
     temp_dir = tempfile.gettempdir()
     part_path = os.path.join(temp_dir, f"legisvox_chunk_{upload_id_clean}.part")
     final_path = os.path.join(temp_dir, f"legisvox_upload_{upload_id_clean}.zip")
 
     chunk_bytes = await chunk.read()
-    if not chunk_bytes:
-        raise HTTPException(status_code=400, detail="Fatia do arquivo vazia")
-
-    mode = "wb" if chunk_index == 0 else "ab"
     try:
-        current_size = os.path.getsize(part_path) if chunk_index > 0 and os.path.exists(part_path) else 0
-        if current_size + len(chunk_bytes) > MAX_UPLOAD_SIZE:
-            if os.path.exists(part_path):
-                os.remove(part_path)
-            raise HTTPException(status_code=413, detail=f"Arquivo excede o limite máximo permitido de {MAX_UPLOAD_SIZE // (1024*1024)}MB")
-
-        with open(part_path, mode) as f:
-            f.write(chunk_bytes)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[CHUNK] Erro ao gravar fatia {chunk_index} para {upload_id_clean}: {e}")
-        raise HTTPException(status_code=500, detail="Erro ao salvar fatia do arquivo")
-
-    # Se for a última fatia, finaliza renomeando o .part para .zip completo
-    if chunk_index == total_chunks - 1:
-        try:
-            if os.path.exists(final_path):
-                os.remove(final_path)
-            os.replace(part_path, final_path)
-            total_size = os.path.getsize(final_path)
-            logger.info(f"[CHUNK] Arquivo {upload_id_clean} montado com sucesso ({total_chunks} partes, {total_size} bytes)")
+        chunk_upload.write_chunk(
+            part_path, chunk_index, total_chunks, chunk_bytes, MAX_UPLOAD_SIZE,
+            chunk_size=chunk_size, total_size=total_size,
+        )
+        if chunk_index == total_chunks - 1:
+            assembled = chunk_upload.finalize(part_path, final_path, total_size)
+            logger.info(f"[CHUNK] Arquivo {upload_id_clean} montado com sucesso ({total_chunks} partes, {assembled} bytes)")
             return {
                 "status": "completed",
                 "upload_id": upload_id_clean,
-                "total_size": total_size,
+                "total_size": assembled,
                 "total_chunks": total_chunks
             }
-        except Exception as e:
-            logger.error(f"[CHUNK] Erro ao consolidar arquivo {upload_id_clean}: {e}")
-            raise HTTPException(status_code=500, detail="Erro ao consolidar arquivo final")
+    except chunk_upload.ChunkUploadError as e:
+        logger.error(f"[CHUNK] {upload_id_clean} fatia {chunk_index + 1}/{total_chunks} recusada "
+                     f"({e.status_code}): {e.detail} | total_declarado={total_size}")
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except Exception as e:
+        logger.error(f"[CHUNK] Erro ao gravar fatia {chunk_index} para {upload_id_clean}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro ao salvar fatia do arquivo")
 
     return {
         "status": "chunk_received",
@@ -345,6 +333,7 @@ async def upload_chunk(
         "chunk_index": chunk_index,
         "total_chunks": total_chunks
     }
+
 
 
 @router.post("/upload/estimate")
