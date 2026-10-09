@@ -52,6 +52,13 @@ function SubtleConfetti() {
     );
 }
 
+// endDate: 'YYYY-MM-DD' (date input); fileEnd: 'dd/mm/YYYY HH:MM' (API)
+function isAfterFileEnd(endDate, fileEnd) {
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(fileEnd || '');
+    if (!endDate || !m) return false;
+    return endDate > `${m[3]}-${m[2]}-${m[1]}`;
+}
+
 export default function Upload() {
     const [file, setFile] = useState(null);
     const [dragActive, setDragActive] = useState(false);
@@ -168,7 +175,13 @@ export default function Upload() {
                 if (data.status === 'ready') {
                     setUploading(false);
                     setProgress(100);
-                    toast.success('Documento processado com sucesso!');
+                    const msg = data.status_message || '';
+                    const attentionIdx = msg.indexOf('Atenção');
+                    if (attentionIdx >= 0) {
+                        toast.warning(`Documento processado. ${msg.slice(attentionIdx)}`);
+                    } else {
+                        toast.success('Documento processado com sucesso!');
+                    }
                 }
             } catch (err) {
                 console.error(err);
@@ -604,6 +617,24 @@ export default function Upload() {
                             <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>créditos disponíveis</div>
                         </div>
                     </div>
+
+                    {estimationData.arquivo_inicio && estimationData.arquivo_fim && (
+                        <div style={{
+                            background: 'var(--surface-color)', border: '1px solid var(--border-color)',
+                            borderRadius: '0.5rem', padding: '0.75rem 1rem', marginBottom: '1rem',
+                            fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <Calendar className="w-4 h-4" />
+                                <span>Arquivo exportado: de <strong>{estimationData.arquivo_inicio}</strong> até <strong>{estimationData.arquivo_fim}</strong></span>
+                            </div>
+                            {isAfterFileEnd(endDate, estimationData.arquivo_fim) && (
+                                <div style={{ marginTop: '0.5rem', color: 'var(--warning, #f59e0b)' }}>
+                                    ⚠️ A data final escolhida é posterior à última mensagem do arquivo. Mensagens enviadas depois de {estimationData.arquivo_fim} não estão no ZIP — para incluí-las, exporte a conversa novamente pelo WhatsApp.
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {estimationData.has_credits ? (
                         <div>
