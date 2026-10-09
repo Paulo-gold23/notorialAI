@@ -229,6 +229,13 @@ async def _inner_process_pipeline(ata_id: str, is_local: bool, start_date: str =
         failed_audios = sum(1 for t in transcriptions.values() if is_transcription_failure(t))
         if failed_audios:
             done_msg += f" Atenção: {failed_audios} áudio(s) não puderam ser transcritos."
+        ignoradas = parsed_data.get("midias_ignoradas") or {}
+        if ignoradas.get("audios") or ignoradas.get("imagens"):
+            done_msg += (
+                f" Atenção: {ignoradas.get('audios', 0)} áudio(s) e {ignoradas.get('imagens', 0)} imagem(ns) "
+                f"não foram incluídos por excederem o limite de tamanho de mídia por processamento; "
+                f"selecione um período menor para incluí-los."
+            )
         logger.info(f"[{ata_id}] ✅ {done_msg}")
 
         if supabase and not is_local:
@@ -556,10 +563,12 @@ async def _process_pipeline(ata_id: str, is_local: bool, start_date: str = None,
         _update_status(ata_id, is_local, supabase, "in_queue", progress=0, message="Aguardando recursos na fila de processamento...")
 
     # Timeout dinâmico: base de 20 minutos (1200s). Para conversas gigantes (> 100 páginas),
-    # escala proporcionalmente até 50 minutos (3000s) para garantir conclusão sem cortes.
+    # escala proporcionalmente até PIPELINE_MAX_TIMEOUT_SECONDS (padrão 3000s = 50 min).
+    # Keep below TEMP_UPLOAD_MAX_AGE_HOURS (temp ZIP cleanup) — default 6h.
+    max_timeout = float(os.getenv("PIPELINE_MAX_TIMEOUT_SECONDS", "3000"))
     pages = estimated_pages or 0
     if pages > 100:
-        pipeline_timeout = min(3000.0, 1200.0 + (pages - 100) * 8.0)
+        pipeline_timeout = min(max_timeout, 1200.0 + (pages - 100) * 8.0)
     else:
         pipeline_timeout = 1200.0
 

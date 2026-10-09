@@ -374,46 +374,74 @@ def _list_image_files(all_files: list[str]) -> list[str]:
 
 
 MAX_SINGLE_MEDIA_BYTES = 50 * 1024 * 1024  # 50 MB max per media file
-MAX_TOTAL_CATEGORY_BYTES = 250 * 1024 * 1024  # 250 MB max per media category
+# Max bytes extracted into memory per media category (audio / images)
+MAX_TOTAL_CATEGORY_BYTES = int(os.getenv("MEDIA_CATEGORY_LIMIT_MB", "250")) * 1024 * 1024
+
+
+def _plan_extraction(
+    z: zipfile.ZipFile,
+    all_files: list[str],
+    selected_files: set[str],
+    extensions_filter: tuple[str, ...],
+    max_total_bytes: int = MAX_TOTAL_CATEGORY_BYTES
+) -> tuple[list[str], list[str]]:
+    """Decide which selected files fit the memory caps. Returns (to_extract, skipped)."""
+    if not selected_files:
+        return [], []
+
+    selected_basenames = {os.path.basename(f) for f in selected_files}
+    to_extract, skipped = [], []
+    total_bytes = 0
+
+    for name in all_files:
+        if not name.lower().endswith(extensions_filter) or '__MACOSX' in name:
+            continue
+        if name not in selected_files and os.path.basename(name) not in selected_basenames:
+            continue
+        try:
+            size = z.getinfo(name).file_size
+        except KeyError:
+            continue
+        if size > MAX_SINGLE_MEDIA_BYTES:
+            logger.warning(f"[PARSER] Arquivo {name} excede o limite individual ({size} bytes). Ignorado para proteger mem\u00f3ria.")
+            skipped.append(name)
+            continue
+        if total_bytes + size > max_total_bytes:
+            logger.warning(f"[PARSER] Limite total de extra\u00e7\u00e3o de m\u00eddia atingido ({max_total_bytes} bytes). Pulando {name} ({size} bytes). Total atual: {total_bytes} bytes.")
+            skipped.append(name)
+            continue
+        to_extract.append(name)
+        total_bytes += size
+
+    return to_extract, skipped
+
 
 def _extract_selected_files(
     z: zipfile.ZipFile,
     all_files: list[str],
     selected_files: set[str],
     extensions_filter: tuple[str, ...],
-    max_total_bytes: int = MAX_TOTAL_CATEGORY_BYTES
+    max_total_bytes: int = MAX_TOTAL_CATEGORY_BYTES,
+    skipped: list | None = None,
 ) -> dict[str, bytes]:
     """
     Extrai do ZIP somente os arquivos (áudio ou imagem) referenciados.
     Evita carregamento desnecessário na memória e filtra __MACOSX.
     Protegido contra Zip Bomb e esgotamento de memória (OOM).
+    Arquivos pulados pelos limites são acrescentados em `skipped` (se fornecido).
     """
-    if not selected_files:
-        return {}
+    to_extract, skipped_names = _plan_extraction(z, all_files, selected_files, extensions_filter, max_total_bytes)
+    if skipped is not None:
+        skipped.extend(skipped_names)
 
-    selected_basenames = {os.path.basename(f) for f in selected_files}
     extracted = {}
-    total_bytes = 0
-
-    for name in all_files:
-        if not name.lower().endswith(extensions_filter) or '__MACOSX' in name:
-            continue
-
-        if name in selected_files or os.path.basename(name) in selected_basenames:
-            try:
-                info = z.getinfo(name)
-                # Zip bomb / oversize single file check
-                if info.file_size > MAX_SINGLE_MEDIA_BYTES:
-                    logger.warning(f"[PARSER] Arquivo {name} excede o limite individual ({info.file_size} bytes). Ignorado para proteger memória.")
-                    continue
-                if total_bytes + info.file_size > max_total_bytes:
-                    logger.warning(f"[PARSER] Limite total de extração de mídia atingido ({max_total_bytes} bytes). Pulando {name} ({info.file_size} bytes). Total atual: {total_bytes} bytes.")
-                    continue
-                data = z.read(name)
-                extracted[name] = data
-                total_bytes += len(data)
-            except Exception as e:
-                logger.warning(f"[PARSER] Erro ao extrair {name}: {e}")
+    for name in to_extract:
+        try:
+            extracted[name] = z.read(name)
+        except Exception as e:
+            logger.warning(f"[PARSER] Erro ao extrair {name}: {e}")
+            if skipped is not None:
+                skipped.append(name)
 
     return extracted
 
@@ -728,12 +756,19 @@ def parse_whatsapp_zip(zip_bytes, start_date: str = None, end_date: str = None, 
 
             t_extract = time.perf_counter()
 
+            all_image_paths = sorted(
+                name for name in _list_image_files(all_files)
+                if not _is_sticker_file(name)
+            )
+            needed_audio_files = {
+                m.get("arquivo")
+                for m in mensagens
+                if m.get("tipo") == "audio" and m.get("arquivo")
+            }
+            skipped_audios: list[str] = []
+            skipped_images: list[str] = []
+
             if estimate_only:
-                needed_audio_files = {
-                    m.get("arquivo")
-                    for m in mensagens
-                    if m.get("tipo") == "audio" and m.get("arquivo")
-                }
                 needed_audio_basenames = {os.path.basename(f) for f in needed_audio_files}
                 audio_file_sizes = {}
                 for name in all_files:
@@ -745,28 +780,23 @@ def parse_whatsapp_zip(zip_bytes, start_date: str = None, end_date: str = None, 
                             audio_file_sizes[bn] = z.getinfo(name).file_size
                         except Exception:
                             pass
+                # Same plan the processing step will apply, without reading any bytes
+                skipped_audios = _plan_extraction(z, all_files, needed_audio_files, AUDIO_EXTENSIONS)[1]
+                skipped_images = _plan_extraction(z, all_files, set(all_image_paths), IMAGE_EXTENSIONS_TUPLE)[1]
                 arquivos_audio = {}
                 arquivos_imagens = {}
                 needed_image_files = set()
                 logger.info(f"[estimate_only] Audio sizes: {len(audio_file_sizes)}")
             else:
                 audio_file_sizes = {}
-                needed_audio_files = {
-                    m.get("arquivo")
-                    for m in mensagens
-                    if m.get("tipo") == "audio" and m.get("arquivo")
-                }
-                arquivos_audio = _extract_selected_files(z, all_files, needed_audio_files, AUDIO_EXTENSIONS)
-                # Lista todas as imagens no zip, ordenadas (ordem cronológica/alfabética)
-                all_image_paths = sorted(
-                    name for name in _list_image_files(all_files)
-                    if not _is_sticker_file(name)
+                arquivos_audio = _extract_selected_files(
+                    z, all_files, needed_audio_files, AUDIO_EXTENSIONS, skipped=skipped_audios
                 )
 
                 # Extrai TODAS as imagens do ZIP — o schedule posicional do ai_organizer
                 # fará o match exato + basename + FIFO, cobrindo inclusive midia_omitida
                 arquivos_imagens = _extract_selected_files(
-                    z, all_files, set(all_image_paths), IMAGE_EXTENSIONS_TUPLE
+                    z, all_files, set(all_image_paths), IMAGE_EXTENSIONS_TUPLE, skipped=skipped_images
                 )
 
                 needed_image_files = {
@@ -813,6 +843,7 @@ def parse_whatsapp_zip(zip_bytes, start_date: str = None, end_date: str = None, 
             "periodo": {"inicio": periodo_inicio, "fim": periodo_fim},
             "arquivo_inicio": arquivo_inicio,
             "arquivo_fim": arquivo_fim,
+            "midias_ignoradas": {"audios": len(skipped_audios), "imagens": len(skipped_images)},
             "mensagens": mensagens,
             "total_mensagens": len(mensagens),
             "total_audios": total_audios,

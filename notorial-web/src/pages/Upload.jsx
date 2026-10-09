@@ -636,6 +636,16 @@ export default function Upload() {
                         </div>
                     )}
 
+                    {(estimationData.midias_ignoradas?.audios > 0 || estimationData.midias_ignoradas?.imagens > 0) && (
+                        <div style={{
+                            background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.25)',
+                            borderRadius: '0.5rem', padding: '0.75rem 1rem', marginBottom: '1rem',
+                            fontSize: '0.82rem', color: 'var(--warning, #f59e0b)', lineHeight: 1.5
+                        }}>
+                            ⚠️ Esta conversa excede o limite de mídia por processamento: {estimationData.midias_ignoradas.audios} áudio(s) e {estimationData.midias_ignoradas.imagens} imagem(ns) não serão incluídos. Para incluí-los, processe a conversa em períodos menores.
+                        </div>
+                    )}
+
                     {estimationData.has_credits ? (
                         <div>
                             <div style={{

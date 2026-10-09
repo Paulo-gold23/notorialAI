@@ -481,6 +481,7 @@ async def estimate_upload(
         "total_audios": parsed_data.get("total_audios", 0),
         "arquivo_inicio": parsed_data.get("arquivo_inicio"),
         "arquivo_fim": parsed_data.get("arquivo_fim"),
+        "midias_ignoradas": parsed_data.get("midias_ignoradas"),
     }
 
 
