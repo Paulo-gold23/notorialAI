@@ -38,6 +38,11 @@ IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif']
 VIDEO_EXTENSIONS = ['.mp4', '.3gp']
 AUDIO_EXTENSIONS = ('.opus', '.ogg', '.m4a', '.mp3', '.aac', '.wav', '.webm')
 
+ZIP_DAMAGED_MESSAGE = (
+    "O arquivo ZIP est\u00e1 incompleto ou danificado (o envio pode ter sido interrompido). "
+    "Envie o arquivo novamente; se o erro persistir, exporte a conversa outra vez pelo WhatsApp."
+)
+
 # Prefixos de arquivo que indicam sticker/figurinha (excluir de imagens)
 STICKER_PREFIXES = ('sticker', 'stk-', 'stk_', 'figurinha')
 
@@ -497,16 +502,32 @@ def _filter_by_date(mensagens: list, filter_start, filter_end, start_date_str: s
     logger.info(f"Filtro de data: {total_antes} msgs ├óÔÇáÔÇÖ {len(filtered)} msgs sobreviveram")
 
     if not filtered:
-        datas_chat = sorted({m['data'] for m in mensagens})
-        primeira = datas_chat[0] if datas_chat else "?"
-        ultima = datas_chat[-1] if datas_chat else "?"
+        primeira, ultima = _chat_bounds(mensagens)
         raise ValueError(
-            f"Nenhuma mensagem encontrada no per├â┬¡odo selecionado "
+            f"Nenhuma mensagem encontrada no per\u00edodo selecionado "
             f"({start_date_str} a {end_date_str}). "
-            f"O chat cont├â┬®m mensagens de {primeira} a {ultima}."
+            f"O chat cont\u00e9m mensagens de {primeira or '?'} a {ultima or '?'}."
         )
 
     return filtered
+
+
+def _message_datetime(msg: dict):
+    for value, fmt in ((f"{msg.get('data')} {msg.get('hora')}", "%d/%m/%Y %H:%M"),
+                       (str(msg.get('data')), "%d/%m/%Y")):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _chat_bounds(mensagens: list) -> tuple:
+    """First and last message of the whole file ('dd/mm/YYYY HH:MM'), chronologically."""
+    datas = [d for d in (_message_datetime(m) for m in mensagens) if d]
+    if not datas:
+        return None, None
+    return min(datas).strftime("%d/%m/%Y %H:%M"), max(datas).strftime("%d/%m/%Y %H:%M")
 
 
 def _sort_messages(mensagens: list) -> list:
@@ -685,9 +706,12 @@ def parse_whatsapp_zip(zip_bytes, start_date: str = None, end_date: str = None, 
             logger.info(f"Parse de mensagens levou {time.perf_counter() - t_parse:.2f}s")
 
             if not mensagens:
-                raise ValueError("O arquivo foi encontrado mas n├â┬úo cont├â┬®m mensagens em formato reconhecido do WhatsApp.")
+                raise ValueError("O arquivo foi encontrado mas n\u00e3o cont\u00e9m mensagens em formato reconhecido do WhatsApp.")
 
             logger.info(f"Parseadas {len(mensagens)} msgs de {len(participantes)} participantes")
+
+            # Bounds of the whole export, before the period filter (shown to the user)
+            arquivo_inicio, arquivo_fim = _chat_bounds(mensagens)
 
             # Filtrar por data
             mensagens = _filter_by_date(mensagens, filter_start, filter_end, start_date, end_date)
@@ -787,6 +811,8 @@ def parse_whatsapp_zip(zip_bytes, start_date: str = None, end_date: str = None, 
             "participantes": list(participantes),
             "phone_map": phone_map,
             "periodo": {"inicio": periodo_inicio, "fim": periodo_fim},
+            "arquivo_inicio": arquivo_inicio,
+            "arquivo_fim": arquivo_fim,
             "mensagens": mensagens,
             "total_mensagens": len(mensagens),
             "total_audios": total_audios,
@@ -794,10 +820,15 @@ def parse_whatsapp_zip(zip_bytes, start_date: str = None, end_date: str = None, 
             "arquivos_extraidos": arquivos_audio,
             "imagens_extraidas": arquivos_imagens
         }
-    except zipfile.BadZipFile:
-        raise ValueError("Arquivo ZIP inv├â┬ílido ou corrompido")
-    except ValueError:
+    except ValueError as e:
+        if "negative seek" in str(e):
+            logger.error(f"ZIP incompleto ou danificado: {e}", exc_info=True)
+            raise ValueError(ZIP_DAMAGED_MESSAGE)
         raise
+    except (zipfile.BadZipFile, OSError, EOFError) as e:
+        # Truncated/partial ZIPs surface as BadZipFile, OSError (negative seek) or EOFError
+        logger.error(f"ZIP incompleto ou danificado: {e}", exc_info=True)
+        raise ValueError(ZIP_DAMAGED_MESSAGE)
     except Exception as e:
         logger.error(f"Erro ao processar arquivo: {e}", exc_info=True)
         raise ValueError(f"Erro interno no processamento do chat: {e}")

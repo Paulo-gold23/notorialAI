@@ -401,9 +401,11 @@ async def estimate_upload(
             lambda: parse_whatsapp_zip(temp_path, start_date=start_date, end_date=end_date, estimate_only=True)
         )
     except Exception as e:
-        if created_new_temp and os.path.exists(temp_path):
+        if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
         logger.error(f"[ESTIMATE] Erro ao analisar ZIP: {e}")
+        if isinstance(e, ValueError) and not str(e).startswith("Erro interno"):
+            raise HTTPException(status_code=400, detail=str(e))
         raise HTTPException(status_code=400, detail="Erro ao analisar arquivo. Verifique se o ZIP é uma exportação válida do WhatsApp.")
 
     all_audio_bytes = parsed_data.get("arquivos_extraidos", {})
@@ -477,6 +479,8 @@ async def estimate_upload(
         "has_credits": has_credits,
         "total_mensagens": parsed_data.get("total_mensagens", 0),
         "total_audios": parsed_data.get("total_audios", 0),
+        "arquivo_inicio": parsed_data.get("arquivo_inicio"),
+        "arquivo_fim": parsed_data.get("arquivo_fim"),
     }
 
 
