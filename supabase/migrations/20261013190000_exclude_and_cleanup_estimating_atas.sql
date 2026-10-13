@@ -164,7 +164,7 @@ BEGIN
     a.status,
     a.is_admin,
     a.created_at,
-    COALESCE((SELECT COUNT(*) FROM public.atas WHERE advogado_id = a.id AND status <> 'estimating' AND deleted_at IS NULL), 0) as total_atas,
+    COALESCE((SELECT COUNT(*) FROM public.atas at WHERE at.advogado_id = a.id AND at.status <> 'estimating' AND at.deleted_at IS NULL), 0) as total_atas,
     COALESCE((SELECT cb.balance FROM public.credit_balances cb WHERE cb.advogado_id = a.id), 0) as credit_balance
   FROM public.advogados a
   ORDER BY
