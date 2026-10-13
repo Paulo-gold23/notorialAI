@@ -94,7 +94,7 @@ async def list_atas(
     per_page: int = 50,
     auth_ctx: AuthContext = Depends(get_auth_context)
 ):
-    """Lista todas as atas do advogado (excluindo soft-deleted) com paginação."""
+    """Lista todas as atas do advogado (excluindo soft-deleted e estimativas não confirmadas) com paginação."""
     supabase = auth_ctx.client
     if supabase:
         try:
@@ -102,6 +102,7 @@ async def list_atas(
             res = supabase.table("atas") \
                 .select("*") \
                 .is_("deleted_at", "null") \
+                .neq("status", "estimating") \
                 .order("created_at", desc=True) \
                 .range(offset, offset + per_page - 1) \
                 .execute()
@@ -112,6 +113,8 @@ async def list_atas(
     
     results = []
     for ata_id, data in local_results.items():
+        if data.get('status') == 'estimating':
+            continue
         parsed = data.get('parsed_data', {})
         results.append({
             "id": ata_id,
@@ -430,7 +433,7 @@ async def estimate_upload(
 
     # Generate temporary ID and store estimate metadata
     ata_id = str(uuid.uuid4())
-    cleanup_estimate_cache()
+    cleanup_estimate_cache(advogado_id=advogado_id, supabase_client=auth_ctx.client)
 
     safe_title_name = _sanitize_filename(zip_filename)
 
@@ -533,6 +536,7 @@ async def confirm_upload(
         raise HTTPException(status_code=403, detail="Acesso não autorizado.")
 
     if time.time() - cached['timestamp'] > ESTIMATE_CACHE_TTL:
+        cleanup_estimate_cache(supabase_client=supabase)
         raise HTTPException(status_code=410, detail="Estimativa expirou (10 minutos). Envie o arquivo novamente.")
 
     if cached.get('confirmed'):

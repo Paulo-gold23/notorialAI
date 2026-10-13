@@ -1524,7 +1524,8 @@ async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", 
         try:
             from database import get_http_client
             client = get_http_client()
-            response = await client.post(url, files=files, data=data, timeout=180.0)
+            gotenberg_timeout = float(os.getenv("GOTENBERG_TIMEOUT_SECONDS", "600"))
+            response = await client.post(url, files=files, data=data, timeout=gotenberg_timeout)
 
             if response.status_code == 200:
                 if attempt > 1:

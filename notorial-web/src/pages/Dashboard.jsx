@@ -16,9 +16,11 @@ import LegalFooter from '../components/LegalFooter';
 
 const STATUS_LABELS = {
     uploading: { text: 'Enviando...', className: 'bg-yellow-500/20 text-yellow-500' },
+    in_queue: { text: 'Na Fila', className: 'bg-yellow-500/20 text-yellow-500' },
     parsing: { text: 'Extraindo mensagens', className: 'bg-orange-500/20 text-orange-400' },
     transcribing: { text: 'Transcrevendo', className: 'bg-indigo-500/20 text-indigo-400' },
     organizing: { text: 'Organizando documento', className: 'bg-sky-500/20 text-sky-400' },
+    estimating: { text: 'Estimando...', className: 'bg-slate-500/20 text-slate-400' },
     ready: { text: 'Pronta', className: 'bg-green-500/20 text-green-400' },
     error: { text: 'Erro', className: 'bg-red-500/20 text-red-400' },
 };
@@ -71,7 +73,7 @@ export default function Dashboard({ isAdmin = false }) {
                 console.error("Falha ao checar/resgatar créditos de boas-vindas:", e);
             }
             const data = await listAtas();
-            setAtas(Array.isArray(data) ? data : []);
+            setAtas(Array.isArray(data) ? data.filter(a => a.status !== 'estimating') : []);
             // Fetch credit balance for metrics card (non-blocking)
             try {
                 const bal = await creditsApi.getBalance();
@@ -138,7 +140,7 @@ export default function Dashboard({ isAdmin = false }) {
         const matchesSearch = (ata.titulo || '').toLowerCase().includes(searchQuery.toLowerCase());
         const matchesStatus = statusFilter === 'all' 
             || (statusFilter === 'ready' && ata.status === 'ready')
-            || (statusFilter === 'processing' && ['uploading', 'parsing', 'transcribing', 'organizing'].includes(ata.status))
+            || (statusFilter === 'processing' && ['uploading', 'in_queue', 'parsing', 'transcribing', 'organizing'].includes(ata.status))
             || (statusFilter === 'error' && ata.status === 'error');
         return matchesSearch && matchesStatus;
     });
@@ -147,7 +149,7 @@ export default function Dashboard({ isAdmin = false }) {
     const totalAtas = atas.length;
     const totalPages = atas.reduce((sum, a) => sum + (a.actual_pages || a.estimated_pages || 0), 0);
     const atasReady = atas.filter(a => a.status === 'ready').length;
-    const atasProcessing = atas.filter(a => ['uploading', 'parsing', 'transcribing', 'organizing'].includes(a.status)).length;
+    const atasProcessing = atas.filter(a => ['uploading', 'in_queue', 'parsing', 'transcribing', 'organizing'].includes(a.status)).length;
     const atasError = atas.filter(a => a.status === 'error').length;
 
     return (
@@ -393,7 +395,7 @@ export default function Dashboard({ isAdmin = false }) {
                             {filteredAtas.map((ata, index) => {
                                 const status = STATUS_LABELS[ata.status] || STATUS_LABELS.error;
                                 const isReady = ata.status === 'ready';
-                                const isProcessing = ['uploading', 'parsing', 'transcribing', 'organizing'].includes(ata.status);
+                                const isProcessing = ['uploading', 'in_queue', 'parsing', 'transcribing', 'organizing'].includes(ata.status);
 
                                 return (
                                     <div

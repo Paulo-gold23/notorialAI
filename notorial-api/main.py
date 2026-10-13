@@ -78,10 +78,13 @@ async def lifespan(app: FastAPI):
     # Abandoned upload temp files (unconfirmed estimates, interrupted chunked uploads)
     async def _temp_cleanup_loop():
         from services.temp_cleanup import cleanup_temp_uploads
+        from services.estimate_service import cleanup_estimate_cache
         max_age = float(os.getenv("TEMP_UPLOAD_MAX_AGE_HOURS", "6"))
         while True:
             try:
-                removed, freed = await asyncio.get_running_loop().run_in_executor(
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, cleanup_estimate_cache)
+                removed, freed = await loop.run_in_executor(
                     None, cleanup_temp_uploads, max_age
                 )
                 if removed:

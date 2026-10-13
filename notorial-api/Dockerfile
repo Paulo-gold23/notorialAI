@@ -30,9 +30,10 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copiar o restante do código da API
 COPY . .
 
-# Criar usuário não-root para segurança reforçada (Least Privilege)
+# Criar usuário não-root para segurança reforçada (Least Privilege) e diretório de imagens
 RUN useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app
+    mkdir -p /data/atas-images && \
+    chown -R appuser:appuser /app /data/atas-images
 
 USER appuser
 

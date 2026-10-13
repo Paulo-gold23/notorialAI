@@ -54,9 +54,11 @@ const ATA_STATUS_MAP = {
   ready: { label: 'Pronta', color: '#4ade80' },
   error: { label: 'Erro', color: '#f87171' },
   uploading: { label: 'Enviando', color: '#fbbf24' },
+  in_queue: { label: 'Na Fila', color: '#fbbf24' },
   parsing: { label: 'Parseando', color: '#fb923c' },
   transcribing: { label: 'Transcrevendo', color: '#818cf8' },
   organizing: { label: 'Organizando', color: '#38bdf8' },
+  estimating: { label: 'Estimando', color: '#94a3b8' },
 };
 
 /* ============================================
@@ -1752,9 +1754,11 @@ function DonutChart({ data }) {
     ready: COLORS.emerald,
     error: COLORS.red,
     uploading: COLORS.amber,
+    in_queue: COLORS.amber,
     parsing: COLORS.orange,
     transcribing: COLORS.sky,
     organizing: COLORS.cyan,
+    estimating: '#94a3b8',
   };
 
   // Pre-calculate segments purely to satisfy React hook rules

@@ -10,12 +10,14 @@ The disk path is a Docker volume that persists across container restarts.
 
 import os
 import shutil
+import tempfile
 import time
 import logging
 
 logger = logging.getLogger(__name__)
 
 IMAGES_BASE_DIR = os.environ.get('IMAGES_STORAGE_DIR', '/data/atas-images')
+FALLBACK_IMAGES_DIR = os.path.join(tempfile.gettempdir(), 'atas-images')
 IMAGES_STORAGE_MODE = os.environ.get('IMAGES_STORAGE_MODE', 'inline')
 
 
@@ -30,7 +32,12 @@ def save_image(ata_id: str, filename: str, jpeg_bytes: bytes) -> str:
     Returns the URL path to serve this image via the API endpoint.
     """
     dir_path = os.path.join(IMAGES_BASE_DIR, ata_id)
-    os.makedirs(dir_path, exist_ok=True)
+    try:
+        os.makedirs(dir_path, exist_ok=True)
+    except OSError as e:
+        logger.warning(f"[image_storage] Sem permissão em {IMAGES_BASE_DIR} ({e}); usando fallback {FALLBACK_IMAGES_DIR}")
+        dir_path = os.path.join(FALLBACK_IMAGES_DIR, ata_id)
+        os.makedirs(dir_path, exist_ok=True)
 
     # Sanitize filename to prevent path traversal
     safe_filename = os.path.basename(filename)
@@ -45,10 +52,10 @@ def save_image(ata_id: str, filename: str, jpeg_bytes: bytes) -> str:
 def get_image_path(ata_id: str, filename: str) -> str | None:
     """Get absolute filesystem path for an image. Returns None if not found."""
     safe_filename = os.path.basename(filename)
-    file_path = os.path.join(IMAGES_BASE_DIR, ata_id, safe_filename)
-
-    if os.path.isfile(file_path):
-        return file_path
+    for base_dir in (IMAGES_BASE_DIR, FALLBACK_IMAGES_DIR):
+        file_path = os.path.join(base_dir, ata_id, safe_filename)
+        if os.path.isfile(file_path):
+            return file_path
     return None
 
 
