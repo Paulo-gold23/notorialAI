@@ -275,6 +275,8 @@ async def _call_openai(
         "temperature": temperature,
         "max_completion_tokens": 8000
     }
+    if str(settings.OPENAI_MODEL).startswith(("gpt-5", "gpt-6")):
+        payload["reasoning_effort"] = "none"
 
     input_chars = len(user_content)
     

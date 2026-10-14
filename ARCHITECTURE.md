@@ -20,7 +20,7 @@ O sistema é dividido em duas partes principais:
     - Mapeia o resultado da transcrição de volta para a mensagem correspondente no chat.
 4. **Organização com IA (`services/ai_organizer.py`)**:
     - Converte o JSON do chat em um texto estruturado.
-    - Envia para a OpenAI (GPT-4o) para gerar duas versões:
+    - Envia para a OpenAI (gpt-6-luna) para gerar duas versões:
         - **Preparatória**: Linguagem simples, destacando fatos e evidências.
         - **Cartorária (Formal)**: Linguagem jurídica técnica, pronta para o cartório.
 5. **Geração de PDF (`services/pdf_generator.py`)**:

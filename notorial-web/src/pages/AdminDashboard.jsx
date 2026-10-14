@@ -1308,7 +1308,7 @@ export default function AdminDashboard() {
                       <Cpu size={20} color={COLORS.blue} />
                       <div>
                         <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-main)' }}>OpenAI API</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>gpt-4.1-mini (Organização Textual)</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>gpt-6-luna (Organização Textual)</div>
                       </div>
                     </div>
                     <span style={{

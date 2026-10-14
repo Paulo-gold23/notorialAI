@@ -63,7 +63,7 @@ async def test_organize_chat_with_ai_mock():
     }
     
     with respx.mock:
-        respx.post("https://api.openai.com/v1/chat/completions").mock(
+        route = respx.post("https://api.openai.com/v1/chat/completions").mock(
             return_value=httpx.Response(200, json={
                 "choices": [{"message": {"content": "# Título\nCorpo do documento"}}],
                 "usage": {"total_tokens": 10}
@@ -72,6 +72,11 @@ async def test_organize_chat_with_ai_mock():
         
         with patch("services.ai_organizer.settings") as mock_settings:
             mock_settings.OPENAI_API_KEY = "dummy-key"
-            mock_settings.OPENAI_MODEL = "gpt-4o-mini"
+            mock_settings.OPENAI_MODEL = "gpt-6-luna"
             result = await organize_chat_with_ai(chat_json)
             assert "H1" in result["conteudo"].upper() or "Título" in result["conteudo"]
+            sent_payload = json.loads(route.calls.last.request.content)
+            assert sent_payload["model"] == "gpt-6-luna"
+            assert sent_payload["reasoning_effort"] == "none"
+            assert sent_payload["temperature"] == 0.2
+
