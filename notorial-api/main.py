@@ -178,9 +178,13 @@ async def health_check(response: Response):
     
     checks = {"api": "ok"}
     try:
-        from database import supabase_admin
+        import asyncio
+        from database import supabase_admin, db_exec
         if supabase_admin:
-            supabase_admin.table("advogados").select("id").limit(1).execute()
+            await asyncio.wait_for(
+                db_exec(lambda: supabase_admin.table("advogados").select("id").limit(1).execute()),
+                timeout=5.0,
+            )
             checks["database"] = "ok"
         else:
             checks["database"] = "unconfigured"

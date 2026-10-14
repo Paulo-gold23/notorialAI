@@ -9,18 +9,67 @@ import CPFPromptModal from './components/CPFPromptModal';
 import AdminMfaGate from './components/AdminMfaGate';
 import BackgroundNotificationListener from './components/BackgroundNotificationListener';
 
-const Login = lazy(() => import('./pages/Login'));
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const Upload = lazy(() => import('./pages/Upload'));
-const Review = lazy(() => import('./pages/Review'));
-const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
-const Credits = lazy(() => import('./pages/Credits'));
-const Profile = lazy(() => import('./pages/Profile'));
-const TermsOfUse = lazy(() => import('./pages/TermsOfUse'));
-const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
-const LandingPage = lazy(() => import('./pages/LandingPage'));
-const PublicHashVerifier = lazy(() => import('./pages/PublicHashVerifier'));
-const Subprocessors = lazy(() => import('./pages/Subprocessors'));
+// Automatically reload once when a dynamic chunk 404s after a new deployment
+const CHUNK_RELOAD_KEY = 'legisvox_chunk_reload_ts';
+
+function shouldReloadForChunkError() {
+  try {
+    const lastReload = Number(sessionStorage.getItem(CHUNK_RELOAD_KEY) || 0);
+    const now = Date.now();
+    // Only auto-reload if we haven't reloaded in the last 15 seconds (prevents infinite loops)
+    if (now - lastReload > 15000) {
+      sessionStorage.setItem(CHUNK_RELOAD_KEY, String(now));
+      return true;
+    }
+  } catch (_) {
+    // Ignore storage errors
+  }
+  return false;
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('vite:preloadError', (event) => {
+    if (shouldReloadForChunkError()) {
+      event.preventDefault();
+      window.location.reload();
+    }
+  });
+}
+
+function lazyWithRetry(importFn) {
+  return lazy(async () => {
+    try {
+      return await importFn();
+    } catch (error) {
+      const msg = String(error?.message || error || '');
+      const isChunkError =
+        msg.includes('Failed to fetch dynamically imported module') ||
+        msg.includes('Importing a module script failed') ||
+        msg.includes('error loading dynamically imported module') ||
+        error?.name === 'ChunkLoadError';
+
+      if (isChunkError && shouldReloadForChunkError()) {
+        window.location.reload();
+        // Return a never-resolving promise while the browser reloads
+        return new Promise(() => {});
+      }
+      throw error;
+    }
+  });
+}
+
+const Login = lazyWithRetry(() => import('./pages/Login'));
+const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
+const Upload = lazyWithRetry(() => import('./pages/Upload'));
+const Review = lazyWithRetry(() => import('./pages/Review'));
+const AdminDashboard = lazyWithRetry(() => import('./pages/AdminDashboard'));
+const Credits = lazyWithRetry(() => import('./pages/Credits'));
+const Profile = lazyWithRetry(() => import('./pages/Profile'));
+const TermsOfUse = lazyWithRetry(() => import('./pages/TermsOfUse'));
+const PrivacyPolicy = lazyWithRetry(() => import('./pages/PrivacyPolicy'));
+const LandingPage = lazyWithRetry(() => import('./pages/LandingPage'));
+const PublicHashVerifier = lazyWithRetry(() => import('./pages/PublicHashVerifier'));
+const Subprocessors = lazyWithRetry(() => import('./pages/Subprocessors'));
 
 import { useSessionTimeout } from './hooks/useSessionTimeout';
 

@@ -1,6 +1,8 @@
 import os
+import base64
 import hashlib
 import hmac
+import httpx
 import logging
 import secrets
 import string
@@ -272,6 +274,44 @@ def _hash_cpf(value: str) -> str:
     return hmac.new(secret.encode("utf-8"), digits.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+def get_cpf_hashes(value: str) -> list[str]:
+    """Returns all possible stored hash representations for a CPF/CNPJ (HMAC-SHA256 + plain SHA-256).
+    Email/password registration on the frontend hashes with plain SHA-256, while OAuth registration
+    on the backend hashes with HMAC-SHA256."""
+    digits = _only_digits(value)
+    if not digits:
+        return []
+    hmac_digest = _hash_cpf(digits)
+    sha256_digest = hashlib.sha256(digits.encode("utf-8")).hexdigest()
+    return list(dict.fromkeys([hmac_digest, sha256_digest]))
+
+
+def verify_cpf_match(raw_cpf: str, stored_cpf: str) -> bool:
+    """Checks whether raw_cpf matches stored_cpf across HMAC-SHA256, plain SHA-256,
+    plaintext digits, or legacy Base64 encoding."""
+    digits = _only_digits(raw_cpf)
+    if not digits or not stored_cpf:
+        return False
+
+    for candidate in get_cpf_hashes(digits):
+        if hmac.compare_digest(stored_cpf, candidate):
+            return True
+
+    clean_stored = _only_digits(stored_cpf)
+    if clean_stored and hmac.compare_digest(clean_stored, digits):
+        return True
+
+    try:
+        decoded = base64.b64decode(stored_cpf).decode("utf-8")
+        decoded_digits = _only_digits(decoded)
+        if decoded_digits and hmac.compare_digest(decoded_digits, digits):
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
 # ── Helper: Extract Real IP ─────────────────────────────────────────────────
 # Uses get_real_client_ip from services.limiter (validates Cloudflare/Docker CIDRs)
 
@@ -289,17 +329,17 @@ def check_cpf(req: CheckCPFRequest, request: Request, user_id: str = Depends(get
     if not is_valid:
         return {"valid": False, "available": False, "reason": "CPF/CNPJ inválido matematicamente."}
 
-    # 2. Hash and check for duplicates
-    hashed = _hash_cpf(req.cpf_cnpj)
+    # 2. Hash and check for duplicates across both HMAC-SHA256 and plain SHA-256
+    candidate_hashes = get_cpf_hashes(req.cpf_cnpj)
     resp = supabase_admin.table("advogados") \
         .select("id") \
-        .eq("cpf_cnpj", hashed) \
+        .in_("cpf_cnpj", candidate_hashes) \
         .execute()
 
     already_used = bool(resp.data)
 
     # If it's used by the current user, that's fine
-    if already_used and resp.data[0]["id"] == user_id:
+    if already_used and all(row["id"] == user_id for row in resp.data):
         return {"valid": True, "available": True, "reason": "CPF/CNPJ já vinculado à sua conta."}
 
     if already_used:
@@ -311,7 +351,7 @@ def check_cpf(req: CheckCPFRequest, request: Request, user_id: str = Depends(get
 @router.post("/save-cpf")
 @limiter.limit("5/minute")
 def save_cpf(req: SaveCPFRequest, request: Request, user_id: str = Depends(get_current_user_id)):
-    """Saves a validated CPF/CNPJ (as SHA-256 hash) to the user's profile
+    """Saves a validated CPF/CNPJ (as HMAC-SHA256 hash) to the user's profile
     and logs the action in the audit trail."""
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -322,11 +362,12 @@ def save_cpf(req: SaveCPFRequest, request: Request, user_id: str = Depends(get_c
 
     # 2. Hash
     hashed = _hash_cpf(req.cpf_cnpj)
+    candidate_hashes = get_cpf_hashes(req.cpf_cnpj)
 
-    # 3. Check for duplicates (excluding self)
+    # 3. Check for duplicates across both HMAC-SHA256 and plain SHA-256 (excluding self)
     dup_resp = supabase_admin.table("advogados") \
         .select("id") \
-        .eq("cpf_cnpj", hashed) \
+        .in_("cpf_cnpj", candidate_hashes) \
         .neq("id", user_id) \
         .execute()
 

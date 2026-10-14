@@ -1,11 +1,10 @@
 from fastapi import APIRouter, HTTPException, Request, Depends
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
-import base64
-import hashlib
 import logging
 
-from database import supabase, supabase_admin
+from database import supabase, supabase_admin, db_exec
+from routers.auth import verify_cpf_match
 from services.credits import credits_service
 from services.asaas import asaas_service
 from middleware.auth import get_current_user_id
@@ -36,7 +35,7 @@ async def purchase_package(req: PurchaseRequest, user_id: str = Depends(get_curr
     if not user_id: raise HTTPException(status_code=401, detail="Unauthorized")
     
     # 1. Pegar infos do advogado no banco (obrigatório)
-    user_resp = supabase_admin.table("advogados").select("*").eq("id", user_id).execute()
+    user_resp = await db_exec(lambda: supabase_admin.table("advogados").select("*").eq("id", user_id).execute())
     if not user_resp.data:
         raise HTTPException(
             status_code=404, 
@@ -61,32 +60,15 @@ async def purchase_package(req: PurchaseRequest, user_id: str = Depends(get_curr
             detail="O CPF ou CNPJ para emissão do Pix é obrigatório."
         )
 
-    # Validar se o CPF enviado confere com o cadastrado no banco (SHA-256, plaintext ou fallback Base64)
-    hashed_sent = hashlib.sha256(raw_cpf.encode("utf-8")).hexdigest()
-    
-    is_valid_user_cpf = False
-    clean_db_cpf = "".join(c for c in (db_cpf_cnpj or "") if c.isdigit())
-
-    if db_cpf_cnpj == hashed_sent or clean_db_cpf == raw_cpf:
-        is_valid_user_cpf = True
-    else:
-        # Fallback: tentar decodificar Base64 (usuários antigos)
-        try:
-            db_decoded = base64.b64decode(db_cpf_cnpj).decode('utf-8')
-            db_decoded_clean = "".join(c for c in db_decoded if c.isdigit())
-            if db_decoded_clean == raw_cpf:
-                is_valid_user_cpf = True
-        except Exception:
-            pass
-
-    if not is_valid_user_cpf:
+    # Validar se o CPF enviado confere com o cadastrado no banco (HMAC-SHA256, SHA-256, plaintext ou Base64)
+    if not verify_cpf_match(raw_cpf, db_cpf_cnpj):
         raise HTTPException(
             status_code=400,
             detail="O CPF/CNPJ informado não corresponde ao documento cadastrado na sua conta."
         )
     
     # 2. Pegar pacote
-    pkg_resp = supabase_admin.table("credit_packages").select("*").eq("id", req.package_id).execute()
+    pkg_resp = await db_exec(lambda: supabase_admin.table("credit_packages").select("*").eq("id", req.package_id).execute())
     if not pkg_resp.data:
         raise HTTPException(status_code=404, detail="Package not found")
         
@@ -158,7 +140,7 @@ async def purchase_package(req: PurchaseRequest, user_id: str = Depends(get_curr
         if is_custom:
             payment_data["purchased_credits"] = credits_amount
         
-        supabase_admin.table("payments").insert(payment_data).execute()
+        await db_exec(lambda: supabase_admin.table("payments").insert(payment_data).execute())
         
         return {
             "status": "success",

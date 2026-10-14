@@ -12,8 +12,32 @@ export default class ErrorBoundary extends Component {
         return { hasError: true, error };
     }
 
+    static isChunkLoadError(error) {
+        const msg = String(error?.message || error || '');
+        return (
+            msg.includes('Failed to fetch dynamically imported module') ||
+            msg.includes('Importing a module script failed') ||
+            msg.includes('error loading dynamically imported module') ||
+            error?.name === 'ChunkLoadError'
+        );
+    }
+
     componentDidCatch(error, errorInfo) {
         console.error('ErrorBoundary caught an error:', error, errorInfo);
+        if (ErrorBoundary.isChunkLoadError(error)) {
+            try {
+                const key = 'legisvox_chunk_reload_ts';
+                const lastReload = Number(sessionStorage.getItem(key) || 0);
+                const now = Date.now();
+                if (now - lastReload > 15000) {
+                    sessionStorage.setItem(key, String(now));
+                    window.location.reload();
+                    return;
+                }
+            } catch (_) {
+                // Ignore storage errors
+            }
+        }
         try {
             Sentry.captureException(error, { extra: errorInfo });
         } catch (e) {
@@ -22,6 +46,10 @@ export default class ErrorBoundary extends Component {
     }
 
     handleRetry = () => {
+        if (ErrorBoundary.isChunkLoadError(this.state.error)) {
+            window.location.reload();
+            return;
+        }
         this.setState({ hasError: false, error: null });
     };
 

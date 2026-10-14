@@ -241,19 +241,19 @@ def delete_account(
         if not advogado["senha_assinatura_hash"]:
             raise HTTPException(status_code=400, detail="Configure um PIN antes de excluir a conta.")
         
-        # Import PIN verification from auth module
-        try:
-            import bcrypt as _bcrypt
-            stored_hash = advogado["senha_assinatura_hash"]
-            if not _bcrypt.checkpw(body.pin.encode("utf-8"), stored_hash.encode("utf-8")):
-                raise HTTPException(status_code=403, detail="PIN incorreto. Verifique e tente novamente.")
-        except ImportError:
-            import hashlib as _hl
-            stored_hash = advogado["senha_assinatura_hash"]
-            test_hash = _hl.sha256(f"{body.pin}:{user_id}".encode()).hexdigest()
-            if test_hash != stored_hash:
-                raise HTTPException(status_code=403, detail="PIN incorreto. Verifique e tente novamente.")
+        # Verify PIN using unified helper (supports bcrypt + legacy SHA-256)
+        from routers.auth import _verify_pin
+        if not _verify_pin(body.pin, advogado["senha_assinatura_hash"], user_id):
+            raise HTTPException(status_code=403, detail="PIN incorreto. Verifique e tente novamente.")
         
+        # Collect user's atas before deletion so we can clean up disk images
+        ata_ids = []
+        try:
+            atas_resp = supabase_admin.table("atas").select("id").eq("advogado_id", user_id).execute()
+            ata_ids = [row["id"] for row in (atas_resp.data or []) if row.get("id")]
+        except Exception as e:
+            logger.warning(f"Failed to list atas before account deletion for {user_id}: {e}")
+
         # Audit log BEFORE deletion (so the log persists)
         supabase_admin.table("audit_logs").insert({
             "advogado_id": user_id,
@@ -265,8 +265,25 @@ def delete_account(
             "payload": {"email": advogado["email"], "initiated_at": datetime.now(timezone.utc).isoformat()},
         }).execute()
         
-        # Call the RPC to delete all user data
+        # Call the RPC to delete all user data in public schema
         result = supabase_admin.rpc("delete_user_account", {"target_user_id": user_id}).execute()
+
+        # Best-effort cleanup of disk images for deleted atas
+        if ata_ids:
+            try:
+                from services.image_storage import delete_images
+                for aid in ata_ids:
+                    delete_images(aid)
+            except Exception as e:
+                logger.warning(f"Failed to clean up disk images for deleted user {user_id}: {e}")
+
+        # Best-effort removal from Supabase Auth (auth.users) and auth cache
+        try:
+            from middleware.auth import invalidate_auth_cache_for_user
+            invalidate_auth_cache_for_user(user_id)
+            supabase_admin.auth.admin.delete_user(user_id)
+        except Exception as e:
+            logger.warning(f"Could not delete auth.users entry for {user_id}: {e}")
         
         logger.info(f"Account deleted for user {user_id} ({advogado['email']}): {result.data}")
         

@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, s
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from middleware.auth import get_current_user_id
-from database import get_supabase_client, get_supabase_admin_client, create_user_client
+from database import get_supabase_client, get_supabase_admin_client, create_user_client, db_exec
 from services.whatsapp_parser import parse_whatsapp_zip
 from services.pipeline_orchestrator import local_results, _process_pipeline
 from services.pdf_generator import generate_pdf_from_html, PdfGenerationError
@@ -99,13 +99,15 @@ async def list_atas(
     if supabase:
         try:
             offset = (page - 1) * per_page
-            res = supabase.table("atas") \
-                .select("*") \
-                .is_("deleted_at", "null") \
-                .neq("status", "estimating") \
-                .order("created_at", desc=True) \
-                .range(offset, offset + per_page - 1) \
+            res = await db_exec(
+                lambda: supabase.table("atas")
+                .select("*")
+                .is_("deleted_at", "null")
+                .neq("status", "estimating")
+                .order("created_at", desc=True)
+                .range(offset, offset + per_page - 1)
                 .execute()
+            )
             return res.data or []
         except Exception as e:
             logger.error(f"Erro ao listar atas: {e}")
@@ -135,12 +137,14 @@ async def delete_ata(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_conte
     if supabase and advogado_id:
         try:
             # Verifica se o documento existe e pertence ao usuário antes de deletar
-            check = supabase.table("atas") \
-                .select("id") \
-                .eq("id", ata_id) \
-                .eq("advogado_id", advogado_id) \
-                .is_("deleted_at", "null") \
+            check = await db_exec(
+                lambda: supabase.table("atas")
+                .select("id")
+                .eq("id", ata_id)
+                .eq("advogado_id", advogado_id)
+                .is_("deleted_at", "null")
                 .execute()
+            )
 
             if not check.data:
                 logger.warning(f"[DELETE] Documento {ata_id} não encontrado ou não pertence ao usuário {advogado_id}")
@@ -151,16 +155,21 @@ async def delete_ata(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_conte
             # mas o WITH CHECK não permite que o campo seja alterado pelo user token.
             # O controle de posse já foi verificado acima.)
             admin_client = get_supabase_admin_client()
+            now_iso = datetime.now(timezone.utc).isoformat()
             if admin_client:
-                res = admin_client.table("atas").update({
-                    "deleted_at": datetime.now(timezone.utc).isoformat()
-                }).eq("id", ata_id).eq("advogado_id", advogado_id).execute()
+                res = await db_exec(
+                    lambda: admin_client.table("atas").update({
+                        "deleted_at": now_iso
+                    }).eq("id", ata_id).eq("advogado_id", advogado_id).execute()
+                )
                 logger.info(f"[DELETE] Documento {ata_id} marcado como deletado via admin client")
             else:
                 # Fallback para user token se admin não disponível
-                res = supabase.table("atas").update({
-                    "deleted_at": datetime.now(timezone.utc).isoformat()
-                }).eq("id", ata_id).eq("advogado_id", advogado_id).execute()
+                res = await db_exec(
+                    lambda: supabase.table("atas").update({
+                        "deleted_at": now_iso
+                    }).eq("id", ata_id).eq("advogado_id", advogado_id).execute()
+                )
 
                 if not res.data:
                     logger.error(f"[DELETE] Soft delete não teve efeito para ata {ata_id} — verifique a RLS policy")
@@ -225,13 +234,16 @@ async def upload_whatsapp_zip(
     token = auth_ctx.token
     if supabase:
         try:
-            response = supabase.table('atas').insert({
-                'advogado_id': advogado_id,
-                'titulo': f"Conversa - {_sanitize_filename(file.filename)}",
-                'status': 'uploading',
-                'zip_filename': _sanitize_filename(file.filename),
-                'zip_hash': zip_hash
-            }).execute()
+            safe_fn = _sanitize_filename(file.filename)
+            response = await db_exec(
+                lambda: supabase.table('atas').insert({
+                    'advogado_id': advogado_id,
+                    'titulo': f"Conversa - {safe_fn}",
+                    'status': 'uploading',
+                    'zip_filename': safe_fn,
+                    'zip_hash': zip_hash
+                }).execute()
+            )
             if not response.data:
                 raise HTTPException(status_code=500, detail="Falha ao criar registro no banco de dados.")
             ata_record = response.data[0]
@@ -428,12 +440,12 @@ async def estimate_upload(
         balance = 999
         has_credits = True
     else:
-        balance = credits_service.get_balance(advogado_id)
+        balance = await db_exec(lambda: credits_service.get_balance(advogado_id))
         has_credits = balance >= estimated_pages
 
     # Generate temporary ID and store estimate metadata
     ata_id = str(uuid.uuid4())
-    cleanup_estimate_cache(advogado_id=advogado_id, supabase_client=auth_ctx.client)
+    await db_exec(lambda: cleanup_estimate_cache(advogado_id=advogado_id, supabase_client=auth_ctx.client))
 
     safe_title_name = _sanitize_filename(zip_filename)
 
@@ -441,20 +453,23 @@ async def estimate_upload(
     if supabase:
         # Persist to DB so any worker can pick up the confirm
         try:
-            supabase.table('atas').insert({
-                'id': ata_id,
-                'advogado_id': advogado_id,
-                'titulo': f"Estimativa - {safe_title_name}",
-                'status': 'estimating',
-                'zip_filename': safe_title_name,
-                'estimated_pages': estimated_pages,
-                'status_message': json.dumps({
-                    'temp_path': temp_path,
-                    'start_date': start_date,
-                    'end_date': end_date,
-                    'timestamp': time.time(),
-                })
-            }).execute()
+            meta_json = json.dumps({
+                'temp_path': temp_path,
+                'start_date': start_date,
+                'end_date': end_date,
+                'timestamp': time.time(),
+            })
+            await db_exec(
+                lambda: supabase.table('atas').insert({
+                    'id': ata_id,
+                    'advogado_id': advogado_id,
+                    'titulo': f"Estimativa - {safe_title_name}",
+                    'status': 'estimating',
+                    'zip_filename': safe_title_name,
+                    'estimated_pages': estimated_pages,
+                    'status_message': meta_json,
+                }).execute()
+            )
             logger.info(f"[ESTIMATE] {ata_id}: metadados persistidos no banco")
         except Exception as e:
             logger.warning(f"[ESTIMATE] Falha ao persistir no banco, usando cache local: {e}")
@@ -506,7 +521,9 @@ async def confirm_upload(
 
     if not cached and supabase:
         try:
-            res = supabase.table('atas').select('status, status_message, advogado_id, zip_filename, estimated_pages').eq('id', ata_id).is_('deleted_at', 'null').execute()
+            res = await db_exec(
+                lambda: supabase.table('atas').select('status, status_message, advogado_id, zip_filename, estimated_pages').eq('id', ata_id).is_('deleted_at', 'null').execute()
+            )
             if res.data:
                 row = res.data[0]
                 if row.get('status') != 'estimating':
@@ -536,7 +553,7 @@ async def confirm_upload(
         raise HTTPException(status_code=403, detail="Acesso não autorizado.")
 
     if time.time() - cached['timestamp'] > ESTIMATE_CACHE_TTL:
-        cleanup_estimate_cache(supabase_client=supabase)
+        await db_exec(lambda: cleanup_estimate_cache(supabase_client=supabase))
         raise HTTPException(status_code=410, detail="Estimativa expirou (10 minutos). Envie o arquivo novamente.")
 
     if cached.get('confirmed'):
@@ -546,12 +563,13 @@ async def confirm_upload(
     temp_path = cached.get('temp_path')
     start_date = cached['start_date']
     end_date = cached['end_date']
-    token = cached['token']
+    token = cached.get('token', auth_ctx.token)
     zip_bytes = None  # no longer stored in memory
 
     # Check credits first (without debiting yet)
     if supabase:
-        if not credits_service.has_sufficient_credits(advogado_id, estimated_pages):
+        sufficient = await db_exec(lambda: credits_service.has_sufficient_credits(advogado_id, estimated_pages))
+        if not sufficient:
             raise HTTPException(status_code=402, detail=f"Saldo insuficiente. Necessário: {estimated_pages} créditos.")
 
     cached["confirmed"] = True
@@ -572,16 +590,18 @@ async def confirm_upload(
     if supabase:
         try:
             zip_filename = cached.get("zip_filename", "upload.zip")
-            response = supabase.table('atas').upsert({
-                'id': ata_id,
-                'advogado_id': advogado_id,
-                'titulo': f"Conversa - {zip_filename}",
-                'status': 'uploading',
-                'status_message': 'Iniciando processamento...',
-                'zip_filename': zip_filename,
-                'estimated_pages': estimated_pages,
-                'zip_hash': zip_hash
-            }).execute()
+            response = await db_exec(
+                lambda: supabase.table('atas').upsert({
+                    'id': ata_id,
+                    'advogado_id': advogado_id,
+                    'titulo': f"Conversa - {zip_filename}",
+                    'status': 'uploading',
+                    'status_message': 'Iniciando processamento...',
+                    'zip_filename': zip_filename,
+                    'estimated_pages': estimated_pages,
+                    'zip_hash': zip_hash
+                }).execute()
+            )
             if response.data:
                 ata_record = response.data[0]
         except Exception as e:
@@ -589,7 +609,8 @@ async def confirm_upload(
 
     # Step 2: Debit credits AFTER ata exists (so FK ata_id is valid)
     if supabase:
-        if not credits_service.debit_credits(advogado_id, ata_id, estimated_pages):
+        debited = await db_exec(lambda: credits_service.debit_credits(advogado_id, ata_id, estimated_pages))
+        if not debited:
             logger.error(f"[CONFIRM] Failed to debit credits for {ata_id}")
             # Don't block processing — credits were verified above
 
@@ -716,7 +737,9 @@ async def serve_ata_image(ata_id: str, filename: str, request: Request, t: str |
         # No valid token: require the owner's Bearer JWT and check ata ownership via RLS.
         auth_ctx = get_auth_context(request, get_current_user_id(request))
         if auth_ctx.client:
-            ata_res = auth_ctx.client.table("atas").select("id").eq("id", ata_id).is_("deleted_at", "null").execute()
+            ata_res = await db_exec(
+                lambda: auth_ctx.client.table("atas").select("id").eq("id", ata_id).is_("deleted_at", "null").execute()
+            )
             if not ata_res.data:
                 raise HTTPException(status_code=404, detail="Ata não encontrada")
 
@@ -736,10 +759,14 @@ async def get_ata_preview(ata_id: str, auth_ctx: AuthContext = Depends(get_auth_
     supabase = auth_ctx.client
 
     if supabase:
-        ata_res = supabase.table("atas").select("*").eq("id", ata_id).is_("deleted_at", "null").execute()
+        ata_res = await db_exec(
+            lambda: supabase.table("atas").select("*").eq("id", ata_id).is_("deleted_at", "null").execute()
+        )
         if not ata_res.data:
             raise HTTPException(status_code=404, detail="Ata não encontrada")
-        conteudo_res = supabase.table("atas_conteudo").select("*").eq("ata_id", ata_id).execute()
+        conteudo_res = await db_exec(
+            lambda: supabase.table("atas_conteudo").select("*").eq("ata_id", ata_id).execute()
+        )
         conteudo = conteudo_res.data[0] if conteudo_res.data else {}
         from services.image_storage import is_disk_mode
         if is_disk_mode() and conteudo:
@@ -920,14 +947,18 @@ async def update_ata_content(
     # mesclando-as com as alterações de texto enviadas pelo usuário.
     html_to_save = incoming_html
     try:
-        current_res = supabase.table("atas_conteudo").select(column).eq("ata_id", ata_id).execute()
+        current_res = await db_exec(
+            lambda: supabase.table("atas_conteudo").select(column).eq("ata_id", ata_id).execute()
+        )
         if current_res.data:
             current_html = current_res.data[0].get(column) or ''
             html_to_save = merge_images_into_html(incoming_html, current_html)
     except Exception as e:
         logger.warning(f"[{ata_id}] Não foi possível mesclar/verificar imagens antes do save: {e}")
 
-    supabase.table("atas_conteudo").update({column: html_to_save}).eq("ata_id", ata_id).execute()
+    await db_exec(
+        lambda: supabase.table("atas_conteudo").update({column: html_to_save}).eq("ata_id", ata_id).execute()
+    )
     
     # Count missing images for frontend awareness
     missing_img_count = len(re.findall(r'class="ata-midia-ausente"', html_to_save))
@@ -949,7 +980,9 @@ async def update_ata_title(
         return {"status": "success", "message": "Mocked update"}
 
     # Update only the title in the atas table
-    supabase.table("atas").update({"titulo": update_data.titulo}).eq("id", ata_id).execute()
+    await db_exec(
+        lambda: supabase.table("atas").update({"titulo": update_data.titulo}).eq("id", ata_id).execute()
+    )
     return {"status": "success"}
 
 
@@ -979,7 +1012,9 @@ async def generate_pdf(
     if not _is_uuid(ata_id):
         raise HTTPException(status_code=404, detail="Ata não encontrada")
 
-    owned = auth_ctx.client.table("atas").select("id").eq("id", ata_id).execute()
+    owned = await db_exec(
+        lambda: auth_ctx.client.table("atas").select("id").eq("id", ata_id).execute()
+    )
     if not owned.data:
         raise HTTPException(status_code=404, detail="Ata não encontrada")
 
@@ -987,7 +1022,7 @@ async def generate_pdf(
     if not admin:
         raise HTTPException(status_code=500, detail="Serviço de geração de PDF indisponível.")
     try:
-        job_id = pdf_jobs.create_job(admin, ata_id, auth_ctx.advogado_id)
+        job_id = await db_exec(lambda: pdf_jobs.create_job(admin, ata_id, auth_ctx.advogado_id))
     except Exception as e:
         logger.error(f"[PDF-JOB] ata {ata_id}: falha ao criar job: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Não foi possível iniciar a geração do PDF.")
@@ -1007,7 +1042,7 @@ async def pdf_status(ata_id: str, job_id: str, auth_ctx: AuthContext = Depends(g
     admin = get_supabase_admin_client()
     if not admin or not auth_ctx.advogado_id:
         raise HTTPException(status_code=500, detail="Serviço indisponível")
-    job = pdf_jobs.get_job(admin, job_id, auth_ctx.advogado_id, ata_id)
+    job = await db_exec(lambda: pdf_jobs.get_job(admin, job_id, auth_ctx.advogado_id, ata_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job não encontrado")
     return {

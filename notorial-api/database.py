@@ -3,6 +3,7 @@ from config import settings
 import asyncio
 import httpx
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
@@ -10,7 +11,10 @@ logger = logging.getLogger(__name__)
 # ── Shared thread pool for non-blocking database operations ──
 # Sync supabase-py calls (.execute()) block the asyncio event loop.
 # Running them in this executor keeps FastAPI responsive during pipeline processing.
-_db_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="db")
+_db_executor = ThreadPoolExecutor(
+    max_workers=int(os.getenv("DB_EXECUTOR_MAX_WORKERS", "16")),
+    thread_name_prefix="db",
+)
 
 async def db_exec(fn):
     """Run a synchronous database call in a thread — never blocks the event loop.
@@ -143,6 +147,7 @@ def create_user_client(token: str) -> Client:
         try:
             client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
             client.postgrest.auth(token)
+            _force_httpx_timeout(client)
             _user_clients_cache[token] = (client, now)
             return client
         except Exception as e:
