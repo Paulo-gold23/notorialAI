@@ -26,6 +26,12 @@ export async function getAuthHeaderForDownload() {
     return getAuthHeader();
 }
 
+export function resolveApiUrl(endpoint) {
+    if (!endpoint) return '';
+    if (/^https?:\/\//i.test(endpoint)) return endpoint;
+    return `${API_BASE}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+}
+
 export async function apiRequest(endpoint, options = {}) {
     const headers = await getAuthHeader();
     const requestHeaders = new Headers({

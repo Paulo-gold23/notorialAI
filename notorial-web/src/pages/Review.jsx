@@ -823,10 +823,14 @@ export default function Review() {
                 setMissingImages(data.missing_images);
             }
             if (data.pdf_url) {
-                const { getAuthHeaderForDownload } = await import('../services/api');
+                const { getAuthHeaderForDownload, resolveApiUrl } = await import('../services/api');
                 const headers = await getAuthHeaderForDownload();
-                const pdfResponse = await fetch(data.pdf_url, { headers });
+                const pdfResponse = await fetch(resolveApiUrl(data.pdf_url), { headers });
                 if (!pdfResponse.ok) throw new Error('Erro ao baixar o PDF gerado.');
+                const contentType = (pdfResponse.headers.get('content-type') || '').toLowerCase();
+                if (contentType.includes('text/html')) {
+                    throw new Error('O servidor retornou uma página HTML em vez do PDF. Verifique a conexão com a API.');
+                }
                 const blob = await pdfResponse.blob();
                 const blobUrl = URL.createObjectURL(blob);
                 pdfBlobUrlRef.current = blobUrl;

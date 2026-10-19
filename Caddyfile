@@ -1,10 +1,12 @@
 {
     email {$ACME_EMAIL:contato@legisvox.com}
     admin off
+    # Evita loop infinito (ERR_TOO_MANY_REDIRECTS) quando o Cloudflare conecta via HTTP (porta 80) ou Tunnel
+    auto_https disable_redirects
 }
 
-# ── Bloco Principal (TLS automático via Let's Encrypt quando DOMAIN=legisvox.com) ──
-{$DOMAIN} {
+# ── Bloco Principal (Aceita HTTPS via Let's Encrypt em {$DOMAIN} e HTTP na porta :80 do Cloudflare) ──
+{$DOMAIN}, :80 {
     # Headers de Segurança (HSTS + CSP + hardening)
     header {
         # HSTS — força HTTPS por 1 ano, previne SSL stripping
