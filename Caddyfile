@@ -1,12 +1,11 @@
 {
-    email {$ACME_EMAIL:contato@legisvox.com}
     admin off
-    # Evita loop infinito (ERR_TOO_MANY_REDIRECTS) quando o Cloudflare conecta via HTTP (porta 80) ou Tunnel
-    auto_https disable_redirects
+    # TLS externo já é gerenciado pelo Traefik (root-traefik-1) e Cloudflare; evita conflito de ACME e loop de redirect
+    auto_https off
 }
 
-# ── Bloco Principal (Aceita HTTPS via Let's Encrypt em {$DOMAIN} e HTTP na porta :80 do Cloudflare) ──
-{$DOMAIN}, :80 {
+# ── Bloco Principal (Recebe tráfego HTTP do Traefik/Cloudflare na porta :80 e roteia para API e Web) ──
+:80 {
     # Headers de Segurança (HSTS + CSP + hardening)
     header {
         # HSTS — força HTTPS por 1 ano, previne SSL stripping
