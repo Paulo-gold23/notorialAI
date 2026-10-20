@@ -134,6 +134,33 @@ async def test_log_ai_call_success():
         assert record['ata_id'] == 'ata-123'
         assert record['advogado_id'] == 'adv-456'
         assert record['is_retry'] is False
+        assert 'estimated_cost_usd' not in record
+
+
+@pytest.mark.asyncio
+async def test_log_ai_call_gpt_6_luna_cost_calculation():
+    """Chamada bem-sucedida com gpt-6-luna calcula estimated_cost_usd automaticamente."""
+    with patch('services.ai_usage_service._persist_log', new_callable=AsyncMock) as mock_persist:
+        from services.ai_usage_service import log_ai_call
+        log_ai_call(
+            service="openai",
+            model="gpt-6-luna",
+            operation="organize_chunk",
+            pipeline_stage="organizing",
+            prompt_tokens=2000,
+            completion_tokens=1000,
+            total_tokens=3000,
+            http_status=200,
+            status="success",
+            cost_category="confirmed",
+        )
+        await asyncio.sleep(0.1)
+
+        mock_persist.assert_called_once()
+        record = mock_persist.call_args[0][0]
+        assert record['model'] == 'gpt-6-luna'
+        # (2000 * 0.02 + 1000 * 0.08) / 1_000_000 = 0.00012
+        assert record['estimated_cost_usd'] == 0.00012
 
 
 @pytest.mark.asyncio

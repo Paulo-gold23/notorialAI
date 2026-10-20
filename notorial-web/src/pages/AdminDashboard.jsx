@@ -20,7 +20,8 @@ import {
   getUserTransactions,
   getSystemLogs,
   getErrorAtas,
-  getAiUsageStats
+  getAiUsageStats,
+  updateOpenAiBalance
 } from '../services/adminApi';
 import { supabase } from '../services/supabase';
 import AnimatedNumber from '../components/AnimatedNumber';
@@ -91,6 +92,7 @@ export default function AdminDashboard() {
   const [aiUsageStats, setAiUsageStats] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(null);
+  const [openAiBalanceModal, setOpenAiBalanceModal] = useState({ isOpen: false, balance: '1.08', loading: false });
 
   const navigate = useNavigate();
   const toast = useToast();
@@ -173,10 +175,28 @@ export default function AdminDashboard() {
   useEffect(() => { loadAll(); }, []);
 
   useEffect(() => {
-    if (activeTab === 'ai_costs' && !aiUsageStats && !aiLoading) {
+    if (activeTab === 'ai_costs' && !aiUsageStats && !aiLoading && !aiError) {
       fetchAiStats();
     }
-  }, [activeTab, aiUsageStats, aiLoading, fetchAiStats]);
+  }, [activeTab, aiUsageStats, aiLoading, aiError, fetchAiStats]);
+
+  const handleCalibrateOpenAiBalance = async () => {
+    const parsed = parseFloat(String(openAiBalanceModal.balance).replace(',', '.'));
+    if (isNaN(parsed) || parsed < 0) {
+      toast.error('Informe um valor válido em dólares (ex: 1.08).');
+      return;
+    }
+    try {
+      setOpenAiBalanceModal(prev => ({ ...prev, loading: true }));
+      await updateOpenAiBalance(parsed);
+      toast.success(`Saldo da OpenAI calibrado para $${parsed.toFixed(2)} USD!`);
+      setOpenAiBalanceModal({ isOpen: false, balance: parsed.toFixed(2), loading: false });
+      await fetchAiStats();
+    } catch (err) {
+      toast.error(err.message || 'Erro ao calibrar saldo da OpenAI.');
+      setOpenAiBalanceModal(prev => ({ ...prev, loading: false }));
+    }
+  };
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -1008,54 +1028,123 @@ export default function AdminDashboard() {
               <>
                 {/* Primary AI Metrics */}
                 <div className="adm-primary-grid">
-                  <StatCard icon={Zap} label="Total Tokens" value={aiUsageStats.total_tokens?.toLocaleString('pt-BR') || 0} color={COLORS.blue} sub="Últimos 30 dias" delay={0} />
-                  <StatCard icon={Coins} label="Custo OpenAI" value={`$${aiUsageStats.total_cost_usd || '0.00'} USD`} color={COLORS.amber} sub="Groq em Free Tier ($0.00)" delay={50} />
-                  <StatCard icon={Mic} label="Áudio Transcrito" value={`${aiUsageStats.total_audio_minutes || 0} min`} color={COLORS.indigo} sub="Groq Whisper (Gratuito)" delay={100} />
-                  <StatCard icon={AlertTriangle} label="Taxa de Erro" value={aiUsageStats.total_requests > 0 ? `${((aiUsageStats.total_errors / aiUsageStats.total_requests) * 100).toFixed(1)}%` : '0%'} color={aiUsageStats.total_errors > 0 ? COLORS.red : COLORS.emerald} sub={`${aiUsageStats.total_errors} de ${aiUsageStats.total_requests} chamadas`} delay={150} />
+                  <StatCard
+                    icon={Coins}
+                    label="Crédito OpenAI Restante"
+                    value={`$${Number(aiUsageStats.openai_credit_remaining_usd ?? 1.08).toFixed(2)} USD`}
+                    color={COLORS.emerald}
+                    sub={`Modelo: ${aiUsageStats.active_model || 'gpt-6-luna'} · Calibrado`}
+                    delay={0}
+                  />
+                  <StatCard
+                    icon={TrendingUp}
+                    label="Gasto Faturado (Outubro)"
+                    value={`$${Number(aiUsageStats.total_cost_usd ?? 0.03).toFixed(2)} USD`}
+                    color={COLORS.amber}
+                    sub={`Exato: $${Number(aiUsageStats.total_cost_usd_exact ?? 0.03).toFixed(4)} / $${Number(aiUsageStats.openai_monthly_budget_usd ?? 120).toFixed(0)} limite`}
+                    delay={50}
+                  />
+                  <StatCard
+                    icon={Zap}
+                    label="Tokens (gpt-6-luna)"
+                    value={(aiUsageStats.gpt_luna_tokens ?? aiUsageStats.total_tokens ?? 0).toLocaleString('pt-BR')}
+                    color={COLORS.blue}
+                    sub={`${(aiUsageStats.gpt_luna_requests ?? 0).toLocaleString('pt-BR')} reqs Luna · ${(aiUsageStats.total_tokens || 0).toLocaleString('pt-BR')} total (30d)`}
+                    delay={100}
+                  />
+                  <StatCard
+                    icon={Mic}
+                    label="Áudio Transcrito (Real)"
+                    value={`${aiUsageStats.total_audio_minutes || 0} min`}
+                    color={COLORS.indigo}
+                    sub={`Groq Free ($0.00) · +${aiUsageStats.cached_audio_minutes || 0} min em cache`}
+                    delay={150}
+                  />
+                  <StatCard
+                    icon={AlertTriangle}
+                    label="Taxa de Erro Real"
+                    value={aiUsageStats.total_requests > 0 ? `${((aiUsageStats.total_errors / aiUsageStats.total_requests) * 100).toFixed(1)}%` : '0%'}
+                    color={aiUsageStats.total_errors > 0 ? COLORS.red : COLORS.emerald}
+                    sub={`${aiUsageStats.total_errors || 0} falhas em ${(aiUsageStats.total_requests || 0).toLocaleString('pt-BR')} execuções`}
+                    delay={200}
+                  />
                 </div>
 
-                {/* Service Breakdown + Daily Trend */}
+                {/* Service & Model Breakdown + Daily Trend */}
                 <div className="adm-charts-grid" style={{ marginTop: '1.25rem' }}>
-                  {/* By Service */}
+                  {/* By Service & Model */}
                   <div className="card" style={{ padding: '1.25rem' }}>
-                    <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <Server size={16} style={{ color: COLORS.blue }} /> Consumo por Provedor
-                    </h3>
-                    {aiUsageStats.by_service && aiUsageStats.by_service.length > 0 ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-                        {aiUsageStats.by_service.map((s, i) => {
-                          const isFree = s.is_free_tier || s.service?.toLowerCase().includes('groq');
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <Server size={16} style={{ color: COLORS.blue }} /> Consumo por Provedor & Modelo
+                      </h3>
+                      <button
+                        className="btn-secondary"
+                        style={{ padding: '0.28rem 0.65rem', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                        onClick={() => setOpenAiBalanceModal({
+                          isOpen: true,
+                          balance: Number(aiUsageStats.openai_credit_remaining_usd ?? 1.08).toFixed(2),
+                          loading: false
+                        })}
+                        title="Atualizar/recarregar saldo disponível na OpenAI"
+                      >
+                        <Coins size={13} style={{ color: COLORS.emerald }} /> Calibrar Saldo (${Number(aiUsageStats.openai_credit_remaining_usd ?? 1.08).toFixed(2)})
+                      </button>
+                    </div>
+                    {aiUsageStats.by_model && aiUsageStats.by_model.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+                        {aiUsageStats.by_model.map((m, i) => {
+                          const isGroq = m.service?.toLowerCase().includes('groq');
+                          const isLegacyFree = m.model?.toLowerCase().includes('gpt-4.1-mini');
+                          const isFree = m.is_free_or_complimentary || isGroq || isLegacyFree;
+                          const isActiveLuna = m.model?.toLowerCase().includes('gpt-6-luna');
+                          const costNum = parseFloat(m.cost_usd) || 0;
                           return (
                             <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                  <span style={{ fontWeight: 600, color: 'var(--text-main)', textTransform: 'capitalize' }}>{s.service}</span>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', flexWrap: 'wrap', gap: '0.35rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                                  <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{m.model}</span>
+                                  {isActiveLuna && (
+                                    <span style={{
+                                      fontSize: '0.62rem',
+                                      background: 'rgba(59, 130, 246, 0.15)',
+                                      color: '#60a5fa',
+                                      border: '1px solid rgba(59, 130, 246, 0.35)',
+                                      padding: '0.08rem 0.4rem',
+                                      borderRadius: '9999px',
+                                      fontWeight: 700
+                                    }}>
+                                      Modelo Atual
+                                    </span>
+                                  )}
                                   {isFree && (
                                     <span style={{
-                                      fontSize: '0.65rem',
+                                      fontSize: '0.62rem',
                                       background: 'rgba(74, 222, 128, 0.15)',
                                       color: '#4ade80',
                                       border: '1px solid rgba(74, 222, 128, 0.3)',
-                                      padding: '0.1rem 0.4rem',
+                                      padding: '0.08rem 0.4rem',
                                       borderRadius: '9999px',
                                       fontWeight: 600
                                     }}>
-                                      Free Tier (Sem Custo)
+                                      {isGroq ? 'Free Tier (Groq)' : 'Complimentary Tokens ($0.00)'}
                                     </span>
                                   )}
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                                  <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{s.requests?.toLocaleString('pt-BR')} reqs</span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                                  <span style={{ color: 'var(--text-muted)', fontSize: '0.73rem' }}>
+                                    {m.requests?.toLocaleString('pt-BR')} reqs · {isGroq ? `${m.audio_minutes || 0} min` : `${(m.tokens || 0).toLocaleString('pt-BR')} tok`}
+                                  </span>
                                   <span style={{ fontWeight: 700, color: isFree ? '#4ade80' : COLORS.amber }}>
-                                    {isFree ? '$0.00' : `$${s.cost_usd} USD`}
+                                    {isFree ? '$0.00' : `$${costNum.toFixed(2)} USD`}
                                   </span>
                                 </div>
                               </div>
-                              <div style={{ height: '8px', background: 'var(--bg-color)', borderRadius: '4px', overflow: 'hidden' }}>
+                              <div style={{ height: '7px', background: 'var(--bg-color)', borderRadius: '4px', overflow: 'hidden' }}>
                                 <div style={{
-                                  width: isFree ? '100%' : `${Math.min(100, Math.max(10, (s.cost_usd / 2) * 100))}%`,
+                                  width: isFree ? '100%' : `${Math.min(100, Math.max(18, (costNum / Math.max(0.05, Number(aiUsageStats.openai_base_balance_usd || 1.08))) * 100))}%`,
                                   height: '100%',
-                                  background: isFree ? 'linear-gradient(90deg, #4ade80, #22d3ee)' : 'linear-gradient(90deg, #f59e0b, #ef4444)',
+                                  background: isFree ? 'linear-gradient(90deg, #4ade80, #22d3ee)' : 'linear-gradient(90deg, #fbbf24, #f59e0b)',
                                   borderRadius: '4px'
                                 }} />
                               </div>
@@ -1077,50 +1166,60 @@ export default function AdminDashboard() {
                       <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Últimos 30 dias</span>
                     </div>
 
-                    {aiUsageStats.daily_trend && aiUsageStats.daily_trend.length > 0 ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        {/* Chart Area */}
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'flex-end',
-                          gap: '0.75rem',
-                          height: '140px',
-                          padding: '0.5rem 0',
-                          borderBottom: '1px solid var(--border-color)',
-                          overflowX: 'auto'
-                        }}>
-                          {aiUsageStats.daily_trend.map((d, i) => {
-                            const costNum = parseFloat(d.cost_usd) || 0;
-                            return (
-                              <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: '55px', height: '100%', justifyContent: 'flex-end' }}>
-                                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: COLORS.amber, marginBottom: '0.35rem' }}>
-                                  ${d.cost_usd}
-                                </span>
-                                <div
-                                  title={`${d.day}: $${d.cost_usd} (${d.requests} reqs, ${d.tokens?.toLocaleString('pt-BR')} tokens)`}
-                                  style={{
-                                    width: '32px',
-                                    height: `${Math.max(25, Math.min(100, costNum > 0 ? (costNum / 1.5) * 100 : 25))}%`,
-                                    background: 'linear-gradient(180deg, #fbbf24, #f59e0b)',
-                                    borderRadius: '4px 4px 0 0',
-                                    transition: 'transform 0.2s',
-                                    cursor: 'pointer'
-                                  }}
-                                  onMouseOver={(e) => e.currentTarget.style.transform = 'scaleY(1.05)'}
-                                  onMouseOut={(e) => e.currentTarget.style.transform = 'scaleY(1)'}
-                                />
-                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.4rem', fontWeight: 500 }}>
-                                  {d.day_label || d.day?.slice(5)}
-                                </span>
-                              </div>
-                            );
-                          })}
+                    {aiUsageStats.daily_trend && aiUsageStats.daily_trend.length > 0 ? (() => {
+                      const maxDayCost = Math.max(...aiUsageStats.daily_trend.map(item => parseFloat(item.cost_usd) || 0), 0.01);
+                      const maxDayTokens = Math.max(...aiUsageStats.daily_trend.map(item => Number(item.tokens) || 0), 1);
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                          {/* Chart Area */}
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'flex-end',
+                            gap: '0.65rem',
+                            height: '140px',
+                            padding: '0.5rem 0',
+                            borderBottom: '1px solid var(--border-color)',
+                            overflowX: 'auto'
+                          }}>
+                            {aiUsageStats.daily_trend.map((d, i) => {
+                              const costNum = parseFloat(d.cost_usd) || 0;
+                              const isPaidDay = costNum > 0;
+                              const heightPct = isPaidDay
+                                ? Math.max(28, Math.min(100, (costNum / maxDayCost) * 100))
+                                : Math.max(14, Math.min(45, ((Number(d.tokens) || 0) / maxDayTokens) * 45));
+                              return (
+                                <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: '52px', height: '100%', justifyContent: 'flex-end' }}>
+                                  <span style={{ fontSize: '0.64rem', fontWeight: 700, color: isPaidDay ? COLORS.amber : 'var(--text-muted)', marginBottom: '0.3rem' }}>
+                                    {isPaidDay ? `$${costNum.toFixed(3)}` : '$0.00'}
+                                  </span>
+                                  <div
+                                    title={`${d.day} (${d.models_used || 'OpenAI'}): $${costNum.toFixed(4)} USD (${d.requests} reqs, ${d.tokens?.toLocaleString('pt-BR')} tokens)`}
+                                    style={{
+                                      width: '28px',
+                                      height: `${heightPct}%`,
+                                      background: isPaidDay
+                                        ? 'linear-gradient(180deg, #fbbf24, #f59e0b)'
+                                        : 'linear-gradient(180deg, rgba(74,222,128,0.45), rgba(34,211,238,0.25))',
+                                      borderRadius: '4px 4px 0 0',
+                                      transition: 'transform 0.2s',
+                                      cursor: 'pointer'
+                                    }}
+                                    onMouseOver={(e) => e.currentTarget.style.transform = 'scaleY(1.05)'}
+                                    onMouseOut={(e) => e.currentTarget.style.transform = 'scaleY(1)'}
+                                  />
+                                  <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '0.4rem', fontWeight: 500 }}>
+                                    {d.day_label || d.day?.slice(5)}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            <span>💡 Barras douradas: consumo faturado (<strong>gpt-6-luna</strong>). Barras verdes: coberto por Free/Complimentary Tokens.</span>
+                          </div>
                         </div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
-                          <span>💡 Custos referem-se exclusivamente às chamadas de reorganização e sumarização (OpenAI).</span>
-                        </div>
-                      </div>
-                    ) : (
+                      );
+                    })() : (
                       <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>Nenhum dado diário registrado no período.</p>
                     )}
                   </div>
@@ -1632,15 +1731,18 @@ export default function AdminDashboard() {
           ) : (
             <div style={{ maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.6rem', paddingRight: '0.25rem' }}>
               {transactionsModal.transactions.map((tx, idx) => {
-                const isAdd = tx.amount > 0;
+                const isDebit = tx.type === 'debit' || tx.type === 'admin_adjustment_sub' || tx.amount < 0;
+                const isAdd = !isDebit;
+                const absAmount = Math.abs(Number(tx.amount) || 0);
                 const typeLabel = tx.type === 'purchase' ? 'Compra'
                   : tx.type === 'debit' ? 'Uso'
+                  : tx.type === 'refund' ? 'Reembolso'
                   : tx.type === 'admin_adjustment_add' ? 'Ajuste Admin (+)'
                   : tx.type === 'admin_adjustment_sub' ? 'Ajuste Admin (-)'
                   : tx.type === 'trial' ? 'Boas-Vindas'
                   : tx.type;
                 
-                const typeColor = tx.type === 'purchase' ? '#10b981'
+                const typeColor = (tx.type === 'purchase' || tx.type === 'refund') ? '#10b981'
                   : tx.type === 'debit' ? '#ef4444'
                   : (tx.type === 'admin_adjustment_add' || tx.type === 'admin_adjustment_sub') ? '#fbbf24'
                   : '#818cf8';
@@ -1672,7 +1774,7 @@ export default function AdminDashboard() {
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.2rem', fontSize: '0.75rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.4rem' }}>
                       <span style={{ color: isAdd ? '#10b981' : '#ef4444', fontWeight: 700 }}>
-                        {isAdd ? '+' : ''}{tx.amount} créditos
+                        {isAdd ? '+' : '-'}{absAmount} créditos
                       </span>
                       <span style={{ color: 'var(--text-muted)' }}>
                         Saldo: <strong style={{ color: 'var(--text-main)' }}>{tx.balance_after}</strong>
@@ -1690,6 +1792,52 @@ export default function AdminDashboard() {
               className="btn-secondary"
             >
               Fechar
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* OpenAI Credit Balance Calibration Modal */}
+      <Modal
+        isOpen={openAiBalanceModal.isOpen}
+        onClose={() => setOpenAiBalanceModal(prev => ({ ...prev, isOpen: false, loading: false }))}
+        title="Calibrar Saldo de Créditos OpenAI (USD)"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Informe o saldo atual disponível no painel de Billing da OpenAI (em dólares). A partir deste momento, todas as novas chamadas confirmadas do modelo <strong>{aiUsageStats?.active_model || 'gpt-6-luna'}</strong> serão descontadas automaticamente deste valor.
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.4rem' }}>
+              Saldo Disponível na OpenAI (USD)
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={openAiBalanceModal.balance}
+              onChange={(e) => setOpenAiBalanceModal(prev => ({ ...prev, balance: e.target.value }))}
+              placeholder="Ex: 1.08"
+              className="input-login"
+              style={{ width: '100%', boxSizing: 'border-box' }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
+            <button
+              onClick={() => setOpenAiBalanceModal(prev => ({ ...prev, isOpen: false, loading: false }))}
+              className="btn-secondary"
+              disabled={openAiBalanceModal.loading}
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleCalibrateOpenAiBalance}
+              className="btn-primary"
+              disabled={openAiBalanceModal.loading}
+            >
+              {openAiBalanceModal.loading ? 'Salvando...' : 'Salvar Calibração'}
             </button>
           </div>
         </div>

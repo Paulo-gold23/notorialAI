@@ -101,3 +101,11 @@ export async function getAiUsageStats() {
   if (error) throw new Error('Erro ao buscar dados de IA: ' + error.message);
   return data || {};
 }
+
+export async function updateOpenAiBalance(newBalanceUsd) {
+  const { data, error } = await supabase.rpc('admin_update_openai_balance', {
+    p_new_balance_usd: newBalanceUsd,
+  });
+  if (error) throw new Error('Erro ao calibrar saldo da OpenAI: ' + error.message);
+  return data;
+}

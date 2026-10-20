@@ -41,7 +41,7 @@ COUNTER=0
 SUCCESS=0
 
 until [ $COUNTER -ge $MAX_RETRIES ]; do
-    if curl -sf http://localhost/health > /dev/null 2>&1 || curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+    if docker exec legisvox_api python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" > /dev/null 2>&1 || curl -sf -H "Host: legisvox.com" http://localhost/health > /dev/null 2>&1; then
         SUCCESS=1
         break
     fi

@@ -157,6 +157,7 @@ def log_ai_call(
     error_message: Optional[str] = None,
     # Custo
     cost_category: str = 'pending',     # 'confirmed', 'estimated', 'none', 'pending'
+    estimated_cost_usd: Optional[float] = None,
     # Timing
     duration_ms: Optional[int] = None,
 ) -> None:
@@ -215,6 +216,14 @@ def log_ai_call(
         record['error_message'] = _sanitize_error_message(error_message)
     if duration_ms is not None:
         record['duration_ms'] = duration_ms
+    if estimated_cost_usd is not None:
+        record['estimated_cost_usd'] = round(float(estimated_cost_usd), 6)
+    elif service == 'openai' and status == 'success' and model and 'gpt-6-luna' in model.lower():
+        if prompt_tokens is not None or completion_tokens is not None:
+            record['estimated_cost_usd'] = round(
+                (prompt_tokens or 0) * 0.00000002 + (completion_tokens or 0) * 0.00000008,
+                6,
+            )
 
     # Fire-and-forget: agenda a persistência sem bloquear o caller
     try:
