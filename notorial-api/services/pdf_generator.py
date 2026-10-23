@@ -744,8 +744,21 @@ def _format_chat_and_lists_for_v2(html_str: str) -> str:
     return msg_pattern.sub(msg_replacer, html_str)
 
 
+# Larger attached images (pilot: admins only). Appended after the base CSS so it wins the cascade.
+# Source JPEGs are 800px wide, so no re-compression is needed to display them bigger.
+_LARGER_IMAGES_CSS = """
+    .ata-imagem-anexada {
+      max-width: 78%;
+      max-height: 340px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+"""
+
+
 def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "",
-                          emission_number: int | None = None, previous_pdf_hash: str | None = None) -> str:
+                          emission_number: int | None = None, previous_pdf_hash: str | None = None,
+                          larger_images: bool = False) -> str:
     """
     V2 PDF template — Opção B "Corporativo Moderno".
     Source Serif 4 + Inter, Navy+Gold palette, no watermark.
@@ -1198,6 +1211,8 @@ def _wrap_html_for_pdf_v2(html_str: str, reviewer_name: str = "", zip_hash: str 
     /* ── Links ──────────────────────────────────────────────── */
     a { color: #1e40af; text-decoration: underline; }
 """
+    if larger_images:
+        css += _LARGER_IMAGES_CSS
 
     return f"""<!doctype html>
 <html lang="pt-BR">
@@ -1390,7 +1405,8 @@ def _protect_and_hash_pdf_sync(pdf_content: bytes, ata_id: str = "") -> tuple[by
 
 
 async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "", use_new_template: bool = True,
-                                 emission_number: int | None = None, previous_pdf_hash: str | None = None) -> tuple[bytes, str] | tuple[None, None]:
+                                 emission_number: int | None = None, previous_pdf_hash: str | None = None,
+                                 larger_images: bool = False) -> tuple[bytes, str] | tuple[None, None]:
     """
     Consome a API do Gotenberg via URL do Env.
     Inclui retry automático com backoff para lidar com instabilidades do Gotenberg.
@@ -1403,11 +1419,12 @@ async def generate_pdf_from_html(html_str: str, reviewer_name: str = "", zip_has
 
     async with sem:
         return await _generate_pdf_from_html_inner(html_str, reviewer_name, zip_hash, ata_id, use_new_template,
-                                                   emission_number, previous_pdf_hash)
+                                                   emission_number, previous_pdf_hash, larger_images)
 
 
 async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", zip_hash: str = "", ata_id: str = "", use_new_template: bool = True,
-                                        emission_number: int | None = None, previous_pdf_hash: str | None = None) -> tuple[bytes, str] | tuple[None, None]:
+                                        emission_number: int | None = None, previous_pdf_hash: str | None = None,
+                                        larger_images: bool = False) -> tuple[bytes, str] | tuple[None, None]:
     """Inner implementation of PDF generation (called within semaphore guard)."""
     url = getattr(settings, 'PDF_CONVERTER_URL', getattr(settings, 'GOTENBERG_URL', "http://localhost:3000/forms/chromium/convert/html"))
 
@@ -1426,7 +1443,8 @@ async def _generate_pdf_from_html_inner(html_str: str, reviewer_name: str = "", 
         html_for_pdf = await loop.run_in_executor(
             None,
             lambda: _wrap_html_for_pdf_v2(sanitized_html, reviewer_name=reviewer_name, zip_hash=zip_hash, ata_id=ata_id,
-                                          emission_number=emission_number, previous_pdf_hash=previous_pdf_hash),
+                                          emission_number=emission_number, previous_pdf_hash=previous_pdf_hash,
+                                          larger_images=larger_images),
         )
         logger.info(f"[PDF] ata {ata_id}: _wrap_html_for_pdf_v2 {time.monotonic() - t_wrap:.1f}s")
         footer_html = _build_footer_html_v2(reviewer_name, zip_hash)

@@ -1157,11 +1157,27 @@ async def _build_pdf(job_id: str, ata_id: str, req_data: PdfGenerateRequest,
         None, lambda: receipts.next_emission(receipts_client, ata_id)
     )
 
+    # ── Pilot: larger attached images in the PDF, admins only (fail-safe: off) ──
+    def _is_admin() -> bool:
+        if not (auth_ctx.client and auth_ctx.advogado_id):
+            return False
+        try:
+            res = auth_ctx.client.table("advogados").select("is_admin").eq("id", auth_ctx.advogado_id).execute()
+            return bool(res.data and res.data[0].get("is_admin"))
+        except Exception as e:
+            logger.warning(f"[{ata_id}] Falha ao verificar is_admin (imagens no tamanho padrão): {e}")
+            return False
+
+    larger_images = await loop_rc.run_in_executor(None, _is_admin)
+    if larger_images:
+        logger.info(f"[PDF-JOB] {job_id} ata={ata_id} piloto imagens maiores ativo (admin)")
+
     # ── Template v2 (Corporativo Moderno) padronizado para todos os usuários ──
     _mark("rendering_pdf")
     try:
         pdf_bytes, pdf_hash = await generate_pdf_from_html(html_for_pdf, reviewer_name=reviewer, zip_hash=zip_hash, ata_id=str(ata_id), use_new_template=True,
-                                                           emission_number=emission_number, previous_pdf_hash=previous_pdf_hash)
+                                                           emission_number=emission_number, previous_pdf_hash=previous_pdf_hash,
+                                                           larger_images=larger_images)
     except PdfGenerationError as e:
         logger.error(f"[PDF] Falha na geração do PDF para ata {ata_id}: {e}")
         raise PdfJobError("Falha ao gerar o PDF. O serviço pode estar temporariamente indisponível. Tente novamente.")
